@@ -7,4 +7,4 @@
 // Placeholder for now: fill this in with the real UUID after the demo user is
 // created in Supabase. Until then isDemoUser() always returns false, so the
 // demo simply behaves like a normal (empty) account.
-export const DEMO_USER_ID = "";
+export const DEMO_USER_ID = "703fbe07-db8a-41bd-bdee-928c2fa88107";
