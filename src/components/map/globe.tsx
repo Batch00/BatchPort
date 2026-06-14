@@ -178,12 +178,15 @@ export function Globe() {
     const brand = readBrandRgb();
     const brandFillCss = rgbCss(brand);
     const brandBorderCss = rgbCss(lighten(brand, 0.45), 0.9);
-    // MapLibre expression literals do not infer to the spec tuple types, so we
-    // assert the shape. This filter keeps only visited countries.
+    // Keep only visited countries. A match expression compares ISO_A2_EH
+    // against the visited codes from the mock data. MapLibre expression literals
+    // do not infer to the spec tuple types, so we assert the shape.
     const visitedFilter = [
-      "in",
+      "match",
       ["get", "ISO_A2_EH"],
-      ["literal", visitedCountryCodes],
+      visitedCountryCodes,
+      true,
+      false,
     ] as unknown as FilterSpecification;
 
     async function init() {
@@ -223,17 +226,11 @@ export function Globe() {
       });
       map = m;
       mapRef.current = m;
-      // The style starts in globe; set it explicitly so a fetched/PMTiles
-      // style without a projection still opens as a globe.
-      m.setProjection({ type: "globe" });
 
       m.addControl(
         new ml.AttributionControl({ compact: true }),
         "bottom-left",
       );
-
-      overlay = new MapboxOverlay({ interleaved: true, layers: [] });
-      m.addControl(overlay);
 
       function colorWithAlpha(
         rgb: [number, number, number],
@@ -338,8 +335,9 @@ export function Globe() {
 
       function onMouseMove(event: MapMouseEvent) {
         if (!map) return;
+        // Query the always-present base fill so hover works for every country.
         const features = map.queryRenderedFeatures(event.point, {
-          layers: ["country-fill", "country-visited"],
+          layers: ["country-fill"],
         });
         const feature = features[0];
         if (!feature || feature.id === undefined) {
@@ -371,9 +369,11 @@ export function Globe() {
       }
 
       function frame(now: number) {
-        if (!map || !overlay) return;
+        if (!map) return;
 
-        if (arcStart > 0 && !arcsSettled) {
+        // Arc draw-in only runs while the deck overlay is present. Rotation is
+        // independent so it works even if the overlay failed to attach.
+        if (overlay && arcStart > 0 && !arcsSettled) {
           const progress = Math.min((now - arcStart) / ARC_DRAW_MS, 1);
           overlay.setProps({ layers: buildLayers(progress) });
           if (progress >= 1) arcsSettled = true;
@@ -389,8 +389,30 @@ export function Globe() {
         raf = requestAnimationFrame(frame);
       }
 
+      // Add the deck.gl overlay (pins and arcs) only after the style has
+      // loaded. Adding an interleaved overlay before load throws "Style is not
+      // done loading". It is isolated so a deck failure cannot block the
+      // country fills or the hover tooltip.
+      function setupDeck() {
+        try {
+          const deck = new MapboxOverlay({ interleaved: true, layers: [] });
+          m.addControl(deck);
+          overlay = deck;
+          arcStart = performance.now();
+          deck.setProps({ layers: buildLayers(0) });
+        } catch (error) {
+          overlay = null;
+          console.warn("BatchPort globe: deck.gl overlay disabled", error);
+        }
+      }
+
       m.on("load", () => {
         if (cancelled || !map) return;
+
+        // Ensure globe projection now that the style is loaded. The static
+        // style already requests globe; this also covers a fetched/PMTiles
+        // style and must run after load (setProjection throws before then).
+        map.setProjection({ type: "globe" });
 
         // Visited country fill (brand blue), inserted under the outline so the
         // borders stay crisp.
@@ -425,12 +447,11 @@ export function Globe() {
           },
         });
 
-        // Hover interactions only after the country layers exist.
+        // Hover interactions on the always-present base fill layer.
         map.on("mousemove", onMouseMove);
         map.on("mouseout", onMouseOut);
 
-        arcStart = performance.now();
-        overlay?.setProps({ layers: buildLayers(0) });
+        setupDeck();
         raf = requestAnimationFrame(frame);
       });
 
