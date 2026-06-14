@@ -30,8 +30,8 @@
         "fill-color": [
           "case",
           ["boolean", ["feature-state", "hover"], false],
-          "#1c1c1c",
-          "#111111"
+          "#242424",
+          "#1a1a1a"
         ],
         "fill-opacity": 1
       }
@@ -41,7 +41,7 @@
       "type": "line",
       "source": "countries",
       "paint": {
-        "line-color": "#1a1a1a",
+        "line-color": "#333333",
         "line-width": 0.6
       }
     }

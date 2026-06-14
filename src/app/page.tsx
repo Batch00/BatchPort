@@ -1,8 +1,5 @@
-import Link from "next/link";
-
 import { Globe } from "@/components/map/globe";
-import { buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { LandingActions } from "@/components/auth/landing-actions";
 
 export default function Home() {
   return (
@@ -23,26 +20,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="pointer-events-auto flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/login"
-              className={cn(
-                buttonVariants({ size: "lg" }),
-                "bg-brand text-brand-foreground hover:bg-brand/90",
-              )}
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/demo"
-              className={cn(
-                buttonVariants({ variant: "outline", size: "lg" }),
-                "border-white/15 bg-white/5 backdrop-blur-sm hover:bg-white/10",
-              )}
-            >
-              Try a Demo
-            </Link>
-          </div>
+          <LandingActions />
         </div>
       </div>
     </section>
