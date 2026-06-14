@@ -21,6 +21,8 @@ const PUBLIC_ROUTES = [
 ];
 
 function isPublicRoute(pathname: string): boolean {
+  // Geocoding endpoints are public so they can serve the landing-page typeahead.
+  if (pathname.startsWith("/api/geocode/")) return true;
   return PUBLIC_ROUTES.includes(pathname);
 }
 

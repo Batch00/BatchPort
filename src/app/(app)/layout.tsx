@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/utils/supabase/server";
@@ -27,9 +28,20 @@ export default async function AppLayout({
   return (
     <div className="flex min-h-dvh flex-col bg-[#0a0a0a]">
       <header className="flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-6">
-        <span className="text-sm font-semibold tracking-tight">
-          Batch<span className="text-brand">Port</span>
-        </span>
+        <nav className="flex items-center gap-5">
+          <Link
+            href="/dashboard"
+            className="text-sm font-semibold tracking-tight"
+          >
+            Batch<span className="text-brand">Port</span>
+          </Link>
+          <Link
+            href="/dashboard"
+            className="text-sm text-foreground/60 transition-colors hover:text-foreground"
+          >
+            Dashboard
+          </Link>
+        </nav>
         <div className="flex items-center gap-3">
           <span className="hidden text-sm text-foreground/60 sm:inline">
             {user.email}

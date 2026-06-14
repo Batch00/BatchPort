@@ -1,0 +1,167 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Loader2Icon, MapPinIcon } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { LocationSearch } from "@/components/location-search";
+import {
+  createDestinationAction,
+  updateDestinationAction,
+} from "@/lib/actions/destinations";
+import { flagEmoji } from "@/lib/format";
+import type { DestinationInput } from "@/lib/destinations";
+import type { GeoLocation } from "@/lib/types";
+
+interface DestinationFormProps {
+  mode: "create" | "edit";
+  tripId: string;
+  destinationId?: string;
+  defaultLocation?: GeoLocation | null;
+  defaultLocationQuery?: string;
+  defaultArrival?: string;
+  defaultDeparture?: string;
+  defaultNotes?: string;
+}
+
+export function DestinationForm({
+  mode,
+  tripId,
+  destinationId,
+  defaultLocation = null,
+  defaultLocationQuery = "",
+  defaultArrival = "",
+  defaultDeparture = "",
+  defaultNotes = "",
+}: DestinationFormProps) {
+  const router = useRouter();
+  const [location, setLocation] = useState<GeoLocation | null>(defaultLocation);
+  const [arrival, setArrival] = useState(defaultArrival);
+  const [departure, setDeparture] = useState(defaultDeparture);
+  const [notes, setNotes] = useState(defaultNotes);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!location) {
+      toast.error("Search for and select a location.");
+      return;
+    }
+    setSubmitting(true);
+    const input: DestinationInput = {
+      name: location.name,
+      country_code: location.country_code,
+      admin_region: location.admin_region,
+      lat: location.lat,
+      lng: location.lng,
+      arrival_date: arrival || null,
+      departure_date: departure || null,
+      notes: notes.trim() || null,
+    };
+    const result =
+      mode === "create"
+        ? await createDestinationAction(tripId, input)
+        : await updateDestinationAction(tripId, destinationId as string, input);
+
+    if (result && "error" in result) {
+      toast.error(result.error);
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      <div className="grid gap-2">
+        <Label htmlFor="location">Location</Label>
+        <LocationSearch
+          id="location"
+          defaultQuery={defaultLocationQuery}
+          onChange={setLocation}
+        />
+        {location ? (
+          <p className="flex items-center gap-1.5 text-sm text-foreground/70">
+            <MapPinIcon className="size-3.5 text-brand" />
+            <span className="font-medium text-foreground">{location.name}</span>
+            {location.country_code ? (
+              <span className="text-foreground/50">
+                {flagEmoji(location.country_code)}{" "}
+                {[location.admin_region, location.country]
+                  .filter(Boolean)
+                  .join(", ") || location.country_code}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-2">
+          <Label htmlFor="arrival">Arrival date</Label>
+          <Input
+            id="arrival"
+            type="date"
+            value={arrival}
+            onChange={(e) => setArrival(e.target.value)}
+            disabled={submitting}
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="departure">Departure date</Label>
+          <Input
+            id="departure"
+            type="date"
+            value={departure}
+            onChange={(e) => setDeparture(e.target.value)}
+            disabled={submitting}
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="dest-notes">Notes</Label>
+        <Textarea
+          id="dest-notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Where you stayed, how you got around, anything notable"
+          disabled={submitting}
+        />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button
+          type="submit"
+          disabled={submitting}
+          className="bg-brand text-brand-foreground hover:bg-brand/90"
+        >
+          {submitting ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : mode === "create" ? (
+            "Add destination"
+          ) : (
+            "Save changes"
+          )}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={submitting}
+          onClick={() =>
+            router.push(
+              mode === "edit" && destinationId
+                ? `/trips/${tripId}/destinations/${destinationId}`
+                : `/trips/${tripId}`,
+            )
+          }
+        >
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}

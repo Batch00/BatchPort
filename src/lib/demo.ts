@@ -1,10 +1,8 @@
-import { toast } from "sonner";
-
 import { DEMO_USER_ID } from "./constants";
 
 // Message shown wherever a demo user hits a write. Kept consistent with the
 // invite-only copy on the landing page.
-const DEMO_READONLY_MESSAGE =
+export const DEMO_READONLY_MESSAGE =
   "Demo accounts are read-only. Request access at batch-apps.com";
 
 // True when the given user id is the shared demo account. Returns false while
@@ -29,6 +27,7 @@ export function demoGuardResponse(): Response {
 
 // Client helper: inspect a fetch Response. If it is the demo 403, show a toast
 // and return true so the caller can stop. Returns false for any other response.
+// sonner is imported lazily so this module stays safe to import from server code.
 export async function handleDemoResponse(response: Response): Promise<boolean> {
   if (response.status !== 403) return false;
   let message = DEMO_READONLY_MESSAGE;
@@ -38,6 +37,7 @@ export async function handleDemoResponse(response: Response): Promise<boolean> {
   } catch {
     // Non-JSON 403: fall back to the default read-only message.
   }
+  const { toast } = await import("sonner");
   toast.error(message);
   return true;
 }
