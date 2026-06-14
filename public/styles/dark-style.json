@@ -1,0 +1,49 @@
+{
+  "version": 8,
+  "name": "BatchPort Dark",
+  "projection": {
+    "type": "globe"
+  },
+  "metadata": {
+    "batchport:note": "Dark fallback style. No external tile service or API key. The Natural Earth countries GeoJSON is the only source. Visited country fills are added at runtime by the globe component."
+  },
+  "sources": {
+    "countries": {
+      "type": "geojson",
+      "data": "/data/countries.geojson",
+      "generateId": true
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#0a0a0a"
+      }
+    },
+    {
+      "id": "country-fill",
+      "type": "fill",
+      "source": "countries",
+      "paint": {
+        "fill-color": [
+          "case",
+          ["boolean", ["feature-state", "hover"], false],
+          "#1c1c1c",
+          "#111111"
+        ],
+        "fill-opacity": 1
+      }
+    },
+    {
+      "id": "country-outline",
+      "type": "line",
+      "source": "countries",
+      "paint": {
+        "line-color": "#1a1a1a",
+        "line-width": 0.6
+      }
+    }
+  ]
+}
