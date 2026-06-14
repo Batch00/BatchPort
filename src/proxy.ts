@@ -91,7 +91,9 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     // Run on every path except Next.js internals, the service worker and
-    // manifest, and static image assets.
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // manifest, and static assets. The map's basemap and data live under
+    // /styles and /data; they must be excluded too, otherwise route protection
+    // redirects those fetches to / and the globe fails to load its style.
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icons/|styles/|data/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
