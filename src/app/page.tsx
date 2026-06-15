@@ -1,10 +1,17 @@
 import { Globe } from "@/components/map/globe";
 import { LandingActions } from "@/components/auth/landing-actions";
+import { buildMockGlobeProps } from "@/lib/mock-travel-data";
 
 export default function Home() {
+  const mock = buildMockGlobeProps();
+
   return (
     <section className="relative h-dvh w-full overflow-hidden">
-      <Globe />
+      <Globe
+        visitedCountryCodes={mock.visitedCountryCodes}
+        destinations={mock.destinations}
+        arcs={mock.arcs}
+      />
 
       {/* Dark gradient backdrop so the hero copy stays readable over the map. */}
       <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-br from-black/85 via-black/45 to-transparent" />

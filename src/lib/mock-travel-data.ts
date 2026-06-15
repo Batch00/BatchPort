@@ -1,6 +1,9 @@
-// Mock travel data for development. The shapes mirror the planned Postgres
-// schema (snake_case columns) so swapping in real Supabase queries later is a
-// drop-in change. Two Europe trips populate the hero globe.
+// Mock travel data for the landing page hero. Unauthenticated visitors have no
+// data of their own, so two Europe trips populate the globe. The shapes mirror
+// the Postgres schema (snake_case columns); buildMockGlobeProps adapts them to
+// the data-agnostic Globe component's prop shape.
+
+import type { GlobeArc, GlobeDestination } from "@/components/map/globe";
 
 export interface Category {
   id: string;
@@ -212,4 +215,53 @@ export function getDestinationPrimaryCategory(destinationId: string): Category {
     .sort((a, b) => b.rating - a.rating);
   const categoryId = related[0]?.category_id ?? "cat-attraction";
   return categoriesById[categoryId] ?? categories[0];
+}
+
+/**
+ * Adapt the mock data into the Globe component's props. Kept here so the
+ * landing page stays a thin server component and the Globe stays data-agnostic.
+ */
+export function buildMockGlobeProps(): {
+  visitedCountryCodes: string[];
+  destinations: GlobeDestination[];
+  arcs: GlobeArc[];
+} {
+  const globeDestinations: GlobeDestination[] = destinations.map(
+    (destination) => ({
+      id: destination.id,
+      tripId: destination.trip_id,
+      tripName: tripsById[destination.trip_id]?.name ?? "Trip",
+      name: destination.name,
+      countryCode: destination.country_code,
+      lat: destination.latitude,
+      lng: destination.longitude,
+      arrivalDate: null,
+      departureDate: null,
+      categoryColor: getDestinationPrimaryCategory(destination.id).color,
+    }),
+  );
+
+  const byTrip = new Map<string, Destination[]>();
+  for (const destination of destinations) {
+    const list = byTrip.get(destination.trip_id) ?? [];
+    list.push(destination);
+    byTrip.set(destination.trip_id, list);
+  }
+  const arcs: GlobeArc[] = [];
+  for (const list of byTrip.values()) {
+    const ordered = [...list].sort((a, b) => a.order_index - b.order_index);
+    for (let i = 0; i < ordered.length - 1; i += 1) {
+      const source = ordered[i];
+      const target = ordered[i + 1];
+      arcs.push({
+        sourcePosition: [source.longitude, source.latitude],
+        targetPosition: [target.longitude, target.latitude],
+        tripName: tripsById[source.trip_id]?.name ?? "Trip",
+        sourceCity: source.name,
+        targetCity: target.name,
+      });
+    }
+  }
+
+  return { visitedCountryCodes, destinations: globeDestinations, arcs };
 }

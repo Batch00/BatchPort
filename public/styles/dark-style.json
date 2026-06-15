@@ -19,7 +19,7 @@
       "id": "background",
       "type": "background",
       "paint": {
-        "background-color": "#0a0a0a"
+        "background-color": "#0d0d0d"
       }
     },
     {
@@ -30,8 +30,8 @@
         "fill-color": [
           "case",
           ["boolean", ["feature-state", "hover"], false],
-          "#242424",
-          "#1a1a1a"
+          "#1f1f1f",
+          "#181818"
         ],
         "fill-opacity": 1
       }
@@ -41,7 +41,7 @@
       "type": "line",
       "source": "countries",
       "paint": {
-        "line-color": "#333333",
+        "line-color": "#2a2a2a",
         "line-width": 0.6
       }
     }
