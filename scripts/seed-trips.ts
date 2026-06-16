@@ -308,7 +308,7 @@ const TRIPS: SeedTrip[] = [
   {
     name: "Pre Job Trip",
     start: "2025-09-27",
-    end: "2025-10-06",
+    end: "2025-10-07",
     status: "completed",
     destinations: [
       {
