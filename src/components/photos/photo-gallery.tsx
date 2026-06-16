@@ -1,0 +1,252 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  MoreVerticalIcon,
+  StarIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { deletePhotoRecord, setCoverPhoto } from "@/lib/actions/photos";
+import { getPhotoUrl, pickCover } from "@/lib/photos";
+import type { Photo, PhotoOwnerType } from "@/lib/types";
+
+interface PhotoGalleryProps {
+  photos: Photo[];
+  coverPhotoId?: string | null;
+  // When editable, each photo gets a hover menu to set it as cover or delete.
+  editable?: boolean;
+  ownerType?: PhotoOwnerType;
+  ownerId?: string;
+  onChanged?: () => void;
+}
+
+export function PhotoGallery({
+  photos,
+  coverPhotoId = null,
+  editable = false,
+  ownerType,
+  ownerId,
+  onChanged,
+}: PhotoGalleryProps) {
+  // Lead with the cover, then the rest in their stored order.
+  const cover = pickCover(photos, coverPhotoId);
+  const ordered = cover
+    ? [cover, ...photos.filter((photo) => photo.id !== cover.id)]
+    : photos;
+
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  const close = useCallback(() => setLightboxIndex(null), []);
+  const step = useCallback(
+    (delta: number) =>
+      setLightboxIndex((current) => {
+        if (current === null) return current;
+        const next = (current + delta + ordered.length) % ordered.length;
+        return next;
+      }),
+    [ordered.length],
+  );
+
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") close();
+      if (event.key === "ArrowRight") step(1);
+      if (event.key === "ArrowLeft") step(-1);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxIndex, close, step]);
+
+  if (ordered.length === 0) return null;
+
+  const [hero, ...rest] = ordered;
+
+  async function handleSetCover(photo: Photo) {
+    if (!ownerType || !ownerId) return;
+    const result = await setCoverPhoto(ownerType, ownerId, photo.id);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("Cover photo updated.");
+    onChanged?.();
+  }
+
+  async function handleDelete(photo: Photo) {
+    const result = await deletePhotoRecord(photo.id);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success("Photo deleted.");
+    onChanged?.();
+  }
+
+  function tileMenu(photo: Photo) {
+    if (!editable) return null;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label="Photo options"
+            onClick={(event) => event.stopPropagation()}
+            className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md bg-black/50 text-white opacity-0 backdrop-blur transition-opacity group-hover/tile:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+          >
+            <MoreVerticalIcon className="size-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenuItem
+            onSelect={() => handleSetCover(photo)}
+            disabled={photo.id === cover?.id}
+          >
+            <StarIcon />
+            Set as cover
+          </DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onSelect={() => handleDelete(photo)}>
+            <Trash2Icon />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex flex-col gap-3">
+        <div
+          className="group/tile relative aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-xl ring-1 ring-foreground/10"
+          onClick={() => setLightboxIndex(0)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={getPhotoUrl(hero)}
+            alt=""
+            className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.02]"
+          />
+          {tileMenu(hero)}
+        </div>
+
+        {rest.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {rest.map((photo, i) => (
+              <div
+                key={photo.id}
+                className="group/tile relative aspect-square cursor-pointer overflow-hidden rounded-lg ring-1 ring-foreground/10"
+                onClick={() => setLightboxIndex(i + 1)}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={getPhotoUrl(photo)}
+                  alt=""
+                  className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.04]"
+                />
+                <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover/tile:bg-black/15" />
+                {tileMenu(photo)}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {lightboxIndex !== null ? (
+        <Lightbox
+          photo={ordered[lightboxIndex]}
+          hasMultiple={ordered.length > 1}
+          onPrev={() => step(-1)}
+          onNext={() => step(1)}
+          onClose={close}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function Lightbox({
+  photo,
+  hasMultiple,
+  onPrev,
+  onNext,
+  onClose,
+}: {
+  photo: Photo;
+  hasMultiple: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 sm:p-8"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+      >
+        <XIcon className="size-5" />
+      </button>
+
+      {hasMultiple ? (
+        <button
+          type="button"
+          aria-label="Previous photo"
+          onClick={(event) => {
+            event.stopPropagation();
+            onPrev();
+          }}
+          className="absolute left-4 flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+        >
+          <ChevronLeftIcon className="size-6" />
+        </button>
+      ) : null}
+
+      <figure
+        className="flex max-h-full max-w-5xl flex-col items-center gap-3"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={getPhotoUrl(photo)}
+          alt=""
+          className="max-h-[80vh] w-auto rounded-lg object-contain"
+        />
+        {photo.attribution ? (
+          <figcaption className="text-center text-xs text-white/60">
+            {photo.attribution}
+          </figcaption>
+        ) : null}
+      </figure>
+
+      {hasMultiple ? (
+        <button
+          type="button"
+          aria-label="Next photo"
+          onClick={(event) => {
+            event.stopPropagation();
+            onNext();
+          }}
+          className="absolute right-4 flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+        >
+          <ChevronRightIcon className="size-6" />
+        </button>
+      ) : null}
+    </div>
+  );
+}

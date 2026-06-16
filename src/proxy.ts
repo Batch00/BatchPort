@@ -23,6 +23,9 @@ const PUBLIC_ROUTES = [
 function isPublicRoute(pathname: string): boolean {
   // Geocoding endpoints are public so they can serve the landing-page typeahead.
   if (pathname.startsWith("/api/geocode/")) return true;
+  // Photo endpoints (Wikimedia lookup and image proxy) are public so the
+  // suggestion flow and proxied images load without a session.
+  if (pathname.startsWith("/api/photos")) return true;
   return PUBLIC_ROUTES.includes(pathname);
 }
 

@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
 
 import { getDestination } from "@/lib/destinations";
+import { getPhotos } from "@/lib/photos-data";
+import { requireUser } from "@/lib/current-user";
+import { isDemoUser } from "@/lib/demo";
 import { DestinationForm } from "@/components/destinations/destination-form";
 import type { GeoLocation } from "@/lib/types";
 
@@ -12,10 +15,15 @@ export default async function EditDestinationPage({
   params: Promise<{ id: string; destId: string }>;
 }) {
   const { id, destId } = await params;
-  const destination = await getDestination(destId);
+  const [{ user }, destination] = await Promise.all([
+    requireUser(),
+    getDestination(destId),
+  ]);
   if (!destination || destination.trip_id !== id) {
     notFound();
   }
+
+  const coverPhotos = await getPhotos("destination", destId);
 
   const location: GeoLocation = {
     name: destination.name,
@@ -42,11 +50,15 @@ export default async function EditDestinationPage({
         mode="edit"
         tripId={id}
         destinationId={destId}
+        userId={user.id}
+        isDemo={isDemoUser(user.id)}
         defaultLocation={location}
         defaultLocationQuery={destination.name}
         defaultArrival={destination.arrival_date ?? ""}
         defaultDeparture={destination.departure_date ?? ""}
         defaultNotes={destination.notes ?? ""}
+        coverPhotos={coverPhotos}
+        coverPhotoId={destination.cover_photo_id}
       />
     </div>
   );

@@ -4,9 +4,14 @@ import { ArrowLeftIcon, PencilIcon } from "lucide-react";
 
 import { getDestination } from "@/lib/destinations";
 import { getCategories } from "@/lib/experiences";
+import { getPhotos, pickCover } from "@/lib/photos-data";
+import { requireUser } from "@/lib/current-user";
+import { isDemoUser } from "@/lib/demo";
 import { buttonVariants } from "@/components/ui/button";
 import { DeleteDestinationButton } from "@/components/destinations/delete-destination-button";
 import { ExperiencesSection } from "@/components/experiences/experiences-section";
+import { DestinationPhotos } from "@/components/photos/destination-photos";
+import { PhotoBanner } from "@/components/photos/photo-banner";
 import { flagEmoji, formatDateRange } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +21,8 @@ export default async function DestinationDetailPage({
   params: Promise<{ id: string; destId: string }>;
 }) {
   const { id, destId } = await params;
-  const [destination, categories] = await Promise.all([
+  const [{ user }, destination, categories] = await Promise.all([
+    requireUser(),
     getDestination(destId),
     getCategories(),
   ]);
@@ -24,6 +30,10 @@ export default async function DestinationDetailPage({
   if (!destination || destination.trip_id !== id) {
     notFound();
   }
+
+  const photos = await getPhotos("destination", destId);
+  const cover = pickCover(photos, destination.cover_photo_id);
+  const isDemo = isDemoUser(user.id);
 
   return (
     <div className="mx-auto w-full max-w-3xl p-6 sm:p-8">
@@ -35,32 +45,14 @@ export default async function DestinationDetailPage({
         Back to trip
       </Link>
 
-      <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex flex-col gap-1.5">
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-            {destination.name}
-            {destination.country_code ? (
-              <span className="text-base font-normal text-foreground/50">
-                {flagEmoji(destination.country_code)} {destination.country_code}
-              </span>
-            ) : null}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {formatDateRange(
-              destination.arrival_date,
-              destination.departure_date,
-            )}
-          </p>
-          {destination.notes ? (
-            <p className="max-w-prose text-sm text-foreground/70">
-              {destination.notes}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
+      <PhotoBanner photo={cover} className="mb-8 min-h-52 sm:min-h-64">
+        <div className="absolute right-4 top-4 flex items-center gap-2">
           <Link
             href={`/trips/${id}/destinations/${destId}/edit`}
-            className={cn(buttonVariants({ variant: "outline", size: "lg" }))}
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "border-white/20 bg-black/40 text-white backdrop-blur hover:bg-black/60 hover:text-white",
+            )}
           >
             <PencilIcon />
             Edit
@@ -71,13 +63,39 @@ export default async function DestinationDetailPage({
             destinationName={destination.name}
           />
         </div>
-      </header>
+
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-white">
+          {destination.name}
+          {destination.country_code ? (
+            <span className="text-base font-normal text-white/70">
+              {flagEmoji(destination.country_code)} {destination.country_code}
+            </span>
+          ) : null}
+        </h1>
+        <p className="mt-1 text-sm text-white/70">
+          {formatDateRange(destination.arrival_date, destination.departure_date)}
+        </p>
+      </PhotoBanner>
+
+      {destination.notes ? (
+        <p className="mb-8 max-w-prose text-sm text-foreground/70">
+          {destination.notes}
+        </p>
+      ) : null}
 
       <ExperiencesSection
         tripId={id}
         destinationId={destId}
         experiences={destination.experiences}
         categories={categories}
+      />
+
+      <DestinationPhotos
+        destinationId={destId}
+        userId={user.id}
+        isDemo={isDemo}
+        photos={photos}
+        coverPhotoId={destination.cover_photo_id}
       />
     </div>
   );

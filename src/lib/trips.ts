@@ -56,10 +56,14 @@ export async function getTrips(): Promise<TripSummary[]> {
     const countries = new Set(
       list.map((d) => d.country_code).filter((c): c is string => Boolean(c)),
     );
+    const primaryCountry =
+      list.map((d) => d.country_code).find((c): c is string => Boolean(c)) ??
+      null;
     return {
       ...trip,
       destination_count: list.length,
       country_count: countries.size,
+      primary_country_code: primaryCountry,
     };
   });
 }

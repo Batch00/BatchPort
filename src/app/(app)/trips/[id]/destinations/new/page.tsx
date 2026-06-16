@@ -2,6 +2,8 @@ import Link from "next/link";
 import { ArrowLeftIcon } from "lucide-react";
 
 import { DestinationForm } from "@/components/destinations/destination-form";
+import { requireUser } from "@/lib/current-user";
+import { isDemoUser } from "@/lib/demo";
 
 export default async function NewDestinationPage({
   params,
@@ -9,6 +11,7 @@ export default async function NewDestinationPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const { user } = await requireUser();
 
   return (
     <div className="mx-auto w-full max-w-xl p-6 sm:p-8">
@@ -22,7 +25,12 @@ export default async function NewDestinationPage({
       <h1 className="mb-6 text-2xl font-semibold tracking-tight">
         Add destination
       </h1>
-      <DestinationForm mode="create" tripId={id} />
+      <DestinationForm
+        mode="create"
+        tripId={id}
+        userId={user.id}
+        isDemo={isDemoUser(user.id)}
+      />
     </div>
   );
 }

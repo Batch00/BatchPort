@@ -20,6 +20,9 @@ export interface Trip {
 export interface TripSummary extends Trip {
   destination_count: number;
   country_count: number;
+  // First destination's country code, used for the card placeholder when the
+  // trip has no cover photo.
+  primary_country_code: string | null;
 }
 
 export interface Destination {
@@ -62,6 +65,25 @@ export interface Category {
   icon: string | null;
   color: string | null;
   sort_order: number;
+}
+
+// Photos attach to either a trip or a destination. A photo is one of three
+// sources: a user upload in Supabase Storage, an auto-fetched Wikimedia Commons
+// image referenced by external_url, or an arbitrary external url.
+export type PhotoOwnerType = "trip" | "destination";
+export type PhotoSource = "upload" | "wikimedia" | "url";
+
+export interface Photo {
+  id: string;
+  user_id: string;
+  owner_type: PhotoOwnerType;
+  owner_id: string;
+  source: PhotoSource;
+  storage_path: string | null;
+  external_url: string | null;
+  attribution: string | null;
+  order_index: number;
+  created_at: string;
 }
 
 export interface DestinationWithExperiences extends Destination {

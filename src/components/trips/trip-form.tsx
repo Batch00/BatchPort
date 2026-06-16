@@ -16,9 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CoverPhotoPicker } from "@/components/photos/cover-photo-picker";
 import { createTripAction, updateTripAction } from "@/lib/actions/trips";
 import type { TripInput } from "@/lib/trips";
-import type { TripStatus } from "@/lib/types";
+import type { Photo, TripStatus } from "@/lib/types";
 
 export interface TripFormValues {
   name: string;
@@ -31,7 +32,11 @@ export interface TripFormValues {
 interface TripFormProps {
   mode: "create" | "edit";
   tripId?: string;
+  userId: string;
+  isDemo: boolean;
   defaultValues?: TripFormValues;
+  coverPhotos?: Photo[];
+  coverPhotoId?: string | null;
 }
 
 const EMPTY: TripFormValues = {
@@ -52,7 +57,15 @@ function toInput(values: TripFormValues): TripInput {
   };
 }
 
-export function TripForm({ mode, tripId, defaultValues }: TripFormProps) {
+export function TripForm({
+  mode,
+  tripId,
+  userId,
+  isDemo,
+  defaultValues,
+  coverPhotos = [],
+  coverPhotoId = null,
+}: TripFormProps) {
   const router = useRouter();
   const [values, setValues] = useState<TripFormValues>(defaultValues ?? EMPTY);
   const [submitting, setSubmitting] = useState(false);
@@ -145,6 +158,18 @@ export function TripForm({ mode, tripId, defaultValues }: TripFormProps) {
           onChange={(e) => set("notes", e.target.value)}
           placeholder="Anything worth remembering about this trip"
           disabled={submitting}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label>Cover photo</Label>
+        <CoverPhotoPicker
+          ownerType="trip"
+          ownerId={mode === "edit" ? tripId : undefined}
+          userId={userId}
+          isDemo={isDemo}
+          photos={coverPhotos}
+          coverPhotoId={coverPhotoId}
         />
       </div>
 

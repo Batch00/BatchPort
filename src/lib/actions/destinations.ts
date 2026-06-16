@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { isDemoBlocked } from "@/lib/demo-guard";
+import { autoPopulateDestinationCover } from "@/lib/photos-data";
 import {
   createDestination,
   updateDestination,
@@ -19,7 +20,13 @@ export async function createDestinationAction(
   input: DestinationInput,
 ): Promise<{ error: string } | void> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
-  await createDestination(tripId, input);
+  const destination = await createDestination(tripId, input);
+  // Auto-fetch a Wikimedia cover for the new stop. Best-effort and silent: it
+  // never blocks creation, and the photo simply appears as the cover.
+  await autoPopulateDestinationCover({
+    id: destination.id,
+    name: destination.name,
+  });
   revalidatePath(`/trips/${tripId}`);
   redirect(`/trips/${tripId}`);
 }

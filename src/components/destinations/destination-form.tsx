@@ -10,34 +10,43 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { LocationSearch } from "@/components/location-search";
+import { CoverPhotoPicker } from "@/components/photos/cover-photo-picker";
 import {
   createDestinationAction,
   updateDestinationAction,
 } from "@/lib/actions/destinations";
 import { flagEmoji } from "@/lib/format";
 import type { DestinationInput } from "@/lib/destinations";
-import type { GeoLocation } from "@/lib/types";
+import type { GeoLocation, Photo } from "@/lib/types";
 
 interface DestinationFormProps {
   mode: "create" | "edit";
   tripId: string;
   destinationId?: string;
+  userId: string;
+  isDemo: boolean;
   defaultLocation?: GeoLocation | null;
   defaultLocationQuery?: string;
   defaultArrival?: string;
   defaultDeparture?: string;
   defaultNotes?: string;
+  coverPhotos?: Photo[];
+  coverPhotoId?: string | null;
 }
 
 export function DestinationForm({
   mode,
   tripId,
   destinationId,
+  userId,
+  isDemo,
   defaultLocation = null,
   defaultLocationQuery = "",
   defaultArrival = "",
   defaultDeparture = "",
   defaultNotes = "",
+  coverPhotos = [],
+  coverPhotoId = null,
 }: DestinationFormProps) {
   const router = useRouter();
   const [location, setLocation] = useState<GeoLocation | null>(defaultLocation);
@@ -130,6 +139,19 @@ export function DestinationForm({
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Where you stayed, how you got around, anything notable"
           disabled={submitting}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label>Cover photo</Label>
+        <CoverPhotoPicker
+          ownerType="destination"
+          ownerId={mode === "edit" ? destinationId : undefined}
+          userId={userId}
+          isDemo={isDemo}
+          photos={coverPhotos}
+          coverPhotoId={coverPhotoId}
+          suggestQuery={location?.name}
         />
       </div>
 
