@@ -129,11 +129,10 @@ async function geocode(
   }
 }
 
-async function wikimedia(
-  city: string,
-  country: string,
-): Promise<WikimediaResult | null> {
-  const q = encodeURIComponent(`${city},${country}`);
+// Query by city name only. Wikidata entity search does not match
+// comma-separated "city,country" strings, so passing the country breaks it.
+async function wikimedia(city: string): Promise<WikimediaResult | null> {
+  const q = encodeURIComponent(city);
   try {
     const res = await fetch(`${BASE_URL}/api/photos/wikimedia?q=${q}`);
     if (!res.ok) return null;
@@ -489,7 +488,7 @@ async function main() {
       destCount++;
 
       // c. Wikimedia cover photo. Insert the record and point the cover at it.
-      const photo = await wikimedia(dest.city, dest.country);
+      const photo = await wikimedia(dest.city);
       if (photo?.url) {
         const { data: photoRow, error: photoError } = await supabase
           .from("photos")
