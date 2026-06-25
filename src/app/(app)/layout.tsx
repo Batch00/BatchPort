@@ -41,6 +41,12 @@ export default async function AppLayout({
           >
             Dashboard
           </Link>
+          <Link
+            href="/dashboard/stats"
+            className="text-sm text-foreground/60 transition-colors hover:text-foreground"
+          >
+            Stats
+          </Link>
         </nav>
         <div className="flex items-center gap-3">
           <span className="hidden text-sm text-foreground/60 sm:inline">

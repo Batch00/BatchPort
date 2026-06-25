@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { XIcon, MapPinIcon, PlusIcon } from "lucide-react";
+import { XIcon, MapPinIcon, PlusIcon, BarChart3Icon } from "lucide-react";
 
 import {
   Globe,
@@ -98,10 +98,20 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
 
       {/* Stats overlay */}
       {!isEmpty ? (
-        <div className="pointer-events-none absolute left-4 top-4 z-20 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md">
-          {stats.countries} {stats.countries === 1 ? "country" : "countries"},{" "}
-          {stats.trips} {stats.trips === 1 ? "trip" : "trips"}, {stats.destinations}{" "}
-          {stats.destinations === 1 ? "destination" : "destinations"}
+        <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
+          <div className="pointer-events-none rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md">
+            {stats.countries} {stats.countries === 1 ? "country" : "countries"},{" "}
+            {stats.trips} {stats.trips === 1 ? "trip" : "trips"},{" "}
+            {stats.destinations}{" "}
+            {stats.destinations === 1 ? "destination" : "destinations"}
+          </div>
+          <Link
+            href="/dashboard/stats"
+            className="inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand/15 px-3 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur-md transition-colors hover:bg-brand/25"
+          >
+            <BarChart3Icon className="size-3.5 text-brand" />
+            View stats
+          </Link>
         </div>
       ) : null}
 
