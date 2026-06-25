@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { ImageIcon, PlusIcon } from "lucide-react";
+import { ChevronRightIcon, ImageIcon, ListChecksIcon, PlusIcon } from "lucide-react";
 
 import { getTrips } from "@/lib/trips";
 import { getMapData } from "@/lib/map-data";
 import { getPhotosByIds } from "@/lib/photos-data";
+import { getBucketListStats } from "@/lib/bucket-list";
 import { getPhotoUrl } from "@/lib/photos";
 import { Card } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
@@ -18,7 +19,11 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 export default async function DashboardPage() {
-  const [trips, mapData] = await Promise.all([getTrips(), getMapData()]);
+  const [trips, mapData, bucketStats] = await Promise.all([
+    getTrips(),
+    getMapData(),
+    getBucketListStats(),
+  ]);
 
   // Resolve every trip's cover photo in a single query.
   const coverIds = trips
@@ -32,6 +37,35 @@ export default async function DashboardPage() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-8">
       <DashboardGlobe data={mapData} />
+
+      <Link href="/dashboard/bucket-list" className="group">
+        <Card className="flex flex-row items-center justify-between gap-4 p-4 transition-all group-hover:ring-brand/40">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+              <ListChecksIcon className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">Bucket List</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {bucketStats && bucketStats.total > 0
+                  ? `${bucketStats.fulfilled} of ${bucketStats.total} completed (${bucketStats.completion_pct}%)`
+                  : "Start planning where to go next"}
+              </p>
+            </div>
+          </div>
+          {bucketStats && bucketStats.total > 0 ? (
+            <div className="hidden w-40 sm:block">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                <div
+                  className="h-full rounded-full bg-brand transition-all"
+                  style={{ width: `${bucketStats.completion_pct}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
+          <ChevronRightIcon className="size-4 shrink-0 text-foreground/40" />
+        </Card>
+      </Link>
 
       <section>
         <header className="mb-6 flex items-center justify-between gap-4">

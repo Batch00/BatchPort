@@ -47,6 +47,8 @@ export interface MapStats {
 export interface MapData {
   destinations: MapDestination[];
   visitedCountryCodes: string[];
+  /** Countries on the user's unfulfilled bucket list, for the "want to visit" fill. */
+  bucketCountryCodes: string[];
   arcs: MapArc[];
   stats: MapStats;
 }
@@ -81,6 +83,7 @@ function emptyMapData(): MapData {
   return {
     destinations: [],
     visitedCountryCodes: [],
+    bucketCountryCodes: [],
     arcs: [],
     stats: { countries: 0, trips: 0, destinations: 0 },
   };
@@ -130,7 +133,7 @@ export async function getMapData(userId?: string): Promise<MapData> {
   // Two parallel queries: the destination payload (which also yields the
   // visited countries, arcs, and most counts) and an exact trip count so the
   // overlay reflects every trip, including any without mapped destinations.
-  const [destResult, tripCountResult] = await Promise.all([
+  const [destResult, tripCountResult, bucketResult] = await Promise.all([
     supabase
       .from("destinations")
       .select(DESTINATION_SELECT)
@@ -140,10 +143,17 @@ export async function getMapData(userId?: string): Promise<MapData> {
       .from("trips")
       .select("id", { count: "exact", head: true })
       .eq("user_id", resolvedUserId),
+    supabase
+      .from("bucket_list")
+      .select("country_code")
+      .eq("user_id", resolvedUserId)
+      .eq("type", "country")
+      .is("fulfilled_at", null),
   ]);
 
   if (destResult.error) throw destResult.error;
   if (tripCountResult.error) throw tripCountResult.error;
+  if (bucketResult.error) throw bucketResult.error;
 
   const rows = (destResult.data ?? []) as unknown as DestinationRow[];
 
@@ -197,11 +207,21 @@ export async function getMapData(userId?: string): Promise<MapData> {
     }
   }
 
+  // Bucket countries not already visited get the "want to visit" fill.
+  const visitedSet = new Set(visitedCountryCodes);
+  const bucketCountryCodes = Array.from(
+    new Set(
+      ((bucketResult.data ?? []) as { country_code: string | null }[])
+        .map((row) => row.country_code)
+        .filter((code): code is string => code !== null && !visitedSet.has(code)),
+    ),
+  );
+
   const stats: MapStats = {
     countries: visitedCountryCodes.length,
     trips: tripCountResult.count ?? 0,
     destinations: rows.length,
   };
 
-  return { destinations, visitedCountryCodes, arcs, stats };
+  return { destinations, visitedCountryCodes, bucketCountryCodes, arcs, stats };
 }

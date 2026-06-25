@@ -42,6 +42,12 @@ export default async function AppLayout({
             Dashboard
           </Link>
           <Link
+            href="/dashboard/bucket-list"
+            className="text-sm text-foreground/60 transition-colors hover:text-foreground"
+          >
+            Bucket List
+          </Link>
+          <Link
             href="/dashboard/stats"
             className="text-sm text-foreground/60 transition-colors hover:text-foreground"
           >

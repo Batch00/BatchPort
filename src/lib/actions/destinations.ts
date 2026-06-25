@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { isDemoBlocked } from "@/lib/demo-guard";
 import { autoPopulateDestinationCover } from "@/lib/photos-data";
+import { autoFulfillBucketItems } from "@/lib/bucket-list";
 import {
   createDestination,
   updateDestination,
@@ -27,6 +28,13 @@ export async function createDestinationAction(
     id: destination.id,
     name: destination.name,
   });
+  // Auto-fulfill any country bucket item this stop completes. Silent and
+  // best-effort: a failure here never blocks destination creation.
+  try {
+    await autoFulfillBucketItems(destination.user_id);
+  } catch (error) {
+    console.warn("Bucket auto-fulfill skipped:", error);
+  }
   revalidatePath(`/trips/${tripId}`);
   redirect(`/trips/${tripId}`);
 }

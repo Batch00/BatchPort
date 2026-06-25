@@ -360,6 +360,122 @@ const TRIPS: SeedTrip[] = [
   },
 ];
 
+// Build the service-role client. Wrapped in a factory so its inferred type
+// (scoped to the batchport schema) can be reused for helper parameters.
+function makeSupabase(url: string, serviceKey: string) {
+  return createClient(url, serviceKey, {
+    db: { schema: "batchport" },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+type SeedClient = ReturnType<typeof makeSupabase>;
+
+// --- Bucket list seed data -------------------------------------------------
+
+// batchport.countries is a curated reference table (a couple dozen European
+// countries), and bucket_list.country_code is a foreign key into it. So the
+// "want to visit" countries below are drawn from that set rather than the
+// far-flung suggestions; codes outside the table would fail the constraint.
+const BUCKET_COUNTRIES: { code: string; priority: number }[] = [
+  { code: "IS", priority: 5 }, // Iceland
+  { code: "GR", priority: 4 }, // Greece
+  { code: "HR", priority: 3 }, // Croatia
+  { code: "PT", priority: 3 }, // Portugal
+  { code: "IE", priority: 2 }, // Ireland
+];
+
+// Places carry coordinates and an optional country code (only set when the
+// country exists in the reference table, otherwise left null).
+const BUCKET_PLACES: {
+  place_name: string;
+  country_code: string | null;
+  lat: number;
+  lng: number;
+  priority: number;
+}[] = [
+  {
+    place_name: "Machu Picchu",
+    country_code: null,
+    lat: -13.1631,
+    lng: -72.545,
+    priority: 5,
+  },
+  {
+    place_name: "Santorini",
+    country_code: "GR",
+    lat: 36.3932,
+    lng: 25.4615,
+    priority: 4,
+  },
+  {
+    place_name: "Banff",
+    country_code: null,
+    lat: 51.1784,
+    lng: -115.5708,
+    priority: 3,
+  },
+];
+
+// Idempotent: insert any bucket items the user does not already have, matched by
+// country_code (countries) or place_name (places).
+async function seedBucketList(
+  supabase: SeedClient,
+  userId: string,
+): Promise<void> {
+  const { data: existing } = await supabase
+    .from("bucket_list")
+    .select("type, country_code, place_name")
+    .eq("user_id", userId);
+  const rows = (existing ?? []) as {
+    type: string;
+    country_code: string | null;
+    place_name: string | null;
+  }[];
+
+  const hasCountry = (code: string) =>
+    rows.some((r) => r.type === "country" && r.country_code === code);
+  const hasPlace = (name: string) =>
+    rows.some((r) => r.type === "place" && r.place_name === name);
+
+  let added = 0;
+
+  for (const country of BUCKET_COUNTRIES) {
+    if (hasCountry(country.code)) continue;
+    const { error } = await supabase.from("bucket_list").insert({
+      user_id: userId,
+      type: "country",
+      country_code: country.code,
+      priority: country.priority,
+    });
+    if (error) {
+      console.error(`  Failed to add bucket country ${country.code}:`, error);
+      continue;
+    }
+    added++;
+  }
+
+  for (const place of BUCKET_PLACES) {
+    if (hasPlace(place.place_name)) continue;
+    const { error } = await supabase.from("bucket_list").insert({
+      user_id: userId,
+      type: "place",
+      place_name: place.place_name,
+      country_code: place.country_code,
+      geom: `SRID=4326;POINT(${place.lng} ${place.lat})`,
+      priority: place.priority,
+    });
+    if (error) {
+      console.error(`  Failed to add bucket place ${place.place_name}:`, error);
+      continue;
+    }
+    added++;
+  }
+
+  console.log(
+    `Bucket list: ${added} item(s) added (${rows.length} already present).`,
+  );
+}
+
 // --- Main ------------------------------------------------------------------
 
 async function main() {
@@ -380,10 +496,7 @@ async function main() {
 
   // Service-role client scoped to the batchport schema, so every query targets
   // the app's tables without an explicit .schema() call. Bypasses RLS.
-  const supabase = createClient(supabaseUrl, serviceKey, {
-    db: { schema: "batchport" },
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  const supabase = makeSupabase(supabaseUrl, serviceKey);
 
   // Confirm the dev server is reachable before doing any work.
   try {
@@ -557,6 +670,9 @@ async function main() {
       `Done: ${trip.name} -> ${destCount} destinations, ${expCount} experiences, ${photoCount} photos.`,
     );
   }
+
+  console.log("\n=== Bucket list ===");
+  await seedBucketList(supabase, userId);
 
   console.log("\nSeed complete.");
 }

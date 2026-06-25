@@ -58,6 +58,8 @@ export interface GlobeCountrySelection {
 
 export interface GlobeProps {
   visitedCountryCodes: string[];
+  /** Countries the user wants to visit, shown in a distinct amber fill. */
+  bucketCountryCodes?: string[];
   destinations: GlobeDestination[];
   arcs: GlobeArc[];
   /** Slowly spin the globe while idle. Default true (landing hero). */
@@ -73,6 +75,9 @@ export interface GlobeProps {
 
 const BRAND_FALLBACK = "#2563eb";
 const VISITED_BORDER = "#4a8af5";
+// Dim amber for "want to visit" countries: distinct from visited (blue) and
+// unvisited (dark gray) without competing with the brand accent.
+const BUCKET_FILL = "#b45309";
 const ROTATION_DEG_PER_SEC = 3;
 const IDLE_BEFORE_RESUME_MS = 5000;
 const ARC_DRAW_MS = 2200;
@@ -196,6 +201,7 @@ async function buildPmtilesStyle(pmtilesUrl: string): Promise<StyleSpecification
 
 export function Globe({
   visitedCountryCodes,
+  bucketCountryCodes = [],
   destinations,
   arcs,
   autoRotate = true,
@@ -214,6 +220,7 @@ export function Globe({
   // fresh values without tearing down and rebuilding the map on every render.
   const dataRef = useRef({
     visitedCountryCodes,
+    bucketCountryCodes,
     destinations,
     arcs,
     autoRotate,
@@ -227,6 +234,7 @@ export function Globe({
   useEffect(() => {
     dataRef.current = {
       visitedCountryCodes,
+      bucketCountryCodes,
       destinations,
       arcs,
       autoRotate,
@@ -294,6 +302,17 @@ export function Globe({
       dataRef.current.visitedCountryCodes.length > 0
         ? dataRef.current.visitedCountryCodes
         : [" "],
+      true,
+      false,
+    ] as unknown as FilterSpecification;
+
+    // Same match shape for the "want to visit" countries.
+    const bucketFilter = [
+      "match",
+      ["get", "ISO_A2_EH"],
+      dataRef.current.bucketCountryCodes.length > 0
+        ? dataRef.current.bucketCountryCodes
+        : [" "],
       true,
       false,
     ] as unknown as FilterSpecification;
@@ -695,6 +714,22 @@ export function Globe({
         } catch {
           // Older renderers may not support sky; the map still works without it.
         }
+
+        // Want-to-visit fill (dim amber), drawn beneath the visited fill so a
+        // country that is both visited and on the list still reads as visited.
+        map.addLayer(
+          {
+            id: "country-bucket",
+            type: "fill",
+            source: "countries",
+            filter: bucketFilter,
+            paint: {
+              "fill-color": BUCKET_FILL,
+              "fill-opacity": 0.25,
+            },
+          },
+          "country-outline",
+        );
 
         // Visited country fill (brand blue), under the outline so borders stay
         // crisp; brightens on hover.

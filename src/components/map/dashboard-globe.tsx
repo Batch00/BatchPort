@@ -44,7 +44,8 @@ function groupByTrip(destinations: MapDestination[]): TripGroup[] {
 }
 
 export function DashboardGlobe({ data }: DashboardGlobeProps) {
-  const { destinations, visitedCountryCodes, arcs, stats } = data;
+  const { destinations, visitedCountryCodes, bucketCountryCodes, arcs, stats } =
+    data;
   const [selected, setSelected] = useState<GlobeCountrySelection | null>(null);
 
   const isEmpty = destinations.length === 0;
@@ -87,6 +88,7 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
     <div className="relative h-[60vh] min-h-[380px] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d]">
       <Globe
         visitedCountryCodes={visitedCountryCodes}
+        bucketCountryCodes={bucketCountryCodes}
         destinations={globeDestinations}
         arcs={arcs}
         autoRotate={false}
