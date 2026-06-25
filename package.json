@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "npx tsx scripts/seed-trips.ts",
-    "backfill-photos": "npx tsx scripts/backfill-photos.ts"
+    "backfill-photos": "npx tsx scripts/backfill-photos.ts",
+    "seed-countries": "npx tsx scripts/seed-countries.ts"
   },
   "dependencies": {
     "@deck.gl/core": "^9.3.4",
