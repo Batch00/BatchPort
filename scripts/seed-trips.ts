@@ -10,6 +10,11 @@
 //   - SEED_USER_ID is set (env var or .env.local), otherwise the script prompts.
 //
 // Run with: npm run seed
+//
+// Multi-user runs: the script is idempotent per (trip name + user_id), so it can
+// be run for more than one user to populate demo data. Point SEED_USER_ID at a
+// different user (for example the demo account) and run it again: that user gets
+// its own copy of the trips, while any trips it already has are skipped.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
