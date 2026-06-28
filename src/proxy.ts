@@ -26,6 +26,8 @@ function isPublicRoute(pathname: string): boolean {
   // Photo endpoints (Wikimedia lookup and image proxy) are public so the
   // suggestion flow and proxied images load without a session.
   if (pathname.startsWith("/api/photos")) return true;
+  // Public share profiles (read-only, RLS-gated by is_shared) need no session.
+  if (pathname.startsWith("/share")) return true;
   return PUBLIC_ROUTES.includes(pathname);
 }
 

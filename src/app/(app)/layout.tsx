@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { SettingsIcon } from "lucide-react";
 
 import { createClient } from "@/utils/supabase/server";
 import { isDemoUser } from "@/lib/demo";
@@ -58,6 +59,13 @@ export default async function AppLayout({
           <span className="hidden text-sm text-foreground/60 sm:inline">
             {user.email}
           </span>
+          <Link
+            href="/dashboard/settings"
+            aria-label="Settings"
+            className="flex size-8 items-center justify-center rounded-md text-foreground/60 transition-colors hover:bg-white/5 hover:text-foreground"
+          >
+            <SettingsIcon className="size-4" />
+          </Link>
           <form action={signOut}>
             <Button type="submit" variant="ghost" size="sm">
               Sign out

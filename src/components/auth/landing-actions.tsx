@@ -1,29 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Loader2Icon } from "lucide-react";
 
 import { createClient } from "@/utils/supabase/client";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-const DEMO_EMAIL = "demo@batchport.com";
-const DEMO_PASSWORD = "BatchPortDemo2026!";
+import { cn } from "@/lib/utils";
 
 // Interactive landing actions overlaid on the globe. Sign-in happens in-place
 // (a compact Card), never on a separate page, so the globe stays visible and
-// interactive behind the form.
+// interactive behind the form. The demo is a sessionless read-only page, so the
+// demo button is a plain link to /demo (no credentials, no sign-in).
 export function LandingActions() {
   const [showSignIn, setShowSignIn] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [signInError, setSignInError] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
-
-  const [demoLoading, setDemoLoading] = useState(false);
-  const [demoError, setDemoError] = useState<string | null>(null);
 
   async function handleSignIn(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,23 +41,6 @@ export function LandingActions() {
     window.location.assign("/dashboard");
   }
 
-  async function handleDemo() {
-    setDemoError(null);
-    setDemoLoading(true);
-
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({
-      email: DEMO_EMAIL,
-      password: DEMO_PASSWORD,
-    });
-    if (error) {
-      setDemoError("Demo is unavailable right now. Please try again later.");
-      setDemoLoading(false);
-      return;
-    }
-    window.location.assign("/dashboard");
-  }
-
   return (
     <div className="pointer-events-auto flex max-w-sm flex-col gap-4">
       <div className="flex flex-col gap-3 sm:flex-row">
@@ -72,24 +52,16 @@ export function LandingActions() {
         >
           Sign in
         </Button>
-        <Button
-          size="lg"
-          variant="outline"
-          onClick={handleDemo}
-          disabled={demoLoading}
-          className="border-white/15 bg-white/5 backdrop-blur-sm hover:bg-white/10"
-        >
-          {demoLoading ? (
-            <Loader2Icon className="size-4 animate-spin" />
-          ) : (
-            "Try a Demo"
+        <Link
+          href="/demo"
+          className={cn(
+            buttonVariants({ size: "lg", variant: "outline" }),
+            "border-white/15 bg-white/5 backdrop-blur-sm hover:bg-white/10",
           )}
-        </Button>
+        >
+          Try a Demo
+        </Link>
       </div>
-
-      {demoError ? (
-        <p className="text-sm text-destructive">{demoError}</p>
-      ) : null}
 
       {showSignIn ? (
         <Card className="w-full bg-card/80 backdrop-blur-md">
