@@ -24,8 +24,16 @@ import type { Photo, PhotoOwnerType } from "@/lib/types";
 interface PhotoGalleryProps {
   photos: Photo[];
   coverPhotoId?: string | null;
-  // When editable, each photo gets a hover menu to set it as cover or delete.
+  // When editable, each photo gets a hover menu (set as cover and/or delete).
   editable?: boolean;
+  // Whether the menu offers "Set as cover". Off for entities without a cover
+  // (experiences). Defaults to true.
+  allowSetCover?: boolean;
+  // Whether the menu offers "Delete". Defaults to true.
+  allowDelete?: boolean;
+  // Compact mode: a uniform thumbnail grid with no large lead image. Used for
+  // inline experience galleries.
+  compact?: boolean;
   ownerType?: PhotoOwnerType;
   ownerId?: string;
   onChanged?: () => void;
@@ -35,6 +43,9 @@ export function PhotoGallery({
   photos,
   coverPhotoId = null,
   editable = false,
+  allowSetCover = true,
+  allowDelete = true,
+  compact = false,
   ownerType,
   ownerId,
   onChanged,
@@ -44,6 +55,10 @@ export function PhotoGallery({
   const ordered = cover
     ? [cover, ...photos.filter((photo) => photo.id !== cover.id)]
     : photos;
+  // Only flag a cover when one is explicitly set (not the first-photo fallback).
+  const isExplicitCover = Boolean(
+    coverPhotoId && cover && cover.id === coverPhotoId,
+  );
 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
@@ -71,7 +86,7 @@ export function PhotoGallery({
 
   if (ordered.length === 0) return null;
 
-  const [hero, ...rest] = ordered;
+  const canSetCover = allowSetCover && Boolean(ownerType) && Boolean(ownerId);
 
   async function handleSetCover(photo: Photo) {
     if (!ownerType || !ownerId) return;
@@ -96,6 +111,8 @@ export function PhotoGallery({
 
   function tileMenu(photo: Photo) {
     if (!editable) return null;
+    const showCover = canSetCover;
+    if (!showCover && !allowDelete) return null;
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -109,59 +126,99 @@ export function PhotoGallery({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-          <DropdownMenuItem
-            onSelect={() => handleSetCover(photo)}
-            disabled={photo.id === cover?.id}
-          >
-            <StarIcon />
-            Set as cover
-          </DropdownMenuItem>
-          <DropdownMenuItem variant="destructive" onSelect={() => handleDelete(photo)}>
-            <Trash2Icon />
-            Delete
-          </DropdownMenuItem>
+          {showCover ? (
+            <DropdownMenuItem
+              onSelect={() => handleSetCover(photo)}
+              disabled={photo.id === cover?.id && isExplicitCover}
+            >
+              <StarIcon />
+              Set as cover
+            </DropdownMenuItem>
+          ) : null}
+          {allowDelete ? (
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => handleDelete(photo)}
+            >
+              <Trash2Icon />
+              Delete
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
     );
   }
 
+  // A small "Cover" badge for the tile that is the current explicit cover.
+  function coverBadge(photo: Photo) {
+    if (!isExplicitCover || !cover || photo.id !== cover.id) return null;
+    return (
+      <span className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-brand/90 px-1.5 py-0.5 text-[0.65rem] font-medium text-brand-foreground">
+        <StarIcon className="size-3" />
+        Cover
+      </span>
+    );
+  }
+
   return (
     <>
-      <div className="flex flex-col gap-3">
-        <div
-          className="group/tile relative aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-xl ring-1 ring-foreground/10"
-          onClick={() => setLightboxIndex(0)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={getPhotoUrl(hero)}
-            alt=""
-            className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.02]"
-          />
-          {tileMenu(hero)}
+      {compact ? (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {ordered.map((photo, i) => (
+            <div
+              key={photo.id}
+              className="group/tile relative aspect-square cursor-pointer overflow-hidden rounded-lg ring-1 ring-foreground/10"
+              onClick={() => setLightboxIndex(i)}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={getPhotoUrl(photo)}
+                alt=""
+                className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.04]"
+              />
+              <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover/tile:bg-black/15" />
+              {tileMenu(photo)}
+            </div>
+          ))}
         </div>
-
-        {rest.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-            {rest.map((photo, i) => (
-              <div
-                key={photo.id}
-                className="group/tile relative aspect-square cursor-pointer overflow-hidden rounded-lg ring-1 ring-foreground/10"
-                onClick={() => setLightboxIndex(i + 1)}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={getPhotoUrl(photo)}
-                  alt=""
-                  className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.04]"
-                />
-                <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover/tile:bg-black/15" />
-                {tileMenu(photo)}
-              </div>
-            ))}
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div
+            className="group/tile relative aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-xl ring-1 ring-foreground/10"
+            onClick={() => setLightboxIndex(0)}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={getPhotoUrl(ordered[0])}
+              alt=""
+              className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.02]"
+            />
+            {coverBadge(ordered[0])}
+            {tileMenu(ordered[0])}
           </div>
-        ) : null}
-      </div>
+
+          {ordered.length > 1 ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {ordered.slice(1).map((photo, i) => (
+                <div
+                  key={photo.id}
+                  className="group/tile relative aspect-square cursor-pointer overflow-hidden rounded-lg ring-1 ring-foreground/10"
+                  onClick={() => setLightboxIndex(i + 1)}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={getPhotoUrl(photo)}
+                    alt=""
+                    className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.04]"
+                  />
+                  <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover/tile:bg-black/15" />
+                  {tileMenu(photo)}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {lightboxIndex !== null ? (
         <Lightbox

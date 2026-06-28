@@ -83,13 +83,16 @@ export async function deletePhotoRecord(id: string): Promise<ActionResult> {
     .maybeSingle<Pick<Photo, "id" | "owner_type" | "owner_id" | "source" | "storage_path">>();
   if (!photo) return { error: "Photo not found." };
 
-  // Clear the cover pointer first so the foreign key never dangles.
-  const table = photo.owner_type === "trip" ? "trips" : "destinations";
-  await supabase
-    .from(table)
-    .update({ cover_photo_id: null })
-    .eq("id", photo.owner_id)
-    .eq("cover_photo_id", id);
+  // Clear the cover pointer first so the foreign key never dangles. Only trips
+  // and destinations have a cover; experience photos have none.
+  if (photo.owner_type === "trip" || photo.owner_type === "destination") {
+    const table = photo.owner_type === "trip" ? "trips" : "destinations";
+    await supabase
+      .from(table)
+      .update({ cover_photo_id: null })
+      .eq("id", photo.owner_id)
+      .eq("cover_photo_id", id);
+  }
 
   const { error } = await supabase.from("photos").delete().eq("id", id);
   if (error) return { error: "Could not delete the photo." };

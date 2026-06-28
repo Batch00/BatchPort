@@ -3,7 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2Icon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import {
+  ImageIcon,
+  Loader2Icon,
+  PencilIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,17 +24,23 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ExperienceDialog } from "@/components/experiences/experience-dialog";
+import { PhotoUpload } from "@/components/photos/photo-upload";
+import { PhotoGallery } from "@/components/photos/photo-gallery";
 import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
 import { deleteExperienceAction } from "@/lib/actions/experiences";
 import { formatDate } from "@/lib/format";
-import type { Category, Experience } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import type { Category, Experience, Photo } from "@/lib/types";
 
 interface ExperiencesSectionProps {
   tripId: string;
   destinationId: string;
   experiences: Experience[];
   categories: Category[];
+  userId: string;
+  isDemo: boolean;
+  photosByExperience: Record<string, Photo[]>;
 }
 
 export function ExperiencesSection({
@@ -36,10 +48,14 @@ export function ExperiencesSection({
   destinationId,
   experiences,
   categories,
+  userId,
+  isDemo,
+  photosByExperience,
 }: ExperiencesSectionProps) {
   const router = useRouter();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Experience | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const categoriesById: Record<string, Category> = Object.fromEntries(
     categories.map((category) => [category.id, category]),
@@ -79,46 +95,94 @@ export function ExperiencesSection({
             const category = experience.category_id
               ? categoriesById[experience.category_id]
               : undefined;
+            const expPhotos = photosByExperience[experience.id] ?? [];
+            const expanded = expandedId === experience.id;
             return (
               <li
                 key={experience.id}
-                className="flex items-center gap-3 rounded-lg bg-card px-3 py-2.5 ring-1 ring-foreground/10"
+                className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10"
               >
-                <span
-                  className="flex size-8 shrink-0 items-center justify-center rounded-md bg-white/5"
-                  style={category?.color ? { color: category.color } : undefined}
-                >
-                  <CategoryIcon icon={category?.icon} className="size-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-foreground">
-                    {experience.name}
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  <span
+                    className="flex size-8 shrink-0 items-center justify-center rounded-md bg-white/5"
+                    style={
+                      category?.color ? { color: category.color } : undefined
+                    }
+                  >
+                    <CategoryIcon icon={category?.icon} className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium text-foreground">
+                      {experience.name}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      {category ? <span>{category.label}</span> : null}
+                      {experience.visited_date ? (
+                        <span>{formatDate(experience.visited_date)}</span>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    {category ? <span>{category.label}</span> : null}
-                    {experience.visited_date ? (
-                      <span>{formatDate(experience.visited_date)}</span>
+                  {experience.rating ? (
+                    <RatingDisplay rating={experience.rating} />
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Photos"
+                    aria-expanded={expanded}
+                    onClick={() =>
+                      setExpandedId((current) =>
+                        current === experience.id ? null : experience.id,
+                      )
+                    }
+                    className={cn(expanded && "bg-white/5 text-foreground")}
+                  >
+                    <ImageIcon />
+                    {expPhotos.length > 0 ? (
+                      <span className="text-xs tabular-nums">
+                        {expPhotos.length}
+                      </span>
+                    ) : null}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Edit experience"
+                    onClick={() => openEdit(experience)}
+                  >
+                    <PencilIcon />
+                  </Button>
+                  <DeleteExperienceButton
+                    tripId={tripId}
+                    destinationId={destinationId}
+                    experienceId={experience.id}
+                    experienceName={experience.name}
+                    onDeleted={() => router.refresh()}
+                  />
+                </div>
+
+                {expanded ? (
+                  <div className="flex flex-col gap-3 border-t border-white/10 p-3">
+                    <PhotoUpload
+                      ownerType="experience"
+                      ownerId={experience.id}
+                      userId={userId}
+                      isDemo={isDemo}
+                      onUploaded={() => router.refresh()}
+                    />
+                    {expPhotos.length > 0 ? (
+                      <PhotoGallery
+                        photos={expPhotos}
+                        compact
+                        editable
+                        allowSetCover={false}
+                        ownerType="experience"
+                        ownerId={experience.id}
+                        onChanged={() => router.refresh()}
+                      />
                     ) : null}
                   </div>
-                </div>
-                {experience.rating ? (
-                  <RatingDisplay rating={experience.rating} />
                 ) : null}
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Edit experience"
-                  onClick={() => openEdit(experience)}
-                >
-                  <PencilIcon />
-                </Button>
-                <DeleteExperienceButton
-                  tripId={tripId}
-                  destinationId={destinationId}
-                  experienceId={experience.id}
-                  experienceName={experience.name}
-                  onDeleted={() => router.refresh()}
-                />
               </li>
             );
           })}

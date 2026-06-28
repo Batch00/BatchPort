@@ -67,10 +67,10 @@ export interface Category {
   sort_order: number;
 }
 
-// Photos attach to either a trip or a destination. A photo is one of three
-// sources: a user upload in Supabase Storage, an auto-fetched Wikimedia Commons
-// image referenced by external_url, or an arbitrary external url.
-export type PhotoOwnerType = "trip" | "destination";
+// Photos attach to a trip, a destination, or an experience. A photo is one of
+// three sources: a user upload in Supabase Storage, an auto-fetched Wikimedia
+// Commons image referenced by external_url, or an arbitrary external url.
+export type PhotoOwnerType = "trip" | "destination" | "experience";
 export type PhotoSource = "upload" | "wikimedia" | "url";
 
 export interface Photo {

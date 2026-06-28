@@ -1,15 +1,22 @@
 import Link from "next/link";
-import { ChevronRightIcon, ImageIcon, ListChecksIcon, PlusIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  ImageIcon,
+  ListChecksIcon,
+  PlusIcon,
+} from "lucide-react";
 
 import { getTrips } from "@/lib/trips";
 import { getMapData } from "@/lib/map-data";
+import { getAllStats } from "@/lib/stats-data";
 import { getPhotosByIds } from "@/lib/photos-data";
-import { getBucketListStats } from "@/lib/bucket-list";
 import { getPhotoUrl } from "@/lib/photos";
 import { Card } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { StatusBadge } from "@/components/trips/status-badge";
 import { DashboardGlobe } from "@/components/map/dashboard-globe";
+import { StatsGrid } from "@/components/stats/stats-grid";
+import { BucketProgress } from "@/components/stats/bucket-progress";
 import { flagEmoji, formatDateRange } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Photo } from "@/lib/types";
@@ -18,11 +25,14 @@ function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+// The authenticated dashboard mirrors the demo and share layout (globe, stats
+// summary, trips, bucket progress) but keeps the editing affordances: add trip,
+// clickable trip cards, and links into the deep-dive stats and bucket pages.
 export default async function DashboardPage() {
-  const [trips, mapData, bucketStats] = await Promise.all([
+  const [trips, mapData, stats] = await Promise.all([
     getTrips(),
     getMapData(),
-    getBucketListStats(),
+    getAllStats(),
   ]);
 
   // Resolve every trip's cover photo in a single query.
@@ -34,53 +44,39 @@ export default async function DashboardPage() {
     coverPhotos.map((photo) => [photo.id, photo]),
   );
 
+  const bucket = stats.bucket;
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-8">
       <DashboardGlobe data={mapData} />
 
-      <Link href="/dashboard/bucket-list" className="group">
-        <Card className="flex flex-row items-center justify-between gap-4 p-4 transition-all group-hover:ring-brand/40">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
-              <ListChecksIcon className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">Bucket List</p>
-              <p className="truncate text-xs text-muted-foreground">
-                {bucketStats && bucketStats.total > 0
-                  ? `${bucketStats.fulfilled} of ${bucketStats.total} completed (${bucketStats.completion_pct}%)`
-                  : "Start planning where to go next"}
-              </p>
-            </div>
-          </div>
-          {bucketStats && bucketStats.total > 0 ? (
-            <div className="hidden w-40 sm:block">
-              <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-brand transition-all"
-                  style={{ width: `${bucketStats.completion_pct}%` }}
-                />
-              </div>
-            </div>
-          ) : null}
-          <ChevronRightIcon className="size-4 shrink-0 text-foreground/40" />
-        </Card>
-      </Link>
+      <section>
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h2 className="text-sm font-medium text-foreground/80">Overview</h2>
+          <Link
+            href="/dashboard/stats"
+            className="text-sm text-brand underline-offset-4 transition-colors hover:underline"
+          >
+            Detailed stats
+          </Link>
+        </div>
+        <StatsGrid summary={stats.summary} distanceKm={stats.distanceKm} />
+      </section>
 
       <section>
-        <header className="mb-6 flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-semibold tracking-tight">Trips</h1>
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h2 className="text-sm font-medium text-foreground/80">Trips</h2>
           <Link
             href="/trips/new"
             className={cn(
-              buttonVariants({ size: "lg" }),
+              buttonVariants({ size: "sm" }),
               "bg-brand text-brand-foreground hover:bg-brand/90",
             )}
           >
             <PlusIcon />
             Add trip
           </Link>
-        </header>
+        </div>
 
         {trips.length === 0 ? (
           <p className="rounded-xl border border-dashed border-white/10 px-6 py-12 text-center text-sm text-foreground/60">
@@ -125,7 +121,7 @@ export default async function DashboardPage() {
                     </div>
 
                     <div className="flex flex-col gap-2 p-4">
-                      <h2 className="font-medium text-foreground">{trip.name}</h2>
+                      <h3 className="font-medium text-foreground">{trip.name}</h3>
                       <p className="text-sm text-muted-foreground">
                         {formatDateRange(trip.start_date, trip.end_date)}
                       </p>
@@ -147,6 +143,39 @@ export default async function DashboardPage() {
               );
             })}
           </div>
+        )}
+      </section>
+
+      <section>
+        <h2 className="mb-4 text-sm font-medium text-foreground/80">
+          Bucket list
+        </h2>
+        {bucket && bucket.total > 0 ? (
+          <Link
+            href="/dashboard/bucket-list"
+            className="block transition-opacity hover:opacity-90"
+          >
+            <BucketProgress bucket={bucket} />
+          </Link>
+        ) : (
+          <Link href="/dashboard/bucket-list" className="group block">
+            <Card className="flex flex-row items-center justify-between gap-4 p-4 transition-all group-hover:ring-brand/40">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                  <ListChecksIcon className="size-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    Start your bucket list
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    Plan the countries and places you want to reach next.
+                  </p>
+                </div>
+              </div>
+              <ChevronRightIcon className="size-4 shrink-0 text-foreground/40" />
+            </Card>
+          </Link>
         )}
       </section>
     </div>

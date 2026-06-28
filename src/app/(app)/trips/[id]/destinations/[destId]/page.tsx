@@ -4,7 +4,7 @@ import { ArrowLeftIcon, PencilIcon } from "lucide-react";
 
 import { getDestination } from "@/lib/destinations";
 import { getCategories } from "@/lib/experiences";
-import { getPhotos, pickCover } from "@/lib/photos-data";
+import { getPhotos, getPhotosForOwners, pickCover } from "@/lib/photos-data";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
 import { buttonVariants } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { DestinationPhotos } from "@/components/photos/destination-photos";
 import { PhotoBanner } from "@/components/photos/photo-banner";
 import { flagEmoji, formatDateRange } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { Photo } from "@/lib/types";
 
 export default async function DestinationDetailPage({
   params,
@@ -31,9 +32,19 @@ export default async function DestinationDetailPage({
     notFound();
   }
 
-  const photos = await getPhotos("destination", destId);
+  const experienceIds = destination.experiences.map((experience) => experience.id);
+  const [photos, experiencePhotos] = await Promise.all([
+    getPhotos("destination", destId),
+    getPhotosForOwners("experience", experienceIds),
+  ]);
   const cover = pickCover(photos, destination.cover_photo_id);
   const isDemo = isDemoUser(user.id);
+
+  // Group experience photos by their owning experience for inline display.
+  const photosByExperience: Record<string, Photo[]> = {};
+  for (const photo of experiencePhotos) {
+    (photosByExperience[photo.owner_id] ??= []).push(photo);
+  }
 
   return (
     <div className="mx-auto w-full max-w-3xl p-6 sm:p-8">
@@ -88,6 +99,9 @@ export default async function DestinationDetailPage({
         destinationId={destId}
         experiences={destination.experiences}
         categories={categories}
+        userId={user.id}
+        isDemo={isDemo}
+        photosByExperience={photosByExperience}
       />
 
       <DestinationPhotos

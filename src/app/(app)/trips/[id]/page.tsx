@@ -10,7 +10,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { StatusBadge } from "@/components/trips/status-badge";
 import { DeleteTripButton } from "@/components/trips/delete-trip-button";
 import { PhotoBanner } from "@/components/photos/photo-banner";
-import { PhotoGallery } from "@/components/photos/photo-gallery";
+import { TripPhotos } from "@/components/photos/trip-photos";
 import { flagEmoji, formatDateRange } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Photo } from "@/lib/types";
@@ -178,10 +178,11 @@ export default async function TripDetailPage({
       )}
 
       {destPhotos.length > 0 ? (
-        <section className="mt-10">
-          <h2 className="mb-4 text-sm font-medium text-foreground/80">Photos</h2>
-          <PhotoGallery photos={destPhotos} />
-        </section>
+        <TripPhotos
+          tripId={trip.id}
+          coverPhotoId={trip.cover_photo_id}
+          photos={destPhotos}
+        />
       ) : null}
     </div>
   );

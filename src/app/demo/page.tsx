@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { ArrowLeftIcon } from "lucide-react";
+
 import { getDemoUserId, getSharedProfile } from "@/lib/share-data";
 import { SharedProfileView } from "@/components/share/shared-profile-view";
 
@@ -15,9 +18,15 @@ export default async function DemoPage() {
   return (
     <div className="flex min-h-dvh flex-col bg-[#0a0a0a]">
       <header className="flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-6">
-        <span className="text-sm font-semibold tracking-tight">
-          Batch<span className="text-brand">Port</span> Demo
-        </span>
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 text-sm text-foreground/60 transition-colors hover:text-foreground"
+        >
+          <ArrowLeftIcon className="size-4" />
+          <span>
+            Back to Batch<span className="text-brand">Port</span>
+          </span>
+        </Link>
         <a
           href="https://www.batch-apps.com"
           className="text-sm text-brand underline-offset-4 transition-colors hover:underline"
