@@ -120,7 +120,7 @@ export function PhotoGallery({
             type="button"
             aria-label="Photo options"
             onClick={(event) => event.stopPropagation()}
-            className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md bg-black/50 text-white opacity-0 backdrop-blur transition-opacity group-hover/tile:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+            className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md bg-black/55 text-white/90 backdrop-blur transition-colors hover:bg-black/75 data-[state=open]:bg-black/75"
           >
             <MoreVerticalIcon className="size-4" />
           </button>

@@ -30,7 +30,7 @@ function ExtremeTile({
         <p className="text-xs font-medium uppercase tracking-wide text-foreground/45">
           {direction}
         </p>
-        <p className="truncate text-sm font-medium text-foreground">
+        <p className="break-words text-sm font-medium text-foreground">
           {entry.name ?? "Unknown"}
         </p>
         <p className="text-xs tabular-nums text-foreground/50">{coordinate}</p>

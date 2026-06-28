@@ -72,6 +72,37 @@ export async function setCoverPhoto(
   return { ok: true };
 }
 
+// Move a photo to a different owner (trip, destination, or experience). Used by
+// the trip-level upload to sort bulk photos into the right place.
+export async function retagPhoto(
+  photoId: string,
+  ownerType: PhotoOwnerType,
+  ownerId: string,
+): Promise<ActionResult> {
+  if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  const { supabase } = await requireUser();
+
+  // Append to the end of the new owner's photos.
+  const { data: last } = await supabase
+    .from("photos")
+    .select("order_index")
+    .eq("owner_type", ownerType)
+    .eq("owner_id", ownerId)
+    .order("order_index", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextOrder = ((last?.order_index as number | undefined) ?? -1) + 1;
+
+  const { error } = await supabase
+    .from("photos")
+    .update({ owner_type: ownerType, owner_id: ownerId, order_index: nextOrder })
+    .eq("id", photoId);
+  if (error) return { error: "Could not tag the photo." };
+
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
 export async function deletePhotoRecord(id: string): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   const { supabase } = await requireUser();

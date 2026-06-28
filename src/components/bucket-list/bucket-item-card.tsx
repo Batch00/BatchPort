@@ -65,7 +65,7 @@ export function BucketItemCard({
         <div className="flex items-center gap-2">
           <h3
             className={cn(
-              "truncate font-medium text-foreground",
+              "min-w-0 break-words font-medium text-foreground",
               fulfilled && "text-foreground/60 line-through",
             )}
           >
@@ -77,7 +77,7 @@ export function BucketItemCard({
         </div>
 
         {subtitle ? (
-          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+          <p className="break-words text-xs text-muted-foreground">{subtitle}</p>
         ) : null}
 
         {fulfilled ? (

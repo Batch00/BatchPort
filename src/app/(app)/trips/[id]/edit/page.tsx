@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
 
 import { getTrip } from "@/lib/trips";
-import { getPhotos } from "@/lib/photos-data";
+import { getPhotos, getPhotosByIds } from "@/lib/photos-data";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
 import { TripForm } from "@/components/trips/trip-form";
@@ -19,7 +19,18 @@ export default async function EditTripPage({
     notFound();
   }
 
-  const coverPhotos = await getPhotos("trip", trip.id);
+  // The cover photo can be owned by one of the trip's destinations (set from the
+  // aggregated gallery), so fetch it by id when it is not already in the
+  // trip-owned list. Otherwise the picker cannot display the current cover.
+  const tripPhotos = await getPhotos("trip", trip.id);
+  let coverPhotos = tripPhotos;
+  if (
+    trip.cover_photo_id &&
+    !tripPhotos.some((photo) => photo.id === trip.cover_photo_id)
+  ) {
+    const [coverPhoto] = await getPhotosByIds([trip.cover_photo_id]);
+    if (coverPhoto) coverPhotos = [coverPhoto, ...tripPhotos];
+  }
 
   return (
     <div className="mx-auto w-full max-w-xl p-6 sm:p-8">

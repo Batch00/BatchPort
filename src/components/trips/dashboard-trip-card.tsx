@@ -80,11 +80,13 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/10" />
         <div className="relative flex h-full flex-col justify-end p-4 pr-12">
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold tracking-tight text-white">
+          <div className="flex items-start gap-2">
+            <h3 className="min-w-0 break-words text-lg font-semibold tracking-tight text-white">
               {trip.name}
             </h3>
-            <StatusBadge status={trip.status as TripStatus} />
+            <span className="mt-0.5 shrink-0">
+              <StatusBadge status={trip.status as TripStatus} />
+            </span>
           </div>
           <div className="mt-0.5 flex items-center justify-between gap-2">
             <p className="text-sm text-white/70">
@@ -176,8 +178,10 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <h4 className="flex items-center gap-2 font-medium text-foreground">
-                        <span className="truncate">{destination.name}</span>
+                      <h4 className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-medium text-foreground">
+                        <span className="min-w-0 break-words">
+                          {destination.name}
+                        </span>
                         {destination.country_code ? (
                           <span className="shrink-0 text-sm text-foreground/50">
                             {flagEmoji(destination.country_code)}{" "}
@@ -212,7 +216,7 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
                                   className="size-3"
                                 />
                               </span>
-                              <span className="min-w-0 flex-1 truncate text-foreground/85">
+                              <span className="min-w-0 flex-1 break-words text-foreground/85">
                                 {experience.name}
                               </span>
                               {experience.rating ? (

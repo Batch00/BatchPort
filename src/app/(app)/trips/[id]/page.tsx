@@ -4,13 +4,15 @@ import { ArrowLeftIcon, ImageIcon, PencilIcon, PlusIcon } from "lucide-react";
 
 import { getTrip } from "@/lib/trips";
 import { getPhotos, getPhotosForOwners, pickCover } from "@/lib/photos-data";
+import { requireUser } from "@/lib/current-user";
+import { isDemoUser } from "@/lib/demo";
 import { getPhotoUrl } from "@/lib/photos";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { StatusBadge } from "@/components/trips/status-badge";
 import { DeleteTripButton } from "@/components/trips/delete-trip-button";
 import { PhotoBanner } from "@/components/photos/photo-banner";
-import { TripPhotos } from "@/components/photos/trip-photos";
+import { TripPhotosSection } from "@/components/photos/trip-photos";
 import { flagEmoji, formatDateRange } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Photo } from "@/lib/types";
@@ -21,15 +23,19 @@ export default async function TripDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const trip = await getTrip(id);
+  const [{ user }, trip] = await Promise.all([requireUser(), getTrip(id)]);
   if (!trip) {
     notFound();
   }
 
   const destIds = trip.destinations.map((destination) => destination.id);
-  const [tripPhotos, destPhotos] = await Promise.all([
+  const experienceIds = trip.destinations.flatMap((destination) =>
+    destination.experiences.map((experience) => experience.id),
+  );
+  const [tripPhotos, destPhotos, expPhotos] = await Promise.all([
     getPhotos("trip", id),
     getPhotosForOwners("destination", destIds),
+    getPhotosForOwners("experience", experienceIds),
   ]);
 
   // Group each destination's photos so we can resolve per-card covers.
@@ -177,13 +183,22 @@ export default async function TripDetailPage({
         </ol>
       )}
 
-      {destPhotos.length > 0 ? (
-        <TripPhotos
-          tripId={trip.id}
-          coverPhotoId={trip.cover_photo_id}
-          photos={destPhotos}
-        />
-      ) : null}
+      <TripPhotosSection
+        tripId={trip.id}
+        userId={user.id}
+        isDemo={isDemoUser(user.id)}
+        coverPhotoId={trip.cover_photo_id}
+        destinations={trip.destinations.map((destination) => ({
+          id: destination.id,
+          name: destination.name,
+          experiences: destination.experiences.map((experience) => ({
+            id: experience.id,
+            name: experience.name,
+          })),
+        }))}
+        untaggedPhotos={tripPhotos}
+        taggedPhotos={[...destPhotos, ...expPhotos]}
+      />
     </div>
   );
 }

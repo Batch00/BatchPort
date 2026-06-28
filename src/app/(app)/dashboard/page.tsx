@@ -1,17 +1,15 @@
 import Link from "next/link";
-import { ChevronRightIcon, ListChecksIcon, PlusIcon } from "lucide-react";
+import { ChevronRightIcon, ListChecksIcon } from "lucide-react";
 
 import { requireUser } from "@/lib/current-user";
 import { getProfileTrips } from "@/lib/share-data";
 import { getMapData } from "@/lib/map-data";
 import { getAllStats } from "@/lib/stats-data";
 import { Card } from "@/components/ui/card";
-import { buttonVariants } from "@/components/ui/button";
 import { DashboardGlobe } from "@/components/map/dashboard-globe";
-import { DashboardTripCard } from "@/components/trips/dashboard-trip-card";
+import { DashboardTrips } from "@/components/trips/dashboard-trips";
 import { StatsGrid } from "@/components/stats/stats-grid";
 import { BucketProgress } from "@/components/stats/bucket-progress";
-import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Dashboard" };
 
@@ -45,33 +43,7 @@ export default async function DashboardPage() {
         <StatsGrid summary={stats.summary} distanceKm={stats.distanceKm} />
       </section>
 
-      <section>
-        <div className="mb-4 flex items-center justify-between gap-4">
-          <h2 className="text-sm font-medium text-foreground/80">Trips</h2>
-          <Link
-            href="/trips/new"
-            className={cn(
-              buttonVariants({ size: "sm" }),
-              "bg-brand text-brand-foreground hover:bg-brand/90",
-            )}
-          >
-            <PlusIcon />
-            Add trip
-          </Link>
-        </div>
-
-        {trips.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-white/10 px-6 py-12 text-center text-sm text-foreground/60">
-            Your trips will appear here.
-          </p>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {trips.map((trip) => (
-              <DashboardTripCard key={trip.id} trip={trip} />
-            ))}
-          </div>
-        )}
-      </section>
+      <DashboardTrips trips={trips} />
 
       <section>
         <h2 className="mb-4 text-sm font-medium text-foreground/80">

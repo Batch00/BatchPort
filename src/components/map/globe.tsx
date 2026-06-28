@@ -14,19 +14,20 @@ import type {
   FilterSpecification,
   LngLatBoundsLike,
   GeoJSONFeature,
+  GeoJSONSource,
+  MapGeoJSONFeature,
 } from "maplibre-gl";
-import type { Layer, PickingInfo } from "@deck.gl/core";
-import type { MapboxOverlay as DeckOverlay } from "@deck.gl/mapbox";
+import type { FeatureCollection, LineString, Point } from "geojson";
 
 import { flagEmoji, formatDateRange } from "@/lib/format";
-import { ProjectionToggle } from "./projection-toggle";
+import { MapControls } from "./projection-toggle";
 
 type Projection = "globe" | "mercator";
 
 /** One entry in a style's layers array, derived to avoid extra type imports. */
 type StyleLayerSpec = StyleSpecification["layers"][number];
 
-/** A single mappable stop. Positions are [lng, lat] to match deck.gl. */
+/** A single mappable stop. Positions are [lng, lat]. */
 export interface GlobeDestination {
   id: string;
   tripId: string;
@@ -80,9 +81,10 @@ const VISITED_BORDER = "#4a8af5";
 const BUCKET_FILL = "#b45309";
 const ROTATION_DEG_PER_SEC = 3;
 const IDLE_BEFORE_RESUME_MS = 5000;
-const ARC_DRAW_MS = 2200;
 const PIN_RADIUS = 6;
 const PIN_RADIUS_HOVER = 8.5;
+// Intermediate points per arc, so the line follows the great circle smoothly.
+const ARC_SEGMENTS = 48;
 
 function hexToRgb(hex: string): [number, number, number] {
   let value = hex.trim().replace("#", "");
@@ -97,37 +99,131 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(int >> 16) & 255, (int >> 8) & 255, int & 255];
 }
 
-function readBrandRgb(): [number, number, number] {
-  if (typeof window === "undefined") return hexToRgb(BRAND_FALLBACK);
+function rgbToHex([r, g, b]: [number, number, number]): string {
+  const channel = (c: number) =>
+    Math.max(0, Math.min(255, Math.round(c)))
+      .toString(16)
+      .padStart(2, "0");
+  return `#${channel(r)}${channel(g)}${channel(b)}`;
+}
+
+/** The brand colour as a hex string, read from CSS so it tracks the theme. */
+function readBrandHex(): string {
+  if (typeof window === "undefined") return BRAND_FALLBACK;
   const fromCss = getComputedStyle(document.documentElement)
     .getPropertyValue("--brand")
     .trim();
-  return hexToRgb(fromCss || BRAND_FALLBACK);
-}
-
-function rgbCss([r, g, b]: [number, number, number], alpha = 1): string {
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-/** Mix a colour toward black for the dimmer target end of an arc gradient. */
-function darken([r, g, b]: [number, number, number], amount: number): [number, number, number] {
-  return [
-    Math.round(r * (1 - amount)),
-    Math.round(g * (1 - amount)),
-    Math.round(b * (1 - amount)),
-  ];
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
-}
-
-function easeOutCubic(t: number): number {
-  return 1 - Math.pow(1 - t, 3);
+  if (!fromCss) return BRAND_FALLBACK;
+  if (fromCss.startsWith("#")) return rgbToHex(hexToRgb(fromCss));
+  return fromCss;
 }
 
 function wrapLng(lng: number): number {
   return ((((lng + 180) % 360) + 360) % 360) - 180;
+}
+
+function toRad(deg: number): number {
+  return (deg * Math.PI) / 180;
+}
+
+function toDeg(rad: number): number {
+  return (rad * 180) / Math.PI;
+}
+
+// Spherical interpolation of the great-circle path between two lng/lat points.
+// Longitudes are unwrapped so the line stays continuous across the antimeridian.
+function greatCirclePoints(
+  a: [number, number],
+  b: [number, number],
+  segments: number,
+): [number, number][] {
+  const lng1 = toRad(a[0]);
+  const lat1 = toRad(a[1]);
+  const lng2 = toRad(b[0]);
+  const lat2 = toRad(b[1]);
+
+  const d =
+    2 *
+    Math.asin(
+      Math.sqrt(
+        Math.sin((lat2 - lat1) / 2) ** 2 +
+          Math.cos(lat1) * Math.cos(lat2) * Math.sin((lng2 - lng1) / 2) ** 2,
+      ),
+    );
+
+  if (d === 0 || Number.isNaN(d)) {
+    return [
+      [a[0], a[1]],
+      [b[0], b[1]],
+    ];
+  }
+
+  const points: [number, number][] = [];
+  let prevLng: number | null = null;
+  for (let i = 0; i <= segments; i += 1) {
+    const f = i / segments;
+    const aCoef = Math.sin((1 - f) * d) / Math.sin(d);
+    const bCoef = Math.sin(f * d) / Math.sin(d);
+    const x =
+      aCoef * Math.cos(lat1) * Math.cos(lng1) +
+      bCoef * Math.cos(lat2) * Math.cos(lng2);
+    const y =
+      aCoef * Math.cos(lat1) * Math.sin(lng1) +
+      bCoef * Math.cos(lat2) * Math.sin(lng2);
+    const z = aCoef * Math.sin(lat1) + bCoef * Math.sin(lat2);
+    const lat = toDeg(Math.atan2(z, Math.sqrt(x * x + y * y)));
+    let lng = toDeg(Math.atan2(y, x));
+    if (prevLng !== null) {
+      while (lng - prevLng > 180) lng -= 360;
+      while (lng - prevLng < -180) lng += 360;
+    }
+    prevLng = lng;
+    points.push([lng, lat]);
+  }
+  return points;
+}
+
+function destinationsFC(
+  destinations: GlobeDestination[],
+  brandHex: string,
+): FeatureCollection<Point> {
+  return {
+    type: "FeatureCollection",
+    features: destinations.map((d, index) => ({
+      type: "Feature",
+      // Numeric id so MapLibre feature-state (hover) works.
+      id: index,
+      geometry: { type: "Point", coordinates: [d.lng, d.lat] },
+      properties: {
+        destId: d.id,
+        tripId: d.tripId,
+        tripName: d.tripName,
+        name: d.name,
+        countryCode: d.countryCode ?? "",
+        arrivalDate: d.arrivalDate ?? "",
+        departureDate: d.departureDate ?? "",
+        color: d.categoryColor ?? brandHex,
+      },
+    })),
+  };
+}
+
+function arcsFC(arcs: GlobeArc[]): FeatureCollection<LineString> {
+  return {
+    type: "FeatureCollection",
+    features: arcs.map((arc) => ({
+      type: "Feature",
+      geometry: {
+        type: "LineString",
+        coordinates: greatCirclePoints(
+          arc.sourcePosition,
+          arc.targetPosition,
+          ARC_SEGMENTS,
+        ),
+      },
+      properties: { tripName: arc.tripName },
+    })),
+  };
 }
 
 function escapeHtml(value: string): string {
@@ -139,7 +235,9 @@ function escapeHtml(value: string): string {
 }
 
 /** Bounding box [minLng, minLat, maxLng, maxLat] of a set of [lng, lat] pairs. */
-function boundsOfPoints(points: [number, number][]): [number, number, number, number] | null {
+function boundsOfPoints(
+  points: [number, number][],
+): [number, number, number, number] | null {
   if (points.length === 0) return null;
   let minLng = Infinity;
   let minLat = Infinity;
@@ -155,7 +253,9 @@ function boundsOfPoints(points: [number, number][]): [number, number, number, nu
 }
 
 /** Bounding box of a clicked country feature's polygon geometry. */
-function boundsOfFeature(feature: GeoJSONFeature): [number, number, number, number] | null {
+function boundsOfFeature(
+  feature: GeoJSONFeature,
+): [number, number, number, number] | null {
   const geometry = feature.geometry;
   const points: [number, number][] = [];
   const collectRing = (ring: number[][]) => {
@@ -177,7 +277,9 @@ function boundsOfFeature(feature: GeoJSONFeature): [number, number, number, numb
  * Inject the PMTiles raster basemap into the dark style. Assumes a raster
  * PMTiles archive, which is schema agnostic and needs no key.
  */
-async function buildPmtilesStyle(pmtilesUrl: string): Promise<StyleSpecification> {
+async function buildPmtilesStyle(
+  pmtilesUrl: string,
+): Promise<StyleSpecification> {
   const response = await fetch("/styles/dark-style.json");
   const style = (await response.json()) as StyleSpecification;
 
@@ -214,10 +316,11 @@ export function Globe({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MlMap | null>(null);
+  const loadedRef = useRef(false);
   const [projection, setProjection] = useState<Projection>("globe");
 
-  // Mirror the latest props/handlers so the one-time map effect always reads
-  // fresh values without tearing down and rebuilding the map on every render.
+  // Mirror the latest props so the one-time map effect always reads fresh
+  // values without rebuilding the map.
   const dataRef = useRef({
     visitedCountryCodes,
     bucketCountryCodes,
@@ -229,8 +332,6 @@ export function Globe({
     enableCountryDrilldown,
     onCountrySelect,
   });
-  // Keep the mirror current for subsequent renders without touching the ref
-  // during render (the map effect below reads dataRef, never re-creating).
   useEffect(() => {
     dataRef.current = {
       visitedCountryCodes,
@@ -245,6 +346,19 @@ export function Globe({
     };
   });
 
+  // Keep the GeoJSON sources in sync when the data props change.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    const brandHex = readBrandHex();
+    const destSource = map.getSource("destinations") as
+      | GeoJSONSource
+      | undefined;
+    const arcSource = map.getSource("arcs") as GeoJSONSource | undefined;
+    destSource?.setData(destinationsFC(destinations, brandHex));
+    arcSource?.setData(arcsFC(arcs));
+  }, [destinations, arcs]);
+
   function handleToggle() {
     const map = mapRef.current;
     if (!map) return;
@@ -253,26 +367,43 @@ export function Globe({
     setProjection(next);
   }
 
+  function fitToDestinations(duration: number) {
+    const map = mapRef.current;
+    if (!map) return;
+    const bounds = boundsOfPoints(
+      dataRef.current.destinations.map(
+        (d) => [d.lng, d.lat] as [number, number],
+      ),
+    );
+    if (!bounds) return;
+    const isPoint = bounds[0] === bounds[2] && bounds[1] === bounds[3];
+    if (isPoint) {
+      map.flyTo({ center: [bounds[0], bounds[1]], zoom: 4, duration });
+    } else {
+      map.fitBounds(bounds as LngLatBoundsLike, {
+        padding: 64,
+        maxZoom: 5,
+        duration,
+      });
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     let raf = 0;
     let map: MlMap | null = null;
     let popup: MlPopup | null = null;
-    let overlay: DeckOverlay | null = null;
     let maplibregl: typeof import("maplibre-gl") | null = null;
     let protocolRegistered = false;
 
     let hoveredCountryId: number | string | null = null;
-    let hoveredPinId: string | null = null;
+    let hoveredPinId: number | string | null = null;
     let lastInteraction = 0;
     let lastFrame = 0;
-    let arcStart = 0;
-    let arcProgress = 0;
-    let arcsSettled = false;
 
-    const brand = readBrandRgb();
-    const brandFillCss = rgbCss(brand);
-    const brandTarget = darken(brand, 0.45);
+    const brand = hexToRgb(readBrandHex());
+    const brandHex = rgbToHex(brand);
+    const brandFillCss = `rgba(${brand[0]}, ${brand[1]}, ${brand[2]}, 1)`;
 
     // Destination count per country code, for the visited-country tooltip.
     const destCountByCode = new Map<string, number>();
@@ -284,159 +415,53 @@ export function Globe({
       );
     }
 
-    // Leg count per trip, so arcs on longer trips render a touch thicker.
-    const arcCountByTrip = new Map<string, number>();
-    for (const arc of dataRef.current.arcs) {
-      arcCountByTrip.set(arc.tripName, (arcCountByTrip.get(arc.tripName) ?? 0) + 1);
-    }
-    function arcWidth(arc: GlobeArc): number {
-      return 2 + Math.min((arcCountByTrip.get(arc.tripName) ?? 1) - 1, 4) * 0.25;
-    }
-
-    // Keep only visited countries. A match expression compares ISO_A2_EH
-    // against the visited codes. MapLibre expression literals do not infer to
-    // the spec tuple types, so we assert the shape.
-    const visitedFilter = [
-      "match",
-      ["get", "ISO_A2_EH"],
-      dataRef.current.visitedCountryCodes.length > 0
-        ? dataRef.current.visitedCountryCodes
-        : [" "],
-      true,
-      false,
-    ] as unknown as FilterSpecification;
-
-    // Same match shape for the "want to visit" countries.
-    const bucketFilter = [
-      "match",
-      ["get", "ISO_A2_EH"],
-      dataRef.current.bucketCountryCodes.length > 0
-        ? dataRef.current.bucketCountryCodes
-        : [" "],
-      true,
-      false,
-    ] as unknown as FilterSpecification;
-
-    function colorWithAlpha(
-      rgb: [number, number, number],
-      alpha: number,
-    ): [number, number, number, number] {
-      return [rgb[0], rgb[1], rgb[2], alpha];
+    // Match expression comparing ISO_A2_EH against a code list.
+    function matchFilter(codes: string[]): FilterSpecification {
+      return [
+        "match",
+        ["get", "ISO_A2_EH"],
+        codes.length > 0 ? codes : [" "],
+        true,
+        false,
+      ] as unknown as FilterSpecification;
     }
 
-    function pinColor(destination: GlobeDestination): [number, number, number] {
-      return destination.categoryColor
-        ? hexToRgb(destination.categoryColor)
-        : brand;
-    }
+    function showPinPopupFromFeature(feature: MapGeoJSONFeature) {
+      if (!maplibregl || !map) return;
+      const props = feature.properties ?? {};
+      const name = String(props.name ?? "");
+      const countryCode = String(props.countryCode ?? "");
+      const tripName = String(props.tripName ?? "");
+      const tripId = String(props.tripId ?? "");
+      const destId = String(props.destId ?? "");
+      const arrivalDate = props.arrivalDate ? String(props.arrivalDate) : null;
+      const departureDate = props.departureDate
+        ? String(props.departureDate)
+        : null;
+      const geometry = feature.geometry;
+      if (geometry.type !== "Point") return;
+      const [lng, lat] = geometry.coordinates as [number, number];
 
-    function buildLayers(ScatterplotLayer: typeof import("@deck.gl/layers").ScatterplotLayer, ArcLayer: typeof import("@deck.gl/layers").ArcLayer): Layer[] {
-      const { arcs: arcData, destinations: pins } = dataRef.current;
-      const eased = easeOutCubic(arcProgress);
-
-      // Wide, faint arc underneath for a subtle glow.
-      const arcGlow = new ArcLayer<GlobeArc>({
-        id: "trip-arcs-glow",
-        data: arcData,
-        greatCircle: true,
-        getSourcePosition: (d) => d.sourcePosition,
-        getTargetPosition: (d) => [
-          lerp(d.sourcePosition[0], d.targetPosition[0], eased),
-          lerp(d.sourcePosition[1], d.targetPosition[1], eased),
-        ],
-        getSourceColor: colorWithAlpha(brand, 60),
-        getTargetColor: colorWithAlpha(brandTarget, 30),
-        getWidth: (d) => arcWidth(d) + 4,
-        widthUnits: "pixels",
-        pickable: false,
-        updateTriggers: { getTargetPosition: eased },
-      });
-
-      // Bright-to-dim gradient arc on top.
-      const arcLayer = new ArcLayer<GlobeArc>({
-        id: "trip-arcs",
-        data: arcData,
-        greatCircle: true,
-        getSourcePosition: (d) => d.sourcePosition,
-        getTargetPosition: (d) => [
-          lerp(d.sourcePosition[0], d.targetPosition[0], eased),
-          lerp(d.sourcePosition[1], d.targetPosition[1], eased),
-        ],
-        getSourceColor: colorWithAlpha(brand, 235),
-        getTargetColor: colorWithAlpha(brandTarget, 150),
-        getWidth: (d) => arcWidth(d),
-        widthUnits: "pixels",
-        pickable: false,
-        updateTriggers: { getTargetPosition: eased },
-      });
-
-      // depthCompare "always" keeps the pins from being occluded by the globe
-      // surface, so they never phase in and out as the camera zooms or tilts and
-      // always sit above the country fills.
-      const glowLayer = new ScatterplotLayer<GlobeDestination>({
-        id: "pins-glow",
-        data: pins,
-        getPosition: (d) => [d.lng, d.lat],
-        getFillColor: (d) => colorWithAlpha(pinColor(d), 90),
-        getRadius: 18,
-        radiusUnits: "pixels",
-        radiusMinPixels: 12,
-        pickable: false,
-        parameters: { depthCompare: "always" },
-      });
-
-      const coreLayer = new ScatterplotLayer<GlobeDestination>({
-        id: "pins",
-        data: pins,
-        getPosition: (d) => [d.lng, d.lat],
-        getFillColor: [255, 255, 255, 255],
-        getLineColor: (d) => colorWithAlpha(pinColor(d), 255),
-        getRadius: (d) => (d.id === hoveredPinId ? PIN_RADIUS_HOVER : PIN_RADIUS),
-        radiusUnits: "pixels",
-        radiusMinPixels: PIN_RADIUS,
-        stroked: true,
-        getLineWidth: 2.5,
-        lineWidthUnits: "pixels",
-        pickable: true,
-        parameters: { depthCompare: "always" },
-        onClick: (info: PickingInfo<GlobeDestination>) => {
-          showPinPopup(info.object);
-          return true;
-        },
-        updateTriggers: { getRadius: hoveredPinId },
-      });
-
-      return [arcGlow, arcLayer, glowLayer, coreLayer];
-    }
-
-    function pushLayers() {
-      if (!overlay || !scatterRef || !arcRef) return;
-      overlay.setProps({ layers: buildLayers(scatterRef, arcRef) });
-    }
-
-    let scatterRef: typeof import("@deck.gl/layers").ScatterplotLayer | null = null;
-    let arcRef: typeof import("@deck.gl/layers").ArcLayer | null = null;
-
-    function showPinPopup(destination?: GlobeDestination | null) {
-      if (!destination || !maplibregl || !map) return;
-      const country = destination.countryCode
-        ? `${flagEmoji(destination.countryCode)} ${destination.countryCode}`
+      const country = countryCode
+        ? `${flagEmoji(countryCode)} ${countryCode}`
         : "";
-      const dates = formatDateRange(
-        destination.arrivalDate,
-        destination.departureDate,
-      );
+      const dates = formatDateRange(arrivalDate, departureDate);
       const linkHtml = dataRef.current.enableDestinationLinks
-        ? `<a href="/trips/${destination.tripId}/destinations/${destination.id}" style="display:inline-block;margin-top:8px;color:var(--brand,#3b82f6);font-weight:600;font-size:0.75rem">View details</a>`
+        ? `<a href="/trips/${tripId}/destinations/${destId}" style="display:inline-block;margin-top:8px;color:var(--brand,#3b82f6);font-weight:600;font-size:0.75rem">View details</a>`
         : "";
-      const datesHtml = dataRef.current.enableDestinationLinks && dates
-        ? `<div style="margin-top:4px;color:#8b8b94;font-size:0.75rem">${escapeHtml(dates)}</div>`
-        : "";
+      const datesHtml =
+        dataRef.current.enableDestinationLinks && dates
+          ? `<div style="margin-top:4px;color:#8b8b94;font-size:0.75rem">${escapeHtml(
+              dates,
+            )}</div>`
+          : "";
       const html = `
         <div>
-          <div style="font-weight:600;color:#f4f4f5">${escapeHtml(destination.name)}</div>
+          <div style="font-weight:600;color:#f4f4f5">${escapeHtml(name)}</div>
           <div style="color:#a1a1aa">${escapeHtml(country)}</div>
-          <div style="margin-top:4px;color:#8b8b94;font-size:0.75rem">${escapeHtml(destination.tripName)}</div>
+          <div style="margin-top:4px;color:#8b8b94;font-size:0.75rem">${escapeHtml(
+            tripName,
+          )}</div>
           ${datesHtml}
           ${linkHtml}
         </div>`;
@@ -448,7 +473,7 @@ export function Globe({
         offset: 14,
         maxWidth: "260px",
       })
-        .setLngLat([destination.lng, destination.lat])
+        .setLngLat([lng, lat])
         .setHTML(html)
         .addTo(map);
     }
@@ -476,14 +501,44 @@ export function Globe({
       hoveredCountryId = null;
     }
 
+    function clearPinHover() {
+      if (map && hoveredPinId !== null) {
+        map.setFeatureState(
+          { source: "destinations", id: hoveredPinId },
+          { hover: false },
+        );
+      }
+      hoveredPinId = null;
+    }
+
     function onMouseMove(event: MapMouseEvent) {
       if (!map) return;
-      // A hovered pin (tracked by the deck onHover handler) wins over country
-      // hover so the tooltip and cursor reflect the pin.
-      if (hoveredPinId !== null) {
+
+      // Pins win over country hover.
+      const pinFeatures = map.getLayer("pins")
+        ? map.queryRenderedFeatures(event.point, { layers: ["pins"] })
+        : [];
+      if (pinFeatures.length > 0) {
+        const feature = pinFeatures[0];
+        const nextId = feature.id ?? null;
+        if (nextId !== hoveredPinId) {
+          clearPinHover();
+          hoveredPinId = nextId;
+          if (nextId !== null) {
+            map.setFeatureState(
+              { source: "destinations", id: nextId },
+              { hover: true },
+            );
+          }
+        }
         clearCountryHover();
+        const name = String(feature.properties?.name ?? "");
+        showTooltip(event.point.x, event.point.y, name);
+        map.getCanvas().style.cursor = "pointer";
         return;
       }
+      clearPinHover();
+
       const features = map.queryRenderedFeatures(event.point, {
         layers: ["country-fill"],
       });
@@ -521,7 +576,8 @@ export function Globe({
 
     function onMouseOut() {
       clearCountryHover();
-      if (hoveredPinId === null) hideTooltip();
+      clearPinHover();
+      hideTooltip();
     }
 
     function flyToFeature(feature: GeoJSONFeature) {
@@ -537,15 +593,17 @@ export function Globe({
 
     function onMapClick(event: MapMouseEvent) {
       if (!map) return;
-      // A pin under the pointer is handled by its deck onClick; do not let the
-      // click double as a country select or a drill-down dismiss.
-      const pinHit = overlay?.pickObject({
-        x: event.point.x,
-        y: event.point.y,
-        radius: 6,
-        layerIds: ["pins"],
-      });
-      if (pinHit?.object) return;
+
+      // A click on a pin opens its popup and never doubles as a country select.
+      if (map.getLayer("pins")) {
+        const pinFeatures = map.queryRenderedFeatures(event.point, {
+          layers: ["pins"],
+        });
+        if (pinFeatures.length > 0) {
+          showPinPopupFromFeature(pinFeatures[0]);
+          return;
+        }
+      }
 
       const select = dataRef.current.onCountrySelect;
       if (!dataRef.current.enableCountryDrilldown) {
@@ -583,13 +641,6 @@ export function Globe({
 
     function frame(now: number) {
       if (!map) return;
-
-      if (overlay && arcStart > 0 && !arcsSettled) {
-        arcProgress = Math.min((now - arcStart) / ARC_DRAW_MS, 1);
-        pushLayers();
-        if (arcProgress >= 1) arcsSettled = true;
-      }
-
       if (
         dataRef.current.autoRotate &&
         lastFrame > 0 &&
@@ -602,11 +653,8 @@ export function Globe({
           center.lat,
         ]);
       }
-
       lastFrame = now;
-
-      // Once arcs have settled and there is nothing to animate, stop the loop.
-      if (arcsSettled && !dataRef.current.autoRotate) {
+      if (!dataRef.current.autoRotate) {
         raf = 0;
         return;
       }
@@ -615,13 +663,9 @@ export function Globe({
 
     async function init() {
       const maplibreModule = await import("maplibre-gl");
-      const { MapboxOverlay } = await import("@deck.gl/mapbox");
-      const { ScatterplotLayer, ArcLayer } = await import("@deck.gl/layers");
       const { Protocol } = await import("pmtiles");
       if (cancelled || !containerRef.current) return;
 
-      scatterRef = ScatterplotLayer;
-      arcRef = ArcLayer;
       const ml = maplibreModule;
       maplibregl = ml;
 
@@ -643,10 +687,15 @@ export function Globe({
       let center: [number, number] = [8, 28];
       let zoom = 1.4;
       const dataBounds = boundsOfPoints(
-        dataRef.current.destinations.map((d) => [d.lng, d.lat] as [number, number]),
+        dataRef.current.destinations.map(
+          (d) => [d.lng, d.lat] as [number, number],
+        ),
       );
       if (dataRef.current.fitToData && dataBounds) {
-        center = [(dataBounds[0] + dataBounds[2]) / 2, (dataBounds[1] + dataBounds[3]) / 2];
+        center = [
+          (dataBounds[0] + dataBounds[2]) / 2,
+          (dataBounds[1] + dataBounds[3]) / 2,
+        ];
         zoom = 1.8;
       }
 
@@ -664,50 +713,11 @@ export function Globe({
 
       m.addControl(new ml.AttributionControl({ compact: true }), "bottom-left");
 
-      function setupDeck() {
-        try {
-          const deck = new MapboxOverlay({ interleaved: true, layers: [] });
-          m.addControl(deck);
-          overlay = deck;
-          arcStart = performance.now();
-          // Track pin hover here: it fires only on change, so it is cheaper
-          // than picking on every mouse move.
-          deck.setProps({
-            onHover: (info: PickingInfo) => {
-              if (info.layer?.id !== "pins") {
-                if (hoveredPinId !== null) {
-                  hoveredPinId = null;
-                  hideTooltip();
-                  pushLayers();
-                  if (map) map.getCanvas().style.cursor = "";
-                }
-                return;
-              }
-              const object = info.object as GlobeDestination | undefined;
-              const nextId = object?.id ?? null;
-              if (nextId !== hoveredPinId) {
-                hoveredPinId = nextId;
-                pushLayers();
-              }
-              if (object) {
-                showTooltip(info.x, info.y, object.name);
-                if (map) map.getCanvas().style.cursor = "pointer";
-              }
-            },
-          });
-          pushLayers();
-        } catch (error) {
-          overlay = null;
-          console.warn("BatchPort globe: deck.gl overlay disabled", error);
-        }
-      }
-
       m.on("load", () => {
         if (cancelled || !map) return;
 
         map.setProjection({ type: "globe" });
 
-        // Subtle dark-blue atmosphere around the globe edge.
         try {
           map.setSky({
             "sky-color": "#0a1a33",
@@ -722,18 +732,17 @@ export function Globe({
           // Older renderers may not support sky; the map still works without it.
         }
 
-        // Want-to-visit fill (dim amber), drawn beneath the visited fill so a
-        // country that is both visited and on the list still reads as visited.
+        const visitedFilter = matchFilter(dataRef.current.visitedCountryCodes);
+        const bucketFilter = matchFilter(dataRef.current.bucketCountryCodes);
+
+        // Want-to-visit fill (dim amber), drawn beneath the visited fill.
         map.addLayer(
           {
             id: "country-bucket",
             type: "fill",
             source: "countries",
             filter: bucketFilter,
-            paint: {
-              "fill-color": BUCKET_FILL,
-              "fill-opacity": 0.25,
-            },
+            paint: { "fill-color": BUCKET_FILL, "fill-opacity": 0.25 },
           },
           "country-outline",
         );
@@ -759,7 +768,6 @@ export function Globe({
           "country-outline",
         );
 
-        // Lighter border around visited countries, drawn on top.
         map.addLayer({
           id: "country-visited-outline",
           type: "line",
@@ -772,27 +780,82 @@ export function Globe({
           },
         });
 
+        // Native pins and arcs: rendered by MapLibre so they stay locked to
+        // their coordinates on both globe and mercator projections.
+        map.addSource("arcs", {
+          type: "geojson",
+          data: arcsFC(dataRef.current.arcs),
+        });
+        map.addSource("destinations", {
+          type: "geojson",
+          data: destinationsFC(dataRef.current.destinations, brandHex),
+        });
+
+        map.addLayer({
+          id: "trip-arcs-glow",
+          type: "line",
+          source: "arcs",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": brandHex,
+            "line-width": 7,
+            "line-opacity": 0.18,
+            "line-blur": 2,
+          },
+        });
+        map.addLayer({
+          id: "trip-arcs",
+          type: "line",
+          source: "arcs",
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": brandHex,
+            "line-width": 2.5,
+            "line-opacity": 0.9,
+          },
+        });
+
+        map.addLayer({
+          id: "pins-glow",
+          type: "circle",
+          source: "destinations",
+          paint: {
+            "circle-radius": 14,
+            "circle-color": ["get", "color"],
+            "circle-opacity": 0.4,
+            "circle-blur": 1,
+          },
+        });
+        map.addLayer({
+          id: "pins",
+          type: "circle",
+          source: "destinations",
+          paint: {
+            "circle-radius": [
+              "case",
+              ["boolean", ["feature-state", "hover"], false],
+              PIN_RADIUS_HOVER,
+              PIN_RADIUS,
+            ],
+            "circle-color": "#ffffff",
+            "circle-stroke-color": ["get", "color"],
+            "circle-stroke-width": 2.5,
+          },
+        });
+
         map.on("mousemove", onMouseMove);
         map.on("mouseout", onMouseOut);
         map.on("click", onMapClick);
 
-        // Fit to the user's data with padding once the style is ready.
         if (dataRef.current.fitToData && dataBounds) {
-          const isPoint =
-            dataBounds[0] === dataBounds[2] && dataBounds[1] === dataBounds[3];
-          if (isPoint) {
-            map.flyTo({ center: [dataBounds[0], dataBounds[1]], zoom: 4, duration: 1200 });
-          } else {
-            map.fitBounds(dataBounds as LngLatBoundsLike, {
-              padding: 64,
-              maxZoom: 5,
-              duration: 1200,
-            });
-          }
+          fitToDestinations(1200);
         }
 
-        setupDeck();
-        raf = requestAnimationFrame(frame);
+        loadedRef.current = true;
+
+        if (dataRef.current.autoRotate) {
+          raf = requestAnimationFrame(frame);
+        }
       });
 
       m.on("mousedown", markInteraction);
@@ -808,15 +871,9 @@ export function Globe({
 
     return () => {
       cancelled = true;
+      loadedRef.current = false;
       if (raf) cancelAnimationFrame(raf);
       popup?.remove();
-      if (map && overlay) {
-        try {
-          map.removeControl(overlay);
-        } catch {
-          // Overlay may already be detached during teardown.
-        }
-      }
       map?.remove();
       if (protocolRegistered && maplibregl) {
         try {
@@ -840,7 +897,13 @@ export function Globe({
         ref={tooltipRef}
         className="pointer-events-none absolute left-0 top-0 z-20 hidden rounded-md border border-white/10 bg-black/80 px-2 py-1 text-xs font-medium text-foreground/90 shadow-md backdrop-blur-sm"
       />
-      <ProjectionToggle projection={projection} onToggle={handleToggle} />
+      <MapControls
+        projection={projection}
+        onToggle={handleToggle}
+        onRecenter={
+          destinations.length > 0 ? () => fitToDestinations(900) : undefined
+        }
+      />
     </div>
   );
 }

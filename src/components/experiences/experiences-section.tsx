@@ -112,7 +112,7 @@ export function ExperiencesSection({
                     <CategoryIcon icon={category?.icon} className="size-4" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-foreground">
+                    <div className="break-words font-medium text-foreground">
                       {experience.name}
                     </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
