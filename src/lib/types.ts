@@ -104,3 +104,15 @@ export interface GeoLocation {
   lat: number;
   lng: number;
 }
+
+// A point of interest from the POI geocoder, used to prefill an experience.
+// category_slug maps an OSM tag to one of the app's category slugs (or "other").
+export interface PoiResult {
+  name: string;
+  type: string;
+  category_slug: string;
+  lat: number;
+  lng: number;
+  country_code: string | null;
+  address: string | null;
+}

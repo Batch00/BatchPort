@@ -102,6 +102,8 @@ export default async function DestinationDetailPage({
         userId={user.id}
         isDemo={isDemo}
         photosByExperience={photosByExperience}
+        destLat={destination.latitude}
+        destLng={destination.longitude}
       />
 
       <DestinationPhotos

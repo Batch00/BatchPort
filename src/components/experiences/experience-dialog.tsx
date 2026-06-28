@@ -24,11 +24,12 @@ import {
 } from "@/components/ui/select";
 import { RatingInput } from "@/components/rating-input";
 import { CategoryIcon } from "@/components/category-icon";
+import { PoiSearch } from "@/components/poi-search";
 import {
   createExperienceAction,
   updateExperienceAction,
 } from "@/lib/actions/experiences";
-import type { Category, Experience } from "@/lib/types";
+import type { Category, Experience, PoiResult } from "@/lib/types";
 
 interface ExperienceDialogProps {
   tripId: string;
@@ -38,6 +39,9 @@ interface ExperienceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
+  // The destination center, used to bias POI search results.
+  destLat?: number | null;
+  destLng?: number | null;
 }
 
 // The dialog owns the open state; the form lives in a child so it mounts fresh
@@ -51,6 +55,8 @@ export function ExperienceDialog({
   open,
   onOpenChange,
   onSaved,
+  destLat = null,
+  destLng = null,
 }: ExperienceDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -65,6 +71,8 @@ export function ExperienceDialog({
           destinationId={destinationId}
           categories={categories}
           experience={experience}
+          destLat={destLat}
+          destLng={destLng}
           onCancel={() => onOpenChange(false)}
           onSaved={() => {
             onOpenChange(false);
@@ -81,6 +89,8 @@ function ExperienceForm({
   destinationId,
   categories,
   experience,
+  destLat,
+  destLng,
   onCancel,
   onSaved,
 }: {
@@ -88,6 +98,8 @@ function ExperienceForm({
   destinationId: string;
   categories: Category[];
   experience: Experience | null;
+  destLat: number | null;
+  destLng: number | null;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -100,7 +112,20 @@ function ExperienceForm({
     experience?.visited_date ?? "",
   );
   const [notes, setNotes] = useState(experience?.notes ?? "");
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
+    null,
+  );
   const [submitting, setSubmitting] = useState(false);
+
+  function handlePoiSelect(poi: PoiResult) {
+    setName(poi.name);
+    setCoords({ lat: poi.lat, lng: poi.lng });
+    // Auto-select the matching category if its slug exists in the list.
+    const match = categories.find(
+      (category) => category.slug === poi.category_slug,
+    );
+    if (match) setCategoryId(match.id);
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -115,6 +140,8 @@ function ExperienceForm({
       rating: rating > 0 ? rating : null,
       visited_date: visitedDate || null,
       notes: notes.trim() || null,
+      lat: coords?.lat ?? null,
+      lng: coords?.lng ?? null,
     };
     const result = experience
       ? await updateExperienceAction(
@@ -135,6 +162,19 @@ function ExperienceForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="grid gap-2">
+        <Label htmlFor="exp-poi">Search for a place (optional)</Label>
+        <PoiSearch
+          id="exp-poi"
+          lat={destLat}
+          lng={destLng}
+          onSelect={handlePoiSelect}
+        />
+        <p className="text-xs text-muted-foreground">
+          Pick a place to fill the name and category, or just type it below.
+        </p>
+      </div>
+
       <div className="grid gap-2">
         <Label htmlFor="exp-name">Name</Label>
         <Input

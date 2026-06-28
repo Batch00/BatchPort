@@ -1,18 +1,31 @@
 import { createAdminClient } from "@/utils/supabase/admin";
-import type { GeoLocation } from "@/lib/types";
+import type { GeoLocation, PoiResult } from "@/lib/types";
 
-// Geocoding helpers shared by the two API routes. The geocode_cache table is
+// Geocoding helpers shared by the geocode API routes. The geocode_cache table is
 // service-role only (no user RLS policies), so every read and write here uses
 // the admin client and must name the schema explicitly: the admin client is not
 // scoped to "batchport" by default.
 
-export type GeocodeProvider = "photon" | "nominatim";
+export type GeocodeProvider = "photon" | "photon_poi" | "nominatim";
 
 // Cached entries older than this are treated as a miss and refetched.
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export function normalizeQuery(query: string): string {
   return query.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Keep the first item per key, dropping later duplicates. Preserves order.
+function dedupeByKey<T>(items: T[], keyOf: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    const key = keyOf(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
 }
 
 interface CacheRow {
@@ -83,6 +96,12 @@ interface PhotonFeature {
     state?: string;
     county?: string;
     city?: string;
+    street?: string;
+    housenumber?: string;
+    postcode?: string;
+    osm_key?: string;
+    osm_value?: string;
+    type?: string;
   };
 }
 
@@ -109,7 +128,127 @@ export function parsePhoton(raw: unknown): GeoLocation[] {
       lat: coords[1],
     });
   }
-  return results;
+  // Photon often returns several rows for the same city (different admin levels).
+  // Keep one per (normalized name + country code) so "London" shows once.
+  return dedupeByKey(
+    results,
+    (result) => `${normalizeQuery(result.name)}|${result.country_code ?? ""}`,
+  );
+}
+
+// --- POI search ---
+
+// Map an OSM key/value pair to one of the app's category slugs. Best effort:
+// nightlife is checked before restaurant so a bar reads as nightlife.
+function osmToCategorySlug(osmKey: string, osmValue: string): string {
+  if (osmKey === "tourism") {
+    if (osmValue === "museum" || osmValue === "gallery") return "museum";
+    if (osmValue === "attraction" || osmValue === "viewpoint") {
+      return "attraction";
+    }
+    if (
+      osmValue === "hotel" ||
+      osmValue === "hostel" ||
+      osmValue === "guest_house" ||
+      osmValue === "motel"
+    ) {
+      return "lodging";
+    }
+  }
+  if (osmKey === "historic") return "attraction";
+  // Many landmarks (towers, monuments, bridges) carry man_made as their primary
+  // tag, so treat them as attractions. The Eiffel Tower is man_made=tower.
+  if (osmKey === "man_made") return "attraction";
+  if (osmKey === "amenity") {
+    if (osmValue === "pub" || osmValue === "nightclub" || osmValue === "bar") {
+      return "nightlife";
+    }
+    if (
+      osmValue === "restaurant" ||
+      osmValue === "cafe" ||
+      osmValue === "fast_food" ||
+      osmValue === "food_court" ||
+      osmValue === "marketplace"
+    ) {
+      return "restaurant";
+    }
+  }
+  if (osmKey === "leisure") {
+    if (osmValue === "beach_resort") return "beach";
+    if (
+      osmValue === "park" ||
+      osmValue === "nature_reserve" ||
+      osmValue === "garden"
+    ) {
+      return "nature";
+    }
+  }
+  if (osmKey === "natural") {
+    if (osmValue === "beach") return "beach";
+    return "nature";
+  }
+  return "other";
+}
+
+const SLUG_LABEL: Record<string, string> = {
+  museum: "Museum",
+  attraction: "Attraction",
+  restaurant: "Restaurant",
+  nightlife: "Nightlife",
+  beach: "Beach",
+  nature: "Nature",
+  lodging: "Lodging",
+};
+
+function titleize(value: string): string {
+  return value
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function poiAddress(props: NonNullable<PhotonFeature["properties"]>): string | null {
+  const streetPart = props.street
+    ? props.housenumber
+      ? `${props.housenumber} ${props.street}`
+      : props.street
+    : null;
+  const parts = [streetPart, props.city ?? props.county, props.state].filter(
+    (part): part is string => Boolean(part),
+  );
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+export function parsePhotonPoi(raw: unknown): PoiResult[] {
+  const response = raw as PhotonResponse;
+  const features = response.features ?? [];
+  const results: PoiResult[] = [];
+  for (const feature of features) {
+    const coords = feature.geometry?.coordinates;
+    const props = feature.properties ?? {};
+    if (!coords || coords.length < 2 || !props.name) continue;
+    const osmKey = props.osm_key ?? "";
+    const osmValue = props.osm_value ?? "";
+    const slug = osmToCategorySlug(osmKey, osmValue);
+    const type =
+      slug !== "other"
+        ? SLUG_LABEL[slug]
+        : osmValue
+          ? titleize(osmValue)
+          : "Place";
+    results.push({
+      name: props.name,
+      type,
+      category_slug: slug,
+      lat: coords[1],
+      lng: coords[0],
+      country_code: props.countrycode ? props.countrycode.toUpperCase() : null,
+      address: poiAddress(props),
+    });
+  }
+  // One result per place name (normalized).
+  return dedupeByKey(results, (result) => normalizeQuery(result.name));
 }
 
 interface NominatimResponse {

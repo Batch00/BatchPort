@@ -41,6 +41,9 @@ interface ExperiencesSectionProps {
   userId: string;
   isDemo: boolean;
   photosByExperience: Record<string, Photo[]>;
+  // The destination center, passed to the dialog's POI search bias.
+  destLat: number | null;
+  destLng: number | null;
 }
 
 export function ExperiencesSection({
@@ -51,6 +54,8 @@ export function ExperiencesSection({
   userId,
   isDemo,
   photosByExperience,
+  destLat,
+  destLng,
 }: ExperiencesSectionProps) {
   const router = useRouter();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -194,6 +199,8 @@ export function ExperiencesSection({
         destinationId={destinationId}
         categories={categories}
         experience={editing}
+        destLat={destLat}
+        destLng={destLng}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSaved={() => router.refresh()}
