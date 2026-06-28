@@ -138,7 +138,7 @@ function sortExperiences(a: ExperienceRow, b: ExperienceRow): number {
 
 // Read-only trips with their destinations and experiences for the share view.
 // Anon client plus an explicit user filter, gated by is_shared() RLS.
-async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
+export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
   const supabase = await createClient();
 
   const [tripsResult, destsResult] = await Promise.all([

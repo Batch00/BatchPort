@@ -81,8 +81,8 @@ const BUCKET_FILL = "#b45309";
 const ROTATION_DEG_PER_SEC = 3;
 const IDLE_BEFORE_RESUME_MS = 5000;
 const ARC_DRAW_MS = 2200;
-const PIN_RADIUS = 4.5;
-const PIN_RADIUS_HOVER = 6.5;
+const PIN_RADIUS = 6;
+const PIN_RADIUS_HOVER = 8.5;
 
 function hexToRgb(hex: string): [number, number, number] {
   let value = hex.trim().replace("#", "");
@@ -370,14 +370,19 @@ export function Globe({
         updateTriggers: { getTargetPosition: eased },
       });
 
+      // depthCompare "always" keeps the pins from being occluded by the globe
+      // surface, so they never phase in and out as the camera zooms or tilts and
+      // always sit above the country fills.
       const glowLayer = new ScatterplotLayer<GlobeDestination>({
         id: "pins-glow",
         data: pins,
         getPosition: (d) => [d.lng, d.lat],
-        getFillColor: (d) => colorWithAlpha(pinColor(d), 55),
-        getRadius: 13,
+        getFillColor: (d) => colorWithAlpha(pinColor(d), 90),
+        getRadius: 18,
         radiusUnits: "pixels",
+        radiusMinPixels: 12,
         pickable: false,
+        parameters: { depthCompare: "always" },
       });
 
       const coreLayer = new ScatterplotLayer<GlobeDestination>({
@@ -388,10 +393,12 @@ export function Globe({
         getLineColor: (d) => colorWithAlpha(pinColor(d), 255),
         getRadius: (d) => (d.id === hoveredPinId ? PIN_RADIUS_HOVER : PIN_RADIUS),
         radiusUnits: "pixels",
+        radiusMinPixels: PIN_RADIUS,
         stroked: true,
-        getLineWidth: 1.5,
+        getLineWidth: 2.5,
         lineWidthUnits: "pixels",
         pickable: true,
+        parameters: { depthCompare: "always" },
         onClick: (info: PickingInfo<GlobeDestination>) => {
           showPinPopup(info.object);
           return true;
