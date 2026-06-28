@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Loader2Icon } from "lucide-react";
 
@@ -40,6 +40,9 @@ interface ExperienceDialogProps {
   onSaved: () => void;
 }
 
+// The dialog owns the open state; the form lives in a child so it mounts fresh
+// (and resets from the current experience) each time the dialog opens, with no
+// reset effect.
 export function ExperienceDialog({
   tripId,
   destinationId,
@@ -49,22 +52,55 @@ export function ExperienceDialog({
   onOpenChange,
   onSaved,
 }: ExperienceDialogProps) {
-  const [name, setName] = useState("");
-  const [categoryId, setCategoryId] = useState<string>("");
-  const [rating, setRating] = useState(0);
-  const [visitedDate, setVisitedDate] = useState("");
-  const [notes, setNotes] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {experience ? "Edit experience" : "Add experience"}
+          </DialogTitle>
+        </DialogHeader>
+        <ExperienceForm
+          tripId={tripId}
+          destinationId={destinationId}
+          categories={categories}
+          experience={experience}
+          onCancel={() => onOpenChange(false)}
+          onSaved={() => {
+            onOpenChange(false);
+            onSaved();
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-  // Reset the form to the editing target (or blank) each time the dialog opens.
-  useEffect(() => {
-    if (!open) return;
-    setName(experience?.name ?? "");
-    setCategoryId(experience?.category_id ?? "");
-    setRating(experience?.rating ?? 0);
-    setVisitedDate(experience?.visited_date ?? "");
-    setNotes(experience?.notes ?? "");
-  }, [open, experience]);
+function ExperienceForm({
+  tripId,
+  destinationId,
+  categories,
+  experience,
+  onCancel,
+  onSaved,
+}: {
+  tripId: string;
+  destinationId: string;
+  categories: Category[];
+  experience: Experience | null;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(experience?.name ?? "");
+  const [categoryId, setCategoryId] = useState<string>(
+    experience?.category_id ?? "",
+  );
+  const [rating, setRating] = useState(experience?.rating ?? 0);
+  const [visitedDate, setVisitedDate] = useState(
+    experience?.visited_date ?? "",
+  );
+  const [notes, setNotes] = useState(experience?.notes ?? "");
+  const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -94,117 +130,104 @@ export function ExperienceDialog({
       toast.error(result.error);
       return;
     }
-    onOpenChange(false);
     onSaved();
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {experience ? "Edit experience" : "Add experience"}
-          </DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="exp-name">Name</Label>
-            <Input
-              id="exp-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="British Museum"
-              required
-              disabled={submitting}
-            />
-          </div>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="grid gap-2">
+        <Label htmlFor="exp-name">Name</Label>
+        <Input
+          id="exp-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="British Museum"
+          required
+          disabled={submitting}
+        />
+      </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="exp-category">Category</Label>
-            <Select
-              value={categoryId}
-              onValueChange={setCategoryId}
-              disabled={submitting}
-            >
-              <SelectTrigger id="exp-category">
-                <SelectValue placeholder="Select a category" />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((category) => (
-                  <SelectItem key={category.id} value={category.id}>
-                    <CategoryIcon
-                      icon={category.icon}
-                      className="size-4"
-                    />
-                    {category.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+      <div className="grid gap-2">
+        <Label htmlFor="exp-category">Category</Label>
+        <Select
+          value={categoryId}
+          onValueChange={setCategoryId}
+          disabled={submitting}
+        >
+          <SelectTrigger id="exp-category">
+            <SelectValue placeholder="Select a category" />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((category) => (
+              <SelectItem key={category.id} value={category.id}>
+                <CategoryIcon icon={category.icon} className="size-4" />
+                {category.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-          <div className="grid gap-2">
-            <Label>Rating</Label>
-            <div className="flex items-center gap-3">
-              <RatingInput value={rating} onChange={setRating} size={26} />
-              {rating > 0 ? (
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => setRating(0)}
-                >
-                  Clear
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="exp-date">Visited date</Label>
-            <Input
-              id="exp-date"
-              type="date"
-              value={visitedDate}
-              onChange={(e) => setVisitedDate(e.target.value)}
-              disabled={submitting}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="exp-notes">Notes</Label>
-            <Textarea
-              id="exp-notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              disabled={submitting}
-            />
-          </div>
-
-          <DialogFooter>
-            <Button
+      <div className="grid gap-2">
+        <Label>Rating</Label>
+        <div className="flex items-center gap-3">
+          <RatingInput value={rating} onChange={setRating} size={26} />
+          {rating > 0 ? (
+            <button
               type="button"
-              variant="ghost"
-              disabled={submitting}
-              onClick={() => onOpenChange(false)}
+              className="text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setRating(0)}
             >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={submitting}
-              className="bg-brand text-brand-foreground hover:bg-brand/90"
-            >
-              {submitting ? (
-                <Loader2Icon className="size-4 animate-spin" />
-              ) : experience ? (
-                "Save"
-              ) : (
-                "Add experience"
-              )}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+              Clear
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="exp-date">Visited date</Label>
+        <Input
+          id="exp-date"
+          type="date"
+          value={visitedDate}
+          onChange={(e) => setVisitedDate(e.target.value)}
+          disabled={submitting}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="exp-notes">Notes</Label>
+        <Textarea
+          id="exp-notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          disabled={submitting}
+        />
+      </div>
+
+      <DialogFooter>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={submitting}
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          disabled={submitting}
+          className="bg-brand text-brand-foreground hover:bg-brand/90"
+        >
+          {submitting ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : experience ? (
+            "Save"
+          ) : (
+            "Add experience"
+          )}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }

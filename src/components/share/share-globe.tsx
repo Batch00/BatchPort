@@ -33,7 +33,7 @@ export function ShareGlobe({ data }: { data: MapData }) {
   const isEmpty = destinations.length === 0;
 
   return (
-    <div className="relative h-[60vh] min-h-[380px] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d]">
+    <div className="relative h-[45vh] min-h-[300px] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d] sm:h-[60vh] sm:min-h-[380px]">
       <Globe
         visitedCountryCodes={visitedCountryCodes}
         bucketCountryCodes={bucketCountryCodes}

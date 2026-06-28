@@ -11,6 +11,8 @@ import {
 import { getTrips } from "@/lib/trips";
 import { BucketListBoard } from "@/components/bucket-list/bucket-list-board";
 
+export const metadata = { title: "Bucket List" };
+
 // The bucket list page. Server component: it resolves the current user (the demo
 // account when signed in as the demo) and hands the data to the client board.
 export default async function BucketListPage() {

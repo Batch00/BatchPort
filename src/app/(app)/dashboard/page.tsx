@@ -25,6 +25,8 @@ function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+export const metadata = { title: "Dashboard" };
+
 // The authenticated dashboard mirrors the demo and share layout (globe, stats
 // summary, trips, bucket progress) but keeps the editing affordances: add trip,
 // clickable trip cards, and links into the deep-dive stats and bucket pages.

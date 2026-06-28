@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ChevronLeftIcon,
@@ -246,6 +246,21 @@ function Lightbox({
   onNext: () => void;
   onClose: () => void;
 }) {
+  // Track a horizontal swipe on the image to move between photos on touch.
+  const touchStartX = useRef<number | null>(null);
+
+  function onTouchStart(event: React.TouchEvent) {
+    touchStartX.current = event.changedTouches[0]?.clientX ?? null;
+  }
+  function onTouchEnd(event: React.TouchEvent) {
+    if (touchStartX.current === null || !hasMultiple) return;
+    const delta = (event.changedTouches[0]?.clientX ?? 0) - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(delta) < 50) return;
+    if (delta < 0) onNext();
+    else onPrev();
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 sm:p-8"
@@ -277,6 +292,8 @@ function Lightbox({
       <figure
         className="flex max-h-full max-w-5xl flex-col items-center gap-3"
         onClick={(event) => event.stopPropagation()}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img

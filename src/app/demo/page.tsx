@@ -7,7 +7,7 @@ import { SharedProfileView } from "@/components/share/shared-profile-view";
 // Sessionless, read-only demo. It renders the demo user's shared profile via the
 // anon client (gated by is_shared() RLS), so no sign-in happens here.
 export const metadata = {
-  title: "Demo | BatchPort",
+  title: "Demo",
   description: "Explore a read-only demo of BatchPort, a personal travel tracker.",
 };
 

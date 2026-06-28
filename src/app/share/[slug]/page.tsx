@@ -18,17 +18,21 @@ export async function generateMetadata({
   const { slug } = await params;
   const userId = await getUserBySlug(slug);
   if (!userId) {
-    return { title: "Profile not shared | BatchPort" };
+    // Bare string: the root template appends " | BatchPort".
+    return { title: "Profile not shared" };
   }
   const meta = await getShareMeta(userId);
-  const title = `${slug}'s Travel Map | BatchPort`;
+  // The document title flows through the root "%s | BatchPort" template; the
+  // social titles set the full string explicitly.
+  const pageTitle = `${slug}'s Travel Map`;
+  const fullTitle = `${pageTitle} | BatchPort`;
   const description = `${meta.countries} countries visited across ${meta.trips} trips. Explore the interactive travel map.`;
   // og:image is skipped: there is no dynamic image generator yet.
   return {
-    title,
+    title: pageTitle,
     description,
-    openGraph: { title, description, type: "website" },
-    twitter: { card: "summary", title, description },
+    openGraph: { title: fullTitle, description, type: "website" },
+    twitter: { card: "summary", title: fullTitle, description },
   };
 }
 

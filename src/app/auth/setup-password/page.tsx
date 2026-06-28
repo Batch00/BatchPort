@@ -30,34 +30,48 @@ export default function SetupPasswordPage() {
   // be a client component: we read window.location.hash and exchange the tokens
   // for a session before showing the form.
   useEffect(() => {
-    const hash = window.location.hash.startsWith("#")
-      ? window.location.hash.slice(1)
-      : window.location.hash;
-    const params = new URLSearchParams(hash);
-    const accessToken = params.get("access_token");
-    const refreshToken = params.get("refresh_token");
+    let active = true;
 
-    if (!accessToken || !refreshToken) {
-      setSessionError(
-        "This link is invalid or has expired. Request a new invite at batch-apps.com.",
-      );
+    // Keep all state updates inside this async function (not synchronously in
+    // the effect body) so the token exchange drives the UI state.
+    async function activate() {
+      const hash = window.location.hash.startsWith("#")
+        ? window.location.hash.slice(1)
+        : window.location.hash;
+      const params = new URLSearchParams(hash);
+      const accessToken = params.get("access_token");
+      const refreshToken = params.get("refresh_token");
+
+      if (!accessToken || !refreshToken) {
+        if (active) {
+          setSessionError(
+            "This link is invalid or has expired. Request a new invite at batch-apps.com.",
+          );
+          setReady(true);
+        }
+        return;
+      }
+
+      const supabase = createClient();
+      const { error: setErr } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      if (!active) return;
+      if (setErr) {
+        setSessionError(
+          "We could not verify your invite. Request a new one at batch-apps.com.",
+        );
+      }
+      // Drop the tokens from the address bar once consumed.
+      window.history.replaceState(null, "", window.location.pathname);
       setReady(true);
-      return;
     }
 
-    const supabase = createClient();
-    supabase.auth
-      .setSession({ access_token: accessToken, refresh_token: refreshToken })
-      .then(({ error: setErr }) => {
-        if (setErr) {
-          setSessionError(
-            "We could not verify your invite. Request a new one at batch-apps.com.",
-          );
-        }
-        // Drop the tokens from the address bar once consumed.
-        window.history.replaceState(null, "", window.location.pathname);
-        setReady(true);
-      });
+    void activate();
+    return () => {
+      active = false;
+    };
   }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {

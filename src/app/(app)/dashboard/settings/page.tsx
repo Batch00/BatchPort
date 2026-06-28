@@ -6,6 +6,8 @@ import { isDemoUser } from "@/lib/demo";
 import { getShareSettings } from "@/lib/share-settings";
 import { ShareSettingsForm } from "@/components/settings/share-settings-form";
 
+export const metadata = { title: "Settings" };
+
 // Authenticated settings page. For now it covers public sharing: enabling the
 // public link and choosing a slug.
 export default async function SettingsPage() {

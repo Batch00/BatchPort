@@ -29,7 +29,7 @@ export function StatsGrid({ summary, distanceKm }: StatsGridProps) {
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard
         label="Countries"
         value={summary.countries_visited}
@@ -62,7 +62,6 @@ export function StatsGrid({ summary, distanceKm }: StatsGridProps) {
         value={formatKm(distanceKm)}
         icon={LayersIcon}
         subtext={funDistanceComparison(distanceKm)}
-        className="col-span-2 sm:col-span-1"
       />
     </div>
   );

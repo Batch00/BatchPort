@@ -10,6 +10,8 @@ import { CountryChart } from "@/components/stats/country-chart";
 import { TravelMapStats } from "@/components/stats/travel-map-stats";
 import { BucketProgress } from "@/components/stats/bucket-progress";
 
+export const metadata = { title: "Travel Stats" };
+
 // Travel stats dashboard. Server component: it resolves the current user (the
 // demo account when signed in as the demo) and passes that id to getAllStats so
 // the SQL views return that user's data. Charts receive plain data props.

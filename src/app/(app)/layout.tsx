@@ -1,10 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { SettingsIcon } from "lucide-react";
 
 import { createClient } from "@/utils/supabase/server";
 import { isDemoUser } from "@/lib/demo";
-import { Button } from "@/components/ui/button";
+import { AppNav } from "@/components/app-nav";
 import { signOut } from "./actions";
 
 // Layout for every authenticated route. Guards access at the server: an
@@ -28,51 +26,7 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-dvh flex-col bg-[#0a0a0a]">
-      <header className="flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-6">
-        <nav className="flex items-center gap-5">
-          <Link
-            href="/dashboard"
-            className="text-sm font-semibold tracking-tight"
-          >
-            Batch<span className="text-brand">Port</span>
-          </Link>
-          <Link
-            href="/dashboard"
-            className="text-sm text-foreground/60 transition-colors hover:text-foreground"
-          >
-            Dashboard
-          </Link>
-          <Link
-            href="/dashboard/bucket-list"
-            className="text-sm text-foreground/60 transition-colors hover:text-foreground"
-          >
-            Bucket List
-          </Link>
-          <Link
-            href="/dashboard/stats"
-            className="text-sm text-foreground/60 transition-colors hover:text-foreground"
-          >
-            Stats
-          </Link>
-        </nav>
-        <div className="flex items-center gap-3">
-          <span className="hidden text-sm text-foreground/60 sm:inline">
-            {user.email}
-          </span>
-          <Link
-            href="/dashboard/settings"
-            aria-label="Settings"
-            className="flex size-8 items-center justify-center rounded-md text-foreground/60 transition-colors hover:bg-white/5 hover:text-foreground"
-          >
-            <SettingsIcon className="size-4" />
-          </Link>
-          <form action={signOut}>
-            <Button type="submit" variant="ghost" size="sm">
-              Sign out
-            </Button>
-          </form>
-        </div>
-      </header>
+      <AppNav email={user.email ?? ""} signOut={signOut} />
 
       {demo ? (
         <div className="border-b border-brand/20 bg-brand/10 px-4 py-2 text-center text-xs text-foreground/70 sm:px-6">

@@ -1,81 +1,97 @@
-// Generates placeholder PWA icons (no external dependencies).
-// Produces a dark icon with a brand-blue mark plus a full-bleed maskable variant.
+// Generates the BatchPort PWA icon set from a single SVG mark (a minimal globe
+// in electric blue on the dark app background). Uses sharp to rasterize.
+//
+// Outputs:
+//   public/icons/icon-{48,72,96,128,144,192,384,512}.png  (purpose: any)
+//   public/icons/icon-maskable-{192,512}.png              (Android safe zone)
+//   public/icons/apple-touch-icon.png                     (180, full bleed)
+//   public/icons/icon-32.png                              (favicon size)
+//   src/app/favicon.ico                                   (32px PNG in an ICO)
+//
 // Re-run with: node scripts/generate-icons.mjs
-import { deflateSync, crc32 } from "node:zlib";
+
+import sharp from "sharp";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const outDir = join(__dirname, "..", "public", "icons");
+const root = join(__dirname, "..");
+const iconsDir = join(root, "public", "icons");
+mkdirSync(iconsDir, { recursive: true });
 
-const BRAND = [0x25, 0x63, 0xeb]; // #2563EB electric blue
-const DARK = [0x0a, 0x0a, 0x0a]; // near black background
+const BRAND = "#2563eb"; // electric blue, matches var(--brand)
+const DARK = "#0a0a0a"; // app background
 
-// Build a single PNG chunk: length, type, data, crc32(type + data).
-function chunk(type, data) {
-  const typeBuf = Buffer.from(type, "ascii");
-  const body = Buffer.concat([typeBuf, data]);
-  const len = Buffer.alloc(4);
-  len.writeUInt32BE(data.length, 0);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(body) >>> 0, 0);
-  return Buffer.concat([len, typeBuf, data, crc]);
+// A minimal globe: a ring, a meridian ellipse, and three latitude lines.
+// fullBleed drops the rounded corners (for maskable and apple icons); markScale
+// keeps the mark inside the maskable safe zone when smaller.
+function buildSvg(size, { fullBleed = false, markScale = 0.3 } = {}) {
+  const center = size / 2;
+  const radius = size * markScale;
+  const stroke = Math.max(1.5, size * 0.05);
+  const corner = fullBleed ? 0 : size * 0.22;
+  const latitude = (dy, halfWidth) =>
+    `<line x1="${center - halfWidth}" y1="${center + dy}" x2="${
+      center + halfWidth
+    }" y2="${center + dy}" />`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+  <rect width="${size}" height="${size}" rx="${corner}" fill="${DARK}"/>
+  <g fill="none" stroke="${BRAND}" stroke-width="${stroke}" stroke-linecap="round">
+    <circle cx="${center}" cy="${center}" r="${radius}"/>
+    <ellipse cx="${center}" cy="${center}" rx="${radius * 0.5}" ry="${radius}"/>
+    ${latitude(0, radius)}
+    ${latitude(-radius * 0.5, radius * 0.86)}
+    ${latitude(radius * 0.5, radius * 0.86)}
+  </g>
+</svg>`;
 }
 
-// Render an RGBA solid-color background with a centered filled circle.
-function renderPng(size, bg, fg, radiusRatio) {
-  const radius = size * radiusRatio;
-  const cx = size / 2;
-  const cy = size / 2;
-  const rowBytes = size * 4;
-  // One extra byte per row for the PNG filter type (0 = none).
-  const raw = Buffer.alloc(size * (rowBytes + 1));
-  for (let y = 0; y < size; y++) {
-    const rowStart = y * (rowBytes + 1);
-    raw[rowStart] = 0;
-    for (let x = 0; x < size; x++) {
-      const dx = x + 0.5 - cx;
-      const dy = y + 0.5 - cy;
-      const inside = dx * dx + dy * dy <= radius * radius;
-      const c = inside ? fg : bg;
-      const p = rowStart + 1 + x * 4;
-      raw[p] = c[0];
-      raw[p + 1] = c[1];
-      raw[p + 2] = c[2];
-      raw[p + 3] = 0xff;
-    }
-  }
-
-  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 6; // color type: RGBA
-  ihdr[10] = 0; // compression
-  ihdr[11] = 0; // filter
-  ihdr[12] = 0; // interlace
-
-  return Buffer.concat([
-    sig,
-    chunk("IHDR", ihdr),
-    chunk("IDAT", deflateSync(raw, { level: 9 })),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
+function renderPng(size, options) {
+  return sharp(Buffer.from(buildSvg(size, options))).png().toBuffer();
 }
 
-mkdirSync(outDir, { recursive: true });
-
-const icons = [
-  { file: "icon-192.png", size: 192, bg: DARK, fg: BRAND, radius: 0.32 },
-  { file: "icon-512.png", size: 512, bg: DARK, fg: BRAND, radius: 0.32 },
-  // Maskable: full-bleed brand background, mark stays inside the 80% safe zone.
-  { file: "icon-maskable-512.png", size: 512, bg: BRAND, fg: DARK, radius: 0.3 },
-];
-
-for (const { file, size, bg, fg, radius } of icons) {
-  const png = renderPng(size, bg, fg, radius);
-  writeFileSync(join(outDir, file), png);
-  console.log(`wrote public/icons/${file} (${png.length} bytes)`);
+// Wrap a 32x32 PNG in a single-image ICO container. Modern browsers read the
+// embedded PNG directly.
+function buildIco(pngBuffer) {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); // reserved
+  header.writeUInt16LE(1, 2); // type: icon
+  header.writeUInt16LE(1, 4); // image count
+  const entry = Buffer.alloc(16);
+  entry.writeUInt8(32, 0); // width
+  entry.writeUInt8(32, 1); // height
+  entry.writeUInt8(0, 2); // palette
+  entry.writeUInt8(0, 3); // reserved
+  entry.writeUInt16LE(1, 4); // color planes
+  entry.writeUInt16LE(32, 6); // bits per pixel
+  entry.writeUInt32LE(pngBuffer.length, 8); // size of image data
+  entry.writeUInt32LE(22, 12); // offset (6 + 16)
+  return Buffer.concat([header, entry, pngBuffer]);
 }
+
+const STANDARD_SIZES = [48, 72, 96, 128, 144, 192, 384, 512];
+
+for (const size of STANDARD_SIZES) {
+  writeFileSync(join(iconsDir, `icon-${size}.png`), await renderPng(size));
+}
+
+for (const size of [192, 512]) {
+  writeFileSync(
+    join(iconsDir, `icon-maskable-${size}.png`),
+    await renderPng(size, { fullBleed: true, markScale: 0.22 }),
+  );
+}
+
+writeFileSync(
+  join(iconsDir, "apple-touch-icon.png"),
+  await renderPng(180, { fullBleed: true, markScale: 0.3 }),
+);
+
+const favicon = await renderPng(32);
+writeFileSync(join(iconsDir, "icon-32.png"), favicon);
+writeFileSync(join(root, "src", "app", "favicon.ico"), buildIco(favicon));
+
+console.log(
+  `Generated ${STANDARD_SIZES.length} standard icons, 2 maskable, apple-touch, favicon-32, and favicon.ico.`,
+);
