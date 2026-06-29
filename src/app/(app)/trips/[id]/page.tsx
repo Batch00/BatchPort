@@ -60,8 +60,10 @@ export default async function TripDetailPage({
   const firstDestinationCover = trip.destinations
     .map((destination) => destinationCovers.get(destination.id))
     .find((cover): cover is Photo => Boolean(cover));
-  const bannerPhoto =
-    pickCover(tripPhotos, trip.cover_photo_id) ?? firstDestinationCover ?? null;
+  const tripCoverPhoto = pickCover(tripPhotos, trip.cover_photo_id);
+  const bannerPhoto = tripCoverPhoto ?? firstDestinationCover ?? null;
+  // Only apply cover_position when the trip's own cover photo is used.
+  const bannerPosition = tripCoverPhoto ? (trip.cover_position ?? null) : null;
 
   return (
     <div className="mx-auto w-full max-w-3xl p-6 sm:p-8">
@@ -73,7 +75,7 @@ export default async function TripDetailPage({
         Back to trips
       </Link>
 
-      <PhotoBanner photo={bannerPhoto} className="mb-8 min-h-52 sm:min-h-64">
+      <PhotoBanner photo={bannerPhoto} coverPosition={bannerPosition} className="mb-8 min-h-52 sm:min-h-64">
         <div className="absolute right-4 top-4 flex items-center gap-2">
           <Link
             href={`/trips/${trip.id}/edit`}
@@ -142,6 +144,14 @@ export default async function TripDetailPage({
                           <img
                             src={getPhotoUrl(cover)}
                             alt=""
+                            loading="lazy"
+                            style={
+                              destination.cover_position
+                                ? {
+                                    objectPosition: `${destination.cover_position.x}% ${destination.cover_position.y}%`,
+                                  }
+                                : undefined
+                            }
                             className="size-full object-cover"
                           />
                         ) : (
@@ -188,6 +198,7 @@ export default async function TripDetailPage({
         userId={user.id}
         isDemo={isDemoUser(user.id)}
         coverPhotoId={trip.cover_photo_id}
+        coverPosition={trip.cover_position ?? null}
         destinations={trip.destinations.map((destination) => ({
           id: destination.id,
           name: destination.name,

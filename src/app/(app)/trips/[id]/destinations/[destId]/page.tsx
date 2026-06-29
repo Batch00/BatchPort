@@ -56,7 +56,7 @@ export default async function DestinationDetailPage({
         Back to trip
       </Link>
 
-      <PhotoBanner photo={cover} className="mb-8 min-h-52 sm:min-h-64">
+      <PhotoBanner photo={cover} coverPosition={destination.cover_position ?? null} className="mb-8 min-h-52 sm:min-h-64">
         <div className="absolute right-4 top-4 flex items-center gap-2">
           <Link
             href={`/trips/${id}/destinations/${destId}/edit`}
@@ -112,6 +112,7 @@ export default async function DestinationDetailPage({
         isDemo={isDemo}
         photos={photos}
         coverPhotoId={destination.cover_photo_id}
+        coverPosition={destination.cover_position ?? null}
       />
     </div>
   );

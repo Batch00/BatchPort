@@ -19,7 +19,7 @@ export interface DestinationInput {
 }
 
 const DESTINATION_COLUMNS =
-  "id,trip_id,user_id,name,country_code,admin_region,latitude,longitude,arrival_date,departure_date,order_index,cover_photo_id,notes,created_at,updated_at";
+  "id,trip_id,user_id,name,country_code,admin_region,latitude,longitude,arrival_date,departure_date,order_index,cover_photo_id,cover_position,notes,created_at,updated_at";
 
 // The destinations.geom column is a PostGIS geography(Point,4326). PostgREST
 // accepts an EWKT string for it, and the latitude/longitude columns are

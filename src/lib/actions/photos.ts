@@ -1,3 +1,10 @@
+/*
+ * DATABASE CHANGES REQUIRED (run in Supabase SQL editor before deploying):
+ *
+ * ALTER TABLE batchport.trips ADD COLUMN IF NOT EXISTS cover_position jsonb DEFAULT '{"x": 50, "y": 50}';
+ * ALTER TABLE batchport.destinations ADD COLUMN IF NOT EXISTS cover_position jsonb DEFAULT '{"x": 50, "y": 50}';
+ */
+
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -57,14 +64,16 @@ export async function setCoverPhoto(
   ownerType: PhotoOwnerType,
   ownerId: string,
   photoId: string,
+  position?: { x: number; y: number },
 ): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   const { supabase } = await requireUser();
   const table = ownerType === "trip" ? "trips" : "destinations";
-  const { error } = await supabase
-    .from(table)
-    .update({ cover_photo_id: photoId })
-    .eq("id", ownerId);
+  const patch =
+    position !== undefined
+      ? { cover_photo_id: photoId, cover_position: { x: position.x, y: position.y } }
+      : { cover_photo_id: photoId };
+  const { error } = await supabase.from(table).update(patch).eq("id", ownerId);
   if (error) return { error: "Could not set the cover photo." };
 
   revalidatePath("/dashboard");

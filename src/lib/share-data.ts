@@ -24,6 +24,7 @@ export interface ProfileDestination {
   arrival_date: string | null;
   departure_date: string | null;
   coverUrl: string | null;
+  cover_position: { x: number; y: number } | null;
   experiences: ProfileExperience[];
 }
 
@@ -35,6 +36,7 @@ export interface ProfileTrip {
   status: string;
   notes: string | null;
   coverUrl: string | null;
+  cover_position: { x: number; y: number } | null;
   destinations: ProfileDestination[];
 }
 
@@ -108,6 +110,7 @@ interface DestinationRow {
   departure_date: string | null;
   order_index: number;
   cover_photo_id: string | null;
+  cover_position: { x: number; y: number } | null;
   experiences: ExperienceRow[];
 }
 
@@ -119,6 +122,7 @@ interface TripRow {
   status: string;
   notes: string | null;
   cover_photo_id: string | null;
+  cover_position: { x: number; y: number } | null;
 }
 
 interface PhotoRow {
@@ -144,14 +148,14 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
   const [tripsResult, destsResult] = await Promise.all([
     supabase
       .from("trips")
-      .select("id, name, start_date, end_date, status, notes, cover_photo_id")
+      .select("id, name, start_date, end_date, status, notes, cover_photo_id, cover_position")
       .eq("user_id", userId)
       .order("start_date", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false }),
     supabase
       .from("destinations")
       .select(
-        "id, trip_id, name, country_code, arrival_date, departure_date, order_index, cover_photo_id, experiences ( id, name, rating, visited_date, created_at, categories ( label, icon, color ) )",
+        "id, trip_id, name, country_code, arrival_date, departure_date, order_index, cover_photo_id, cover_position, experiences ( id, name, rating, visited_date, created_at, categories ( label, icon, color ) )",
       )
       .eq("user_id", userId)
       .order("order_index", { ascending: true }),
@@ -215,6 +219,7 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       arrival_date: dest.arrival_date,
       departure_date: dest.departure_date,
       coverUrl: coverUrl(dest.cover_photo_id),
+      cover_position: dest.cover_position ?? null,
       experiences,
     });
     destsByTrip.set(dest.trip_id, list);
@@ -224,6 +229,7 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
     const destinations = destsByTrip.get(trip.id) ?? [];
     const firstDestCover =
       destinations.find((d) => d.coverUrl)?.coverUrl ?? null;
+    const hasTripCover = Boolean(trip.cover_photo_id && coverUrl(trip.cover_photo_id));
     return {
       id: trip.id,
       name: trip.name,
@@ -232,6 +238,7 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       status: trip.status,
       notes: trip.notes,
       coverUrl: coverUrl(trip.cover_photo_id) ?? firstDestCover,
+      cover_position: hasTripCover ? (trip.cover_position ?? null) : null,
       destinations,
     };
   });

@@ -73,6 +73,14 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
           <img
             src={trip.coverUrl}
             alt=""
+            loading="lazy"
+            style={
+              trip.cover_position
+                ? {
+                    objectPosition: `${trip.cover_position.x}% ${trip.cover_position.y}%`,
+                  }
+                : undefined
+            }
             className="absolute inset-0 size-full object-cover"
           />
         ) : (
@@ -165,6 +173,14 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
                         <img
                           src={destination.coverUrl}
                           alt=""
+                          loading="lazy"
+                          style={
+                            destination.cover_position
+                              ? {
+                                  objectPosition: `${destination.cover_position.x}% ${destination.cover_position.y}%`,
+                                }
+                              : undefined
+                          }
                           className="size-full object-cover"
                         />
                       ) : (

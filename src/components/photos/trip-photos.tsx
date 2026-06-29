@@ -32,10 +32,9 @@ interface TripPhotosSectionProps {
   userId: string;
   isDemo: boolean;
   coverPhotoId: string | null;
+  coverPosition?: { x: number; y: number } | null;
   destinations: TagDestination[];
-  // Trip-owned photos that have not been sorted into a destination yet.
   untaggedPhotos: Photo[];
-  // Destination and experience photos, shown in the filterable gallery.
   taggedPhotos: Photo[];
 }
 
@@ -59,6 +58,7 @@ export function TripPhotosSection({
   userId,
   isDemo,
   coverPhotoId,
+  coverPosition,
   destinations,
   untaggedPhotos,
   taggedPhotos,
@@ -176,10 +176,13 @@ export function TripPhotosSection({
               <PhotoGallery
                 photos={filtered}
                 coverPhotoId={coverPhotoId}
+                coverPosition={coverPosition}
                 editable
                 allowDelete={false}
                 ownerType="trip"
                 ownerId={tripId}
+                retagDestinations={destinations}
+                isDemo={isDemo}
                 onChanged={refresh}
               />
             ) : (

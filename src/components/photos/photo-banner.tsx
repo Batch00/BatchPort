@@ -7,13 +7,19 @@ import type { Photo } from "@/lib/types";
 // placeholder when there is no cover. Pure and server-renderable.
 export function PhotoBanner({
   photo,
+  coverPosition,
   className,
   children,
 }: {
   photo: Photo | null;
+  coverPosition?: { x: number; y: number } | null;
   className?: string;
   children: React.ReactNode;
 }) {
+  const objectPosition = coverPosition
+    ? `${coverPosition.x}% ${coverPosition.y}%`
+    : "50% 50%";
+
   return (
     <div
       className={cn(
@@ -26,6 +32,8 @@ export function PhotoBanner({
         <img
           src={getPhotoUrl(photo)}
           alt=""
+          loading="lazy"
+          style={{ objectPosition }}
           className="absolute inset-0 size-full object-cover"
         />
       ) : null}

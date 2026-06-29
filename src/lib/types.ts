@@ -3,6 +3,13 @@
 
 export type TripStatus = "completed" | "ongoing" | "planned";
 
+// Focal-point position stored with a cover photo. Values are percentages (0-100)
+// matching CSS object-position semantics.
+export interface CoverPosition {
+  x: number;
+  y: number;
+}
+
 export interface Trip {
   id: string;
   user_id: string;
@@ -11,6 +18,7 @@ export interface Trip {
   end_date: string | null;
   status: TripStatus;
   cover_photo_id: string | null;
+  cover_position: CoverPosition | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -39,6 +47,7 @@ export interface Destination {
   departure_date: string | null;
   order_index: number;
   cover_photo_id: string | null;
+  cover_position: CoverPosition | null;
   notes: string | null;
   created_at: string;
   updated_at: string;

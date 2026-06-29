@@ -193,6 +193,7 @@ export function CoverPhotoPicker({
               <img
                 src={getPhotoUrl(photo)}
                 alt=""
+                loading="lazy"
                 className="size-full object-cover"
               />
             </button>

@@ -12,6 +12,7 @@ interface DestinationPhotosProps {
   isDemo: boolean;
   photos: Photo[];
   coverPhotoId: string | null;
+  coverPosition?: { x: number; y: number } | null;
 }
 
 // The photos section on the destination detail page: an upload dropzone over an
@@ -23,6 +24,7 @@ export function DestinationPhotos({
   isDemo,
   photos,
   coverPhotoId,
+  coverPosition,
 }: DestinationPhotosProps) {
   const router = useRouter();
 
@@ -43,9 +45,11 @@ export function DestinationPhotos({
           <PhotoGallery
             photos={photos}
             coverPhotoId={coverPhotoId}
+            coverPosition={coverPosition}
             editable
             ownerType="destination"
             ownerId={destinationId}
+            isDemo={isDemo}
             onChanged={() => router.refresh()}
           />
         ) : (
