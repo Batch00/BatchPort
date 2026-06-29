@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   CheckCircle2Icon,
   Loader2Icon,
+  MapPinIcon,
   UploadCloudIcon,
   XCircleIcon,
 } from "lucide-react";
@@ -13,6 +14,7 @@ import { uploadPhoto } from "@/lib/photos";
 import { insertPhotoRecord, setCoverPhoto } from "@/lib/actions/photos";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { cn } from "@/lib/utils";
+import { extractExif, findNearestDestination } from "@/lib/utils/exif";
 import type { PhotoOwnerType } from "@/lib/types";
 
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp"];
@@ -28,6 +30,17 @@ interface UploadItem {
   size: number;
   progress: number;
   status: UploadStatus;
+  // EXIF-derived auto-tag (only applied when no bulk default is set)
+  autoTagDestId: string | null;
+  autoTagDestName: string | null;
+  dateTaken: string | null;
+}
+
+export interface ExifDestination {
+  id: string;
+  name: string;
+  lat: number | null;
+  lng: number | null;
 }
 
 interface PhotoUploadProps {
@@ -35,6 +48,11 @@ interface PhotoUploadProps {
   ownerId: string;
   userId: string;
   isDemo: boolean;
+  // Optional bulk-tag override: pre-selects the owner for all photos in the batch.
+  defaultOwnerType?: PhotoOwnerType;
+  defaultOwnerId?: string;
+  // Trip destinations provided for EXIF GPS auto-tagging.
+  destinations?: ExifDestination[];
   // Called once after all uploads finish so the parent can refresh its data.
   onUploaded?: (photoId: string) => void;
   // When true, each uploaded photo is also set as the owner's cover.
@@ -52,6 +70,9 @@ export function PhotoUpload({
   ownerId,
   userId,
   isDemo,
+  defaultOwnerType,
+  defaultOwnerId,
+  destinations,
   onUploaded,
   setCoverOnUpload = false,
 }: PhotoUploadProps) {
@@ -73,7 +94,6 @@ export function PhotoUpload({
       return;
     }
 
-    // Validate and stage all files immediately so sizes are shown before upload.
     const validFiles: File[] = [];
     for (const file of Array.from(fileList)) {
       if (!ACCEPTED.includes(file.type)) {
@@ -98,31 +118,89 @@ export function PhotoUpload({
       size: file.size,
       progress: 0,
       status: "pending",
+      autoTagDestId: null,
+      autoTagDestName: null,
+      dateTaken: null,
     }));
     setItems(staged);
+
+    // Extract EXIF for all files in parallel before uploading.
+    // Only attempt GPS auto-tag when no bulk default owner is set and
+    // destinations are provided.
+    const shouldAutoTag =
+      !defaultOwnerType &&
+      !defaultOwnerId &&
+      destinations &&
+      destinations.length > 0;
+
+    const exifResults = await Promise.all(
+      validFiles.map((file) => extractExif(file)),
+    );
+
+    const updatedItems = staged.map((item, i) => {
+      const exif = exifResults[i];
+      if (!exif) return item;
+      let autoTagDestId: string | null = null;
+      let autoTagDestName: string | null = null;
+      if (
+        shouldAutoTag &&
+        exif.gpsLat !== null &&
+        exif.gpsLng !== null &&
+        destinations
+      ) {
+        const nearest = findNearestDestination(
+          exif.gpsLat,
+          exif.gpsLng,
+          destinations,
+        );
+        if (nearest) {
+          autoTagDestId = nearest.id;
+          autoTagDestName = nearest.name;
+        }
+      }
+      return {
+        ...item,
+        autoTagDestId,
+        autoTagDestName,
+        dateTaken: exif.dateTaken,
+      };
+    });
+    setItems(updatedItems);
 
     let lastPhotoId = "";
 
     // Upload in concurrent batches of BATCH_SIZE.
-    for (let i = 0; i < staged.length; i += BATCH_SIZE) {
-      const batch = staged.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < updatedItems.length; i += BATCH_SIZE) {
+      const batch = updatedItems.slice(i, i + BATCH_SIZE);
       await Promise.allSettled(
         batch.map(async (item) => {
           updateItem(item.id, { status: "uploading", progress: 15 });
           try {
+            // Resolve effective owner: bulk default > EXIF auto-tag > base owner.
+            let effectiveOwnerType: PhotoOwnerType = ownerType;
+            let effectiveOwnerId: string = ownerId;
+            if (defaultOwnerType && defaultOwnerId) {
+              effectiveOwnerType = defaultOwnerType;
+              effectiveOwnerId = defaultOwnerId;
+            } else if (item.autoTagDestId) {
+              effectiveOwnerType = "destination";
+              effectiveOwnerId = item.autoTagDestId;
+            }
+
             const storagePath = await uploadPhoto(
               item.file,
               userId,
-              ownerType,
-              ownerId,
+              effectiveOwnerType,
+              effectiveOwnerId,
             );
             updateItem(item.id, { progress: 70 });
 
             const result = await insertPhotoRecord({
-              ownerType,
-              ownerId,
+              ownerType: effectiveOwnerType,
+              ownerId: effectiveOwnerId,
               source: "upload",
               storagePath,
+              dateTaken: item.dateTaken ?? undefined,
             });
             if ("error" in result) {
               updateItem(item.id, { status: "error", progress: 100 });
@@ -131,7 +209,11 @@ export function PhotoUpload({
             }
 
             if (setCoverOnUpload) {
-              await setCoverPhoto(ownerType, ownerId, result.photoId);
+              await setCoverPhoto(
+                effectiveOwnerType,
+                effectiveOwnerId,
+                result.photoId,
+              );
             }
             lastPhotoId = result.photoId;
             updateItem(item.id, { status: "done", progress: 100 });
@@ -143,7 +225,6 @@ export function PhotoUpload({
       );
     }
 
-    // Single refresh after all uploads complete.
     if (lastPhotoId) {
       onUploaded?.(lastPhotoId);
     }
@@ -222,6 +303,12 @@ export function PhotoUpload({
                 <span className="min-w-0 flex-1 truncate text-foreground/70">
                   {item.name}
                 </span>
+                {item.autoTagDestName ? (
+                  <span className="flex shrink-0 items-center gap-1 text-[0.65rem] text-brand">
+                    <MapPinIcon className="size-3" />
+                    {item.autoTagDestName}
+                  </span>
+                ) : null}
                 <span className="shrink-0 text-foreground/40">
                   {formatFileSize(item.size)}
                 </span>

@@ -202,6 +202,8 @@ export default async function TripDetailPage({
         destinations={trip.destinations.map((destination) => ({
           id: destination.id,
           name: destination.name,
+          lat: destination.latitude,
+          lng: destination.longitude,
           experiences: destination.experiences.map((experience) => ({
             id: experience.id,
             name: experience.name,

@@ -10,6 +10,7 @@ export interface InsertPhotoInput {
   storagePath?: string | null;
   externalUrl?: string | null;
   attribution?: string | null;
+  dateTaken?: string | null;
 }
 
 // Shared photo helpers. These are safe to import from both server and client:

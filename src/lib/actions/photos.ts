@@ -3,6 +3,7 @@
  *
  * ALTER TABLE batchport.trips ADD COLUMN IF NOT EXISTS cover_position jsonb DEFAULT '{"x": 50, "y": 50}';
  * ALTER TABLE batchport.destinations ADD COLUMN IF NOT EXISTS cover_position jsonb DEFAULT '{"x": 50, "y": 50}';
+ * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS date_taken timestamptz;
  */
 
 "use server";
@@ -40,18 +41,23 @@ export async function insertPhotoRecord(
     .maybeSingle();
   const nextOrder = ((last?.order_index as number | undefined) ?? -1) + 1;
 
+  const payload: Record<string, unknown> = {
+    user_id: user.id,
+    owner_type: input.ownerType,
+    owner_id: input.ownerId,
+    source: input.source,
+    storage_path: input.storagePath ?? null,
+    external_url: input.externalUrl ?? null,
+    attribution: input.attribution ?? null,
+    order_index: nextOrder,
+  };
+  if (input.dateTaken !== undefined && input.dateTaken !== null) {
+    payload.date_taken = input.dateTaken;
+  }
+
   const { data, error } = await supabase
     .from("photos")
-    .insert({
-      user_id: user.id,
-      owner_type: input.ownerType,
-      owner_id: input.ownerId,
-      source: input.source,
-      storage_path: input.storagePath ?? null,
-      external_url: input.externalUrl ?? null,
-      attribution: input.attribution ?? null,
-      order_index: nextOrder,
-    })
+    .insert(payload)
     .select("id")
     .single();
   if (error || !data) return { error: "Could not save the photo." };
@@ -81,8 +87,7 @@ export async function setCoverPhoto(
   return { ok: true };
 }
 
-// Move a photo to a different owner (trip, destination, or experience). Used by
-// the trip-level upload to sort bulk photos into the right place.
+// Move a photo to a different owner (trip, destination, or experience).
 export async function retagPhoto(
   photoId: string,
   ownerType: PhotoOwnerType,
@@ -137,13 +142,62 @@ export async function deletePhotoRecord(id: string): Promise<ActionResult> {
   const { error } = await supabase.from("photos").delete().eq("id", id);
   if (error) return { error: "Could not delete the photo." };
 
-  // Remove the Storage object for uploads. The admin client makes cleanup
-  // reliable regardless of Storage row-level policies.
+  // Remove the Storage object for uploads.
   if (photo.source === "upload" && photo.storage_path) {
     await createAdminClient()
       .storage.from(PHOTO_BUCKET)
       .remove([photo.storage_path]);
   }
+
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+// Swap the order_index of a photo with its left or right neighbor in the same owner.
+export async function reorderPhoto(
+  photoId: string,
+  direction: "left" | "right",
+): Promise<ActionResult> {
+  if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  const { supabase } = await requireUser();
+
+  const { data: photo } = await supabase
+    .from("photos")
+    .select("id, owner_type, owner_id, order_index")
+    .eq("id", photoId)
+    .maybeSingle<Pick<Photo, "id" | "owner_type" | "owner_id" | "order_index">>();
+  if (!photo) return { error: "Photo not found." };
+
+  let neighborQuery = supabase
+    .from("photos")
+    .select("id, order_index")
+    .eq("owner_type", photo.owner_type)
+    .eq("owner_id", photo.owner_id);
+
+  if (direction === "left") {
+    neighborQuery = neighborQuery
+      .lt("order_index", photo.order_index)
+      .order("order_index", { ascending: false });
+  } else {
+    neighborQuery = neighborQuery
+      .gt("order_index", photo.order_index)
+      .order("order_index", { ascending: true });
+  }
+
+  const { data: neighbor } = await neighborQuery.limit(1).maybeSingle<Pick<Photo, "id" | "order_index">>();
+  if (!neighbor) return { ok: true }; // Already at the edge, no-op.
+
+  // Use a temporary index to avoid any unique constraint conflict during swap.
+  const tempIndex = -999999;
+  await supabase.from("photos").update({ order_index: tempIndex }).eq("id", photoId);
+  await supabase
+    .from("photos")
+    .update({ order_index: photo.order_index })
+    .eq("id", neighbor.id);
+  await supabase
+    .from("photos")
+    .update({ order_index: neighbor.order_index })
+    .eq("id", photoId);
 
   revalidatePath("/dashboard");
   return { ok: true };

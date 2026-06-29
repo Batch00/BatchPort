@@ -92,6 +92,7 @@ export interface Photo {
   external_url: string | null;
   attribution: string | null;
   order_index: number;
+  date_taken: string | null;
   created_at: string;
 }
 
