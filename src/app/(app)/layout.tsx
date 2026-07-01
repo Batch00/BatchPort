@@ -5,6 +5,12 @@ import { isDemoUser } from "@/lib/demo";
 import { AppNav } from "@/components/app-nav";
 import { signOut } from "./actions";
 
+// Every route in this group reads the session via cookies() and is inherently
+// per-request. Forcing dynamic here (it propagates to all child pages) avoids
+// Next.js attempting a static prerender pass that throws an InvariantError
+// when cookies()-based data fetching runs outside a request work store.
+export const dynamic = "force-dynamic";
+
 // Layout for every authenticated route. Guards access at the server: an
 // unauthenticated visitor is hard-redirected to the landing page rather than
 // being shown an empty shell.

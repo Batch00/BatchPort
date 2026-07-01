@@ -15,6 +15,12 @@ const inter = Inter({
 const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 const description = "Track your travels around the world";
 
+// All routes in this app read from cookies/auth and are inherently per-request.
+// Forcing dynamic on the root layout prevents Next.js 16 Turbopack from
+// attempting a static prerender of internal routes (_not-found, _global-error)
+// where resolve-metadata.js calls workAsyncStorage.getStore() without a store.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: {
