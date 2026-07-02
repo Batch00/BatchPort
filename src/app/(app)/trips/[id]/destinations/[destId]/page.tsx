@@ -22,10 +22,14 @@ export default async function DestinationDetailPage({
   params: Promise<{ id: string; destId: string }>;
 }) {
   const { id, destId } = await params;
-  const [{ user }, destination, categories] = await Promise.all([
+  // Everything that does not depend on the destination row runs in one
+  // parallel batch; only the experience photos (which need the experience ids)
+  // wait for the destination.
+  const [{ user }, destination, categories, photos] = await Promise.all([
     requireUser(),
     getDestination(destId),
     getCategories(),
+    getPhotos("destination", destId),
   ]);
 
   if (!destination || destination.trip_id !== id) {
@@ -33,10 +37,7 @@ export default async function DestinationDetailPage({
   }
 
   const experienceIds = destination.experiences.map((experience) => experience.id);
-  const [photos, experiencePhotos] = await Promise.all([
-    getPhotos("destination", destId),
-    getPhotosForOwners("experience", experienceIds),
-  ]);
+  const experiencePhotos = await getPhotosForOwners("experience", experienceIds);
   const cover = pickCover(photos, destination.cover_photo_id);
   const isDemo = isDemoUser(user.id);
 

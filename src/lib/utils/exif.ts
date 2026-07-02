@@ -6,9 +6,10 @@ export interface ExifData {
   dateTaken: string | null;
 }
 
-export async function extractExif(file: File): Promise<ExifData> {
+// Parse EXIF from an already-read buffer, so callers that also need the raw
+// bytes (e.g. for content fingerprinting) read the file only once.
+export function extractExifFromBuffer(buffer: ArrayBuffer): ExifData {
   try {
-    const buffer = await file.arrayBuffer();
     const tags = ExifReader.load(buffer);
 
     let gpsLat: number | null = null;

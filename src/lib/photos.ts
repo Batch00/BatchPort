@@ -11,6 +11,8 @@ export interface InsertPhotoInput {
   externalUrl?: string | null;
   attribution?: string | null;
   dateTaken?: string | null;
+  // SHA-256 of the original file content, used for duplicate detection.
+  fingerprint?: string | null;
 }
 
 // Shared photo helpers. These are safe to import from both server and client:
@@ -83,8 +85,61 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-// Resize then upload to Storage at {userId}/{ownerType}/{ownerId}/{ts}_{name}.
-// Returns the storage path to persist on the photo record.
+// SHA-256 of the original file bytes as a hex string. crypto.subtle hashes off
+// the main thread, so this stays cheap even for multi-megabyte phone photos.
+// Content hashing (rather than name + size + mtime) survives renames and
+// re-downloads, which is where duplicate uploads actually come from.
+export async function computeFingerprint(buffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Whether a photo with this content fingerprint already exists for the owner.
+// Runs on the browser client; RLS scopes the check to the current user.
+export async function isDuplicatePhoto(
+  ownerType: PhotoOwnerType,
+  ownerId: string,
+  fingerprint: string,
+): Promise<boolean> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("photos")
+    .select("id")
+    .eq("owner_type", ownerType)
+    .eq("owner_id", ownerId)
+    .eq("fingerprint", fingerprint)
+    .limit(1);
+  // On error (e.g. the fingerprint column is missing), fail open: never block
+  // an upload because the duplicate check itself failed.
+  if (error) return false;
+  return (data ?? []).length > 0;
+}
+
+// Upload an already-resized blob to Storage at
+// {userId}/{ownerType}/{ownerId}/{ts}_{name}. Returns the storage path to
+// persist on the photo record.
+export async function uploadPhotoBlob(
+  blob: Blob,
+  originalName: string,
+  userId: string,
+  ownerType: PhotoOwnerType,
+  ownerId: string,
+): Promise<string> {
+  const supabase = createClient();
+  const path = `${userId}/${ownerType}/${ownerId}/${Date.now()}_${sanitizeFilename(
+    originalName,
+  )}`;
+  const { error } = await supabase.storage
+    .from(PHOTO_BUCKET)
+    .upload(path, blob, { contentType: blob.type, upsert: false });
+  if (error) throw error;
+  return path;
+}
+
+// Resize then upload. Kept for callers that do not need separate status
+// reporting for the resize and upload steps.
 export async function uploadPhoto(
   file: File,
   userId: string,
@@ -92,15 +147,7 @@ export async function uploadPhoto(
   ownerId: string,
 ): Promise<string> {
   const resized = await resizeImage(file);
-  const supabase = createClient();
-  const path = `${userId}/${ownerType}/${ownerId}/${Date.now()}_${sanitizeFilename(
-    file.name,
-  )}`;
-  const { error } = await supabase.storage
-    .from(PHOTO_BUCKET)
-    .upload(path, resized, { contentType: resized.type, upsert: false });
-  if (error) throw error;
-  return path;
+  return uploadPhotoBlob(resized, file.name, userId, ownerType, ownerId);
 }
 
 export async function deletePhoto(storagePath: string): Promise<void> {

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { XIcon, MapPinIcon, PlusIcon, BarChart3Icon } from "lucide-react";
 
 import {
@@ -47,6 +48,11 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
   const { destinations, visitedCountryCodes, bucketCountryCodes, arcs, stats } =
     data;
   const [selected, setSelected] = useState<GlobeCountrySelection | null>(null);
+  const router = useRouter();
+  // Manual refresh: re-fetches the dashboard's server data (map + stats)
+  // without a full page reload. The transition keeps the spinner going until
+  // the refreshed payload has streamed in.
+  const [refreshing, startRefresh] = useTransition();
 
   const isEmpty = destinations.length === 0;
 
@@ -96,6 +102,8 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
         enableDestinationLinks
         enableCountryDrilldown
         onCountrySelect={setSelected}
+        onRefresh={() => startRefresh(() => router.refresh())}
+        refreshing={refreshing}
       />
 
       {/* Stats overlay */}

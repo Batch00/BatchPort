@@ -45,7 +45,7 @@ import {
   deletePhotoRecord,
   setCoverPhoto,
   retagPhoto,
-  reorderPhoto,
+  reorderPhotos,
 } from "@/lib/actions/photos";
 import { getPhotoUrl, pickCover } from "@/lib/photos";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
@@ -94,13 +94,79 @@ export function PhotoGallery({
   onChanged,
 }: PhotoGalleryProps) {
   const router = useRouter();
-  const cover = pickCover(photos, coverPhotoId);
-  const ordered = cover
-    ? [cover, ...photos.filter((photo) => photo.id !== cover.id)]
+
+  // Optimistic display order (photo ids). Set immediately when the user
+  // reorders (buttons or drag) so the grid updates without waiting for the
+  // server round-trip; reset whenever the photo set itself changes.
+  const [viewOrder, setViewOrder] = useState<string[] | null>(null);
+  const photoIdsKey = photos
+    .map((photo) => photo.id)
+    .sort()
+    .join("|");
+  // Render-phase state adjustment (the React-documented pattern for deriving
+  // state from props): drop any optimistic order once the photo set changes.
+  const [prevIdsKey, setPrevIdsKey] = useState(photoIdsKey);
+  if (prevIdsKey !== photoIdsKey) {
+    setPrevIdsKey(photoIdsKey);
+    setViewOrder(null);
+  }
+
+  const photosById = new Map(photos.map((photo) => [photo.id, photo]));
+  const base = viewOrder
+    ? viewOrder
+        .map((id) => photosById.get(id))
+        .filter((photo): photo is Photo => Boolean(photo))
     : photos;
+  const cover = pickCover(base, coverPhotoId);
+  const ordered = cover
+    ? [cover, ...base.filter((photo) => photo.id !== cover.id)]
+    : base;
   const isExplicitCover = Boolean(
     coverPhotoId && cover && cover.id === coverPhotoId,
   );
+
+  // Reordering only makes sense when every photo belongs to the same owner:
+  // the trip gallery can mix destination and experience photos, where a shared
+  // order_index sequence has no meaning.
+  const reorderable =
+    editable &&
+    photos.length > 1 &&
+    photos.every(
+      (photo) =>
+        photo.owner_type === photos[0].owner_type &&
+        photo.owner_id === photos[0].owner_id,
+    );
+  // With an explicit cover pinned to the lead slot, photos shuffle behind it.
+  const minIndex = isExplicitCover ? 1 : 0;
+
+  // Latest display order, readable from drag handlers without stale closures.
+  // Synced in an effect (not during render) per the react-hooks/refs rule;
+  // React flushes effects before dispatching the next input event, so the drag
+  // handlers always see the order from the latest committed render.
+  const orderedIdsRef = useRef<string[]>(ordered.map((photo) => photo.id));
+  useEffect(() => {
+    orderedIdsRef.current = ordered.map((photo) => photo.id);
+  });
+
+  // Drag-and-drop reorder state. Declared with the other hooks so nothing is
+  // called conditionally relative to the empty-gallery early return below.
+  const tileRefs = useRef(new Map<string, HTMLDivElement>());
+  const suppressClickRef = useRef(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const dragRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    activated: boolean;
+    longPress: number | null;
+    preDragOrder: string[];
+  } | null>(null);
+  const dragListenersRef = useRef<{
+    move: (event: PointerEvent) => void;
+    up: () => void;
+    cancel: () => void;
+    preventTouch: (event: TouchEvent) => void;
+  } | null>(null);
 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [positionPhoto, setPositionPhoto] = useState<Photo | null>(null);
@@ -179,14 +245,156 @@ export function PhotoGallery({
     onChanged?.();
   }
 
-  async function handleReorder(photo: Photo, direction: "left" | "right") {
-    const result = await reorderPhoto(photo.id, direction);
+  // Persist a new display order: apply it optimistically, then send the full
+  // id sequence in one server action call. Revert on failure.
+  async function commitOrder(newIds: string[], previous: string[]) {
+    if (newIds.join("|") === previous.join("|")) return;
+    if (isDemo) {
+      toast.error(DEMO_READONLY_MESSAGE);
+      setViewOrder(previous);
+      return;
+    }
+    const result = await reorderPhotos(newIds);
     if ("error" in result) {
       toast.error(result.error);
+      setViewOrder(previous);
       return;
     }
     router.refresh();
     onChanged?.();
+  }
+
+  async function handleReorder(index: number, direction: "left" | "right") {
+    const ids = orderedIdsRef.current;
+    const target = direction === "left" ? index - 1 : index + 1;
+    if (target < minIndex || target >= ids.length) return;
+    const next = [...ids];
+    [next[index], next[target]] = [next[target], next[index]];
+    setViewOrder(next);
+    await commitOrder(next, ids);
+  }
+
+  // --- Drag-and-drop reordering (pointer events, so it works with both mouse
+  // and touch; HTML5 drag-and-drop has no native touch support). Mouse drags
+  // start after a small movement threshold so plain clicks still open the
+  // lightbox; touch drags start after a long press so the grid stays
+  // scrollable. Move left/right stays available as the fallback.
+  function registerTile(id: string) {
+    return (el: HTMLDivElement | null) => {
+      if (el) tileRefs.current.set(id, el);
+      else tileRefs.current.delete(id);
+    };
+  }
+
+  function hitTestTile(x: number, y: number): string | null {
+    for (const [id, el] of tileRefs.current) {
+      const rect = el.getBoundingClientRect();
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        return id;
+      }
+    }
+    return null;
+  }
+
+  function activateDrag() {
+    const state = dragRef.current;
+    if (!state || state.activated) return;
+    state.activated = true;
+    suppressClickRef.current = true;
+    setDraggingId(state.id);
+  }
+
+  function endDrag(commit: boolean) {
+    const state = dragRef.current;
+    const listeners = dragListenersRef.current;
+    if (listeners) {
+      window.removeEventListener("pointermove", listeners.move);
+      window.removeEventListener("pointerup", listeners.up);
+      window.removeEventListener("pointercancel", listeners.cancel);
+      document.removeEventListener("touchmove", listeners.preventTouch);
+    }
+    dragListenersRef.current = null;
+    dragRef.current = null;
+    if (state && state.longPress !== null) {
+      window.clearTimeout(state.longPress);
+    }
+    setDraggingId(null);
+    if (state?.activated) {
+      // Let the click that follows pointerup pass before re-enabling clicks.
+      setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
+      if (commit) {
+        void commitOrder(orderedIdsRef.current, state.preDragOrder);
+      } else {
+        setViewOrder(state.preDragOrder);
+      }
+    }
+  }
+
+  function beginDrag(event: React.PointerEvent, photoId: string) {
+    if (!reorderable || isSelecting) return;
+    // The explicit cover is pinned to the lead slot and cannot be dragged.
+    if (isExplicitCover && cover && photoId === cover.id) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (dragRef.current) return;
+
+    const isMouse = event.pointerType === "mouse";
+    const state = {
+      id: photoId,
+      startX: event.clientX,
+      startY: event.clientY,
+      activated: false,
+      longPress: null as number | null,
+      preDragOrder: orderedIdsRef.current,
+    };
+    dragRef.current = state;
+
+    const preventTouch = (touchEvent: TouchEvent) => {
+      if (dragRef.current?.activated) touchEvent.preventDefault();
+    };
+
+    const move = (moveEvent: PointerEvent) => {
+      const current = dragRef.current;
+      if (!current) return;
+      if (!current.activated) {
+        const distance = Math.hypot(
+          moveEvent.clientX - current.startX,
+          moveEvent.clientY - current.startY,
+        );
+        if (isMouse) {
+          if (distance > 6) activateDrag();
+        } else if (distance > 10) {
+          // Touch moved before the long press fired: it is a scroll, not a drag.
+          endDrag(false);
+        }
+        if (!dragRef.current?.activated) return;
+      }
+      const over = hitTestTile(moveEvent.clientX, moveEvent.clientY);
+      if (!over || over === current.id) return;
+      const ids = orderedIdsRef.current;
+      const from = ids.indexOf(current.id);
+      let to = ids.indexOf(over);
+      if (from === -1 || to === -1) return;
+      if (to < minIndex) to = minIndex;
+      if (to === from) return;
+      const next = [...ids];
+      next.splice(from, 1);
+      next.splice(to, 0, current.id);
+      setViewOrder(next);
+    };
+
+    const up = () => endDrag(true);
+    const cancel = () => endDrag(false);
+
+    dragListenersRef.current = { move, up, cancel, preventTouch };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    if (!isMouse) {
+      document.addEventListener("touchmove", preventTouch, { passive: false });
+      state.longPress = window.setTimeout(activateDrag, 250);
+    }
   }
 
   async function confirmRetag(targetOwnerType: PhotoOwnerType, targetOwnerId: string) {
@@ -252,9 +460,11 @@ export function PhotoGallery({
     if (!editable || isSelecting) return null;
     const showCover = canSetCover;
     const showRetag = canRetag;
-    const isFirst = index === 0;
+    // The pinned lead slot is not reorderable, so its tile hides the move items.
+    const showReorder = reorderable && !(isExplicitCover && index === 0);
+    const isFirst = index <= minIndex;
     const isLast = index === ordered.length - 1;
-    if (!showCover && !allowDelete && !showRetag) return null;
+    if (!showCover && !allowDelete && !showRetag && !showReorder) return null;
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -297,23 +507,27 @@ export function PhotoGallery({
               Delete
             </DropdownMenuItem>
           ) : null}
-          {(showCover || showRetag || allowDelete) ? (
-            <DropdownMenuSeparator />
+          {showReorder ? (
+            <>
+              {showCover || showRetag || allowDelete ? (
+                <DropdownMenuSeparator />
+              ) : null}
+              <DropdownMenuItem
+                onSelect={() => handleReorder(index, "left")}
+                disabled={isFirst}
+              >
+                <ArrowLeftIcon />
+                Move left
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => handleReorder(index, "right")}
+                disabled={isLast}
+              >
+                <ArrowRightIcon />
+                Move right
+              </DropdownMenuItem>
+            </>
           ) : null}
-          <DropdownMenuItem
-            onSelect={() => handleReorder(photo, "left")}
-            disabled={isFirst}
-          >
-            <ArrowLeftIcon />
-            Move left
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onSelect={() => handleReorder(photo, "right")}
-            disabled={isLast}
-          >
-            <ArrowRightIcon />
-            Move right
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     );
@@ -406,13 +620,18 @@ export function PhotoGallery({
               return (
                 <div
                   key={photo.id}
+                  ref={registerTile(photo.id)}
+                  onPointerDown={(event) => beginDrag(event, photo.id)}
+                  onDragStart={(event) => event.preventDefault()}
                   className={cn(
                     "group/tile relative aspect-square cursor-pointer overflow-hidden rounded-lg ring-1",
                     selected
                       ? "ring-2 ring-brand"
                       : "ring-foreground/10",
+                    draggingId === photo.id && "opacity-60 ring-2 ring-brand",
                   )}
                   onClick={() => {
+                    if (suppressClickRef.current) return;
                     if (isSelecting) {
                       toggleSelect(photo.id);
                     } else {
@@ -440,13 +659,18 @@ export function PhotoGallery({
               const selected = photo ? selectedIds.has(photo.id) : false;
               return photo ? (
                 <div
+                  ref={registerTile(photo.id)}
+                  onPointerDown={(event) => beginDrag(event, photo.id)}
+                  onDragStart={(event) => event.preventDefault()}
                   className={cn(
                     "group/tile relative aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-xl ring-1",
                     selected
                       ? "ring-2 ring-brand"
                       : "ring-foreground/10",
+                    draggingId === photo.id && "opacity-60 ring-2 ring-brand",
                   )}
                   onClick={() => {
+                    if (suppressClickRef.current) return;
                     if (isSelecting) {
                       toggleSelect(photo.id);
                     } else {
@@ -478,13 +702,18 @@ export function PhotoGallery({
                   return (
                     <div
                       key={photo.id}
+                      ref={registerTile(photo.id)}
+                      onPointerDown={(event) => beginDrag(event, photo.id)}
+                      onDragStart={(event) => event.preventDefault()}
                       className={cn(
                         "group/tile relative aspect-square cursor-pointer overflow-hidden rounded-lg ring-1",
                         selected
                           ? "ring-2 ring-brand"
                           : "ring-foreground/10",
+                        draggingId === photo.id && "opacity-60 ring-2 ring-brand",
                       )}
                       onClick={() => {
+                        if (suppressClickRef.current) return;
                         if (isSelecting) {
                           toggleSelect(photo.id);
                         } else {

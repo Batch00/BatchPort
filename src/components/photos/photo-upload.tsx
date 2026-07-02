@@ -4,24 +4,39 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   CheckCircle2Icon,
+  CircleIcon,
+  CopyCheckIcon,
   Loader2Icon,
   MapPinIcon,
   UploadCloudIcon,
   XCircleIcon,
 } from "lucide-react";
 
-import { uploadPhoto } from "@/lib/photos";
+import {
+  computeFingerprint,
+  isDuplicatePhoto,
+  resizeImage,
+  uploadPhotoBlob,
+} from "@/lib/photos";
 import { insertPhotoRecord, setCoverPhoto } from "@/lib/actions/photos";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { cn } from "@/lib/utils";
-import { extractExif, findNearestDestination } from "@/lib/utils/exif";
+import { extractExifFromBuffer, findNearestDestination } from "@/lib/utils/exif";
 import type { PhotoOwnerType } from "@/lib/types";
 
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp"];
 const MAX_BYTES = 10 * 1024 * 1024;
-const BATCH_SIZE = 4;
+// How many files run the full pipeline (read, resize, upload) concurrently.
+const CONCURRENCY = 4;
 
-type UploadStatus = "pending" | "uploading" | "done" | "error";
+type UploadStatus =
+  | "queued"
+  | "reading"
+  | "resizing"
+  | "uploading"
+  | "duplicate"
+  | "done"
+  | "error";
 
 interface UploadItem {
   id: number;
@@ -33,7 +48,6 @@ interface UploadItem {
   // EXIF-derived auto-tag (only applied when no bulk default is set)
   autoTagDestId: string | null;
   autoTagDestName: string | null;
-  dateTaken: string | null;
 }
 
 export interface ExifDestination {
@@ -63,6 +77,34 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Give the browser a chance to paint and handle input between files, so a
+// large batch never locks the main thread.
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+// Run a worker over each item with a fixed concurrency limit. Unlike chunked
+// Promise.all batches, a slow file never stalls the other lanes.
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const lanes = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (next < items.length) {
+        const item = items[next];
+        next += 1;
+        await yieldToBrowser();
+        await worker(item);
+      }
+    },
+  );
+  await Promise.all(lanes);
 }
 
 export function PhotoUpload({
@@ -111,132 +153,198 @@ export function PhotoUpload({
     const baseId = nextId.current;
     nextId.current += validFiles.length;
 
+    // Every file appears in the list immediately; each one's status advances
+    // independently as its pipeline (read, resize, upload) progresses.
     const staged: UploadItem[] = validFiles.map((file, i) => ({
       id: baseId + i,
       file,
       name: file.name,
       size: file.size,
       progress: 0,
-      status: "pending",
+      status: "queued",
       autoTagDestId: null,
       autoTagDestName: null,
-      dateTaken: null,
     }));
     setItems(staged);
 
-    // Extract EXIF for all files in parallel before uploading.
-    // Only attempt GPS auto-tag when no bulk default owner is set and
-    // destinations are provided.
     const shouldAutoTag =
       !defaultOwnerType &&
       !defaultOwnerId &&
       destinations &&
       destinations.length > 0;
 
-    const exifResults = await Promise.all(
-      validFiles.map((file) => extractExif(file)),
-    );
-
-    const updatedItems = staged.map((item, i) => {
-      const exif = exifResults[i];
-      if (!exif) return item;
-      let autoTagDestId: string | null = null;
-      let autoTagDestName: string | null = null;
-      if (
-        shouldAutoTag &&
-        exif.gpsLat !== null &&
-        exif.gpsLng !== null &&
-        destinations
-      ) {
-        const nearest = findNearestDestination(
-          exif.gpsLat,
-          exif.gpsLng,
-          destinations,
-        );
-        if (nearest) {
-          autoTagDestId = nearest.id;
-          autoTagDestName = nearest.name;
-        }
-      }
-      return {
-        ...item,
-        autoTagDestId,
-        autoTagDestName,
-        dateTaken: exif.dateTaken,
-      };
-    });
-    setItems(updatedItems);
-
+    // Fingerprints already claimed in this batch, keyed by owner, so selecting
+    // the same file twice in one batch is caught without a round-trip.
+    const batchFingerprints = new Set<string>();
     let lastPhotoId = "";
+    let duplicateCount = 0;
+    let errorCount = 0;
 
-    // Upload in concurrent batches of BATCH_SIZE.
-    for (let i = 0; i < updatedItems.length; i += BATCH_SIZE) {
-      const batch = updatedItems.slice(i, i + BATCH_SIZE);
-      await Promise.allSettled(
-        batch.map(async (item) => {
-          updateItem(item.id, { status: "uploading", progress: 15 });
-          try {
-            // Resolve effective owner: bulk default > EXIF auto-tag > base owner.
-            let effectiveOwnerType: PhotoOwnerType = ownerType;
-            let effectiveOwnerId: string = ownerId;
-            if (defaultOwnerType && defaultOwnerId) {
-              effectiveOwnerType = defaultOwnerType;
-              effectiveOwnerId = defaultOwnerId;
-            } else if (item.autoTagDestId) {
-              effectiveOwnerType = "destination";
-              effectiveOwnerId = item.autoTagDestId;
-            }
+    async function processFile(item: UploadItem): Promise<void> {
+      try {
+        // Read the file once: the buffer feeds both the EXIF parse and the
+        // content fingerprint (crypto.subtle hashes off the main thread).
+        updateItem(item.id, { status: "reading", progress: 8 });
+        const buffer = await item.file.arrayBuffer();
+        const fingerprintPromise = computeFingerprint(buffer);
+        const exif = extractExifFromBuffer(buffer);
 
-            const storagePath = await uploadPhoto(
-              item.file,
-              userId,
-              effectiveOwnerType,
-              effectiveOwnerId,
-            );
-            updateItem(item.id, { progress: 70 });
-
-            const result = await insertPhotoRecord({
-              ownerType: effectiveOwnerType,
-              ownerId: effectiveOwnerId,
-              source: "upload",
-              storagePath,
-              dateTaken: item.dateTaken ?? undefined,
-            });
-            if ("error" in result) {
-              updateItem(item.id, { status: "error", progress: 100 });
-              toast.error(result.error);
-              return;
-            }
-
-            if (setCoverOnUpload) {
-              await setCoverPhoto(
-                effectiveOwnerType,
-                effectiveOwnerId,
-                result.photoId,
-              );
-            }
-            lastPhotoId = result.photoId;
-            updateItem(item.id, { status: "done", progress: 100 });
-          } catch {
-            updateItem(item.id, { status: "error", progress: 100 });
-            toast.error(`Could not upload ${item.name}.`);
+        let autoTagDestId: string | null = null;
+        let autoTagDestName: string | null = null;
+        if (
+          shouldAutoTag &&
+          exif.gpsLat !== null &&
+          exif.gpsLng !== null &&
+          destinations
+        ) {
+          const nearest = findNearestDestination(
+            exif.gpsLat,
+            exif.gpsLng,
+            destinations,
+          );
+          if (nearest) {
+            autoTagDestId = nearest.id;
+            autoTagDestName = nearest.name;
           }
-        }),
-      );
+        }
+        updateItem(item.id, { autoTagDestId, autoTagDestName });
+
+        // Resolve effective owner: bulk default > EXIF auto-tag > base owner.
+        let effectiveOwnerType: PhotoOwnerType = ownerType;
+        let effectiveOwnerId: string = ownerId;
+        if (defaultOwnerType && defaultOwnerId) {
+          effectiveOwnerType = defaultOwnerType;
+          effectiveOwnerId = defaultOwnerId;
+        } else if (autoTagDestId) {
+          effectiveOwnerType = "destination";
+          effectiveOwnerId = autoTagDestId;
+        }
+
+        // Duplicate check: same content already uploaded to the same owner,
+        // either earlier in this batch or in a previous session.
+        const fingerprint = await fingerprintPromise;
+        const batchKey = `${effectiveOwnerType}:${effectiveOwnerId}:${fingerprint}`;
+        if (
+          batchFingerprints.has(batchKey) ||
+          (await isDuplicatePhoto(
+            effectiveOwnerType,
+            effectiveOwnerId,
+            fingerprint,
+          ))
+        ) {
+          duplicateCount += 1;
+          updateItem(item.id, { status: "duplicate", progress: 100 });
+          return;
+        }
+        batchFingerprints.add(batchKey);
+
+        updateItem(item.id, { status: "resizing", progress: 30 });
+        const resized = await resizeImage(item.file);
+
+        updateItem(item.id, { status: "uploading", progress: 55 });
+        const storagePath = await uploadPhotoBlob(
+          resized,
+          item.file.name,
+          userId,
+          effectiveOwnerType,
+          effectiveOwnerId,
+        );
+        updateItem(item.id, { progress: 80 });
+
+        const result = await insertPhotoRecord({
+          ownerType: effectiveOwnerType,
+          ownerId: effectiveOwnerId,
+          source: "upload",
+          storagePath,
+          dateTaken: exif.dateTaken ?? undefined,
+          fingerprint,
+        });
+        if ("error" in result) {
+          errorCount += 1;
+          updateItem(item.id, { status: "error", progress: 100 });
+          toast.error(result.error);
+          return;
+        }
+
+        if (setCoverOnUpload) {
+          await setCoverPhoto(
+            effectiveOwnerType,
+            effectiveOwnerId,
+            result.photoId,
+          );
+        }
+        lastPhotoId = result.photoId;
+        updateItem(item.id, { status: "done", progress: 100 });
+      } catch {
+        errorCount += 1;
+        updateItem(item.id, { status: "error", progress: 100 });
+        toast.error(`Could not upload ${item.name}.`);
+      }
     }
+
+    await runWithConcurrency(staged, CONCURRENCY, processFile);
 
     if (lastPhotoId) {
       onUploaded?.(lastPhotoId);
     }
+    if (duplicateCount > 0) {
+      toast.info(
+        `${duplicateCount} ${duplicateCount === 1 ? "photo was" : "photos were"} already uploaded and skipped.`,
+      );
+    }
 
-    setTimeout(() => setItems([]), 1800);
+    // Clear the list only when everything succeeded; keep it visible when
+    // there are duplicates or errors so their per-file labels can be read.
+    if (duplicateCount === 0 && errorCount === 0) {
+      setTimeout(() => setItems([]), 1800);
+    }
   }
 
-  const doneCount = items.filter((i) => i.status === "done").length;
+  const settledCount = items.filter(
+    (i) => i.status === "done" || i.status === "duplicate" || i.status === "error",
+  ).length;
   const totalCount = items.length;
   const hasActive = items.some(
-    (i) => i.status === "uploading" || i.status === "pending",
+    (i) =>
+      i.status === "queued" ||
+      i.status === "reading" ||
+      i.status === "resizing" ||
+      i.status === "uploading",
   );
+
+  function statusIcon(status: UploadStatus) {
+    switch (status) {
+      case "queued":
+        return <CircleIcon className="size-3.5 shrink-0 text-foreground/25" />;
+      case "reading":
+      case "resizing":
+      case "uploading":
+        return (
+          <Loader2Icon className="size-3.5 shrink-0 animate-spin text-brand" />
+        );
+      case "duplicate":
+        return <CopyCheckIcon className="size-3.5 shrink-0 text-amber-500" />;
+      case "done":
+        return <CheckCircle2Icon className="size-3.5 shrink-0 text-green-500" />;
+      case "error":
+        return <XCircleIcon className="size-3.5 shrink-0 text-destructive" />;
+    }
+  }
+
+  function statusLabel(status: UploadStatus): string | null {
+    switch (status) {
+      case "reading":
+        return "Reading";
+      case "resizing":
+        return "Resizing";
+      case "uploading":
+        return "Uploading";
+      case "duplicate":
+        return "Already uploaded";
+      default:
+        return null;
+    }
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -283,50 +391,57 @@ export function PhotoUpload({
         <div className="flex flex-col gap-2">
           {hasActive ? (
             <p className="text-xs text-foreground/60">
-              {doneCount < totalCount
-                ? `Uploading ${doneCount} of ${totalCount} ${totalCount === 1 ? "photo" : "photos"}...`
-                : `Uploaded ${totalCount} ${totalCount === 1 ? "photo" : "photos"}`}
+              {settledCount < totalCount
+                ? `Processing ${settledCount} of ${totalCount} ${totalCount === 1 ? "photo" : "photos"}...`
+                : `Processed ${totalCount} ${totalCount === 1 ? "photo" : "photos"}`}
             </p>
           ) : null}
           <ul className="flex flex-col gap-2">
-            {items.map((item) => (
-              <li key={item.id} className="flex items-center gap-3 text-xs">
-                {item.status === "uploading" ? (
-                  <Loader2Icon className="size-3.5 shrink-0 animate-spin text-brand" />
-                ) : item.status === "pending" ? (
-                  <Loader2Icon className="size-3.5 shrink-0 text-foreground/30" />
-                ) : item.status === "done" ? (
-                  <CheckCircle2Icon className="size-3.5 shrink-0 text-green-500" />
-                ) : (
-                  <XCircleIcon className="size-3.5 shrink-0 text-destructive" />
-                )}
-                <span className="min-w-0 flex-1 truncate text-foreground/70">
-                  {item.name}
-                </span>
-                {item.autoTagDestName ? (
-                  <span className="flex shrink-0 items-center gap-1 text-[0.65rem] text-brand">
-                    <MapPinIcon className="size-3" />
-                    {item.autoTagDestName}
+            {items.map((item) => {
+              const label = statusLabel(item.status);
+              return (
+                <li key={item.id} className="flex items-center gap-3 text-xs">
+                  {statusIcon(item.status)}
+                  <span className="min-w-0 flex-1 truncate text-foreground/70">
+                    {item.name}
                   </span>
-                ) : null}
-                <span className="shrink-0 text-foreground/40">
-                  {formatFileSize(item.size)}
-                </span>
-                {item.status !== "pending" ? (
-                  <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
-                    <div
+                  {item.autoTagDestName ? (
+                    <span className="flex shrink-0 items-center gap-1 text-[0.65rem] text-brand">
+                      <MapPinIcon className="size-3" />
+                      {item.autoTagDestName}
+                    </span>
+                  ) : null}
+                  {label ? (
+                    <span
                       className={cn(
-                        "h-full rounded-full transition-all",
-                        item.status === "error"
-                          ? "bg-destructive"
-                          : "bg-brand",
+                        "shrink-0 text-[0.65rem]",
+                        item.status === "duplicate"
+                          ? "text-amber-500"
+                          : "text-foreground/50",
                       )}
-                      style={{ width: `${item.progress}%` }}
-                    />
-                  </div>
-                ) : null}
-              </li>
-            ))}
+                    >
+                      {label}
+                    </span>
+                  ) : null}
+                  <span className="shrink-0 text-foreground/40">
+                    {formatFileSize(item.size)}
+                  </span>
+                  {item.status !== "queued" && item.status !== "duplicate" ? (
+                    <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all",
+                          item.status === "error"
+                            ? "bg-destructive"
+                            : "bg-brand",
+                        )}
+                        style={{ width: `${item.progress}%` }}
+                      />
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}

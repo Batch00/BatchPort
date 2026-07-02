@@ -72,6 +72,9 @@ export interface GlobeProps {
   /** Clicking a visited country flies to it and reports the selection. */
   enableCountryDrilldown?: boolean;
   onCountrySelect?: (selection: GlobeCountrySelection | null) => void;
+  /** When provided, shows a refresh control that re-fetches the map data. */
+  onRefresh?: () => void;
+  refreshing?: boolean;
 }
 
 const BRAND_FALLBACK = "#2563eb";
@@ -311,6 +314,8 @@ export function Globe({
   enableDestinationLinks = false,
   enableCountryDrilldown = false,
   onCountrySelect,
+  onRefresh,
+  refreshing = false,
 }: GlobeProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -903,6 +908,8 @@ export function Globe({
         onRecenter={
           destinations.length > 0 ? () => fitToDestinations(900) : undefined
         }
+        onRefresh={onRefresh}
+        refreshing={refreshing}
       />
     </div>
   );

@@ -4,6 +4,10 @@
  * ALTER TABLE batchport.trips ADD COLUMN IF NOT EXISTS cover_position jsonb DEFAULT '{"x": 50, "y": 50}';
  * ALTER TABLE batchport.destinations ADD COLUMN IF NOT EXISTS cover_position jsonb DEFAULT '{"x": 50, "y": 50}';
  * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS date_taken timestamptz;
+ * -- Duplicate detection: SHA-256 of the original file content.
+ * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS fingerprint text;
+ * CREATE INDEX IF NOT EXISTS photos_owner_fingerprint_idx
+ *   ON batchport.photos (owner_type, owner_id, fingerprint);
  */
 
 "use server";
@@ -53,6 +57,9 @@ export async function insertPhotoRecord(
   };
   if (input.dateTaken !== undefined && input.dateTaken !== null) {
     payload.date_taken = input.dateTaken;
+  }
+  if (input.fingerprint !== undefined && input.fingerprint !== null) {
+    payload.fingerprint = input.fingerprint;
   }
 
   const { data, error } = await supabase
@@ -128,16 +135,16 @@ export async function deletePhotoRecord(id: string): Promise<ActionResult> {
     .maybeSingle<Pick<Photo, "id" | "owner_type" | "owner_id" | "source" | "storage_path">>();
   if (!photo) return { error: "Photo not found." };
 
-  // Clear the cover pointer first so the foreign key never dangles. Only trips
-  // and destinations have a cover; experience photos have none.
-  if (photo.owner_type === "trip" || photo.owner_type === "destination") {
-    const table = photo.owner_type === "trip" ? "trips" : "destinations";
-    await supabase
-      .from(table)
+  // Clear cover pointers first so the foreign key never dangles. A trip's
+  // cover can reference a destination-owned photo (set from the trip gallery),
+  // so both tables are checked by pointer rather than by the photo's owner.
+  await Promise.all([
+    supabase.from("trips").update({ cover_photo_id: null }).eq("cover_photo_id", id),
+    supabase
+      .from("destinations")
       .update({ cover_photo_id: null })
-      .eq("id", photo.owner_id)
-      .eq("cover_photo_id", id);
-  }
+      .eq("cover_photo_id", id),
+  ]);
 
   const { error } = await supabase.from("photos").delete().eq("id", id);
   if (error) return { error: "Could not delete the photo." };
@@ -153,51 +160,45 @@ export async function deletePhotoRecord(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-// Swap the order_index of a photo with its left or right neighbor in the same owner.
-export async function reorderPhoto(
-  photoId: string,
-  direction: "left" | "right",
-): Promise<ActionResult> {
+// Persist a complete new order for one owner's photos: order_index = position
+// in orderedIds. Replaces the old neighbor-swap approach, which silently
+// no-oped when photos shared an order_index (legacy rows and concurrent
+// uploads both produce ties). Writing the full sequence also repairs any
+// existing ties. One action call per reorder; PostgREST cannot set distinct
+// values per row in a single request, so the per-id updates run in parallel
+// inside the action (same pattern as reorderDestinations).
+export async function reorderPhotos(orderedIds: string[]): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  if (orderedIds.length === 0) return { ok: true };
   const { supabase } = await requireUser();
 
-  const { data: photo } = await supabase
+  // All photos must belong to a single owner; a cross-owner reorder would
+  // corrupt the galleries it touches.
+  const { data: rows } = await supabase
     .from("photos")
-    .select("id, owner_type, owner_id, order_index")
-    .eq("id", photoId)
-    .maybeSingle<Pick<Photo, "id" | "owner_type" | "owner_id" | "order_index">>();
-  if (!photo) return { error: "Photo not found." };
-
-  let neighborQuery = supabase
-    .from("photos")
-    .select("id, order_index")
-    .eq("owner_type", photo.owner_type)
-    .eq("owner_id", photo.owner_id);
-
-  if (direction === "left") {
-    neighborQuery = neighborQuery
-      .lt("order_index", photo.order_index)
-      .order("order_index", { ascending: false });
-  } else {
-    neighborQuery = neighborQuery
-      .gt("order_index", photo.order_index)
-      .order("order_index", { ascending: true });
+    .select("id, owner_type, owner_id")
+    .in("id", orderedIds);
+  const photos = (rows ?? []) as Pick<Photo, "id" | "owner_type" | "owner_id">[];
+  if (photos.length !== orderedIds.length) {
+    return { error: "Some photos could not be found." };
+  }
+  const owner = photos[0];
+  if (
+    !photos.every(
+      (p) => p.owner_type === owner.owner_type && p.owner_id === owner.owner_id,
+    )
+  ) {
+    return { error: "Photos belong to different owners." };
   }
 
-  const { data: neighbor } = await neighborQuery.limit(1).maybeSingle<Pick<Photo, "id" | "order_index">>();
-  if (!neighbor) return { ok: true }; // Already at the edge, no-op.
-
-  // Use a temporary index to avoid any unique constraint conflict during swap.
-  const tempIndex = -999999;
-  await supabase.from("photos").update({ order_index: tempIndex }).eq("id", photoId);
-  await supabase
-    .from("photos")
-    .update({ order_index: photo.order_index })
-    .eq("id", neighbor.id);
-  await supabase
-    .from("photos")
-    .update({ order_index: neighbor.order_index })
-    .eq("id", photoId);
+  const results = await Promise.all(
+    orderedIds.map((id, index) =>
+      supabase.from("photos").update({ order_index: index }).eq("id", id),
+    ),
+  );
+  if (results.some((result) => result.error)) {
+    return { error: "Could not reorder the photos." };
+  }
 
   revalidatePath("/dashboard");
   return { ok: true };
