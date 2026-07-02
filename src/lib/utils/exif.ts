@@ -23,7 +23,10 @@ export async function extractExif(file: File): Promise<ExifData> {
     }
 
     if (tags.DateTimeOriginal) {
-      dateTaken = tags.DateTimeOriginal.description as unknown as string;
+      // EXIF format is "YYYY:MM:DD HH:MM:SS"; normalize to ISO "YYYY-MM-DD HH:MM:SS"
+      // so PostgreSQL accepts it as a valid timestamptz.
+      const raw = tags.DateTimeOriginal.description as unknown as string;
+      dateTaken = raw.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3");
     }
 
     return { gpsLat, gpsLng, dateTaken };
