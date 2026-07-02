@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "postinstall": "patch-package",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "postinstall": "patch-package",
     "lint": "eslint",
     "seed": "npx tsx scripts/seed-trips.ts",
     "backfill-photos": "npx tsx scripts/backfill-photos.ts",
