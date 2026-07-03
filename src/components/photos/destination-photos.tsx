@@ -2,24 +2,29 @@
 
 import { useRouter } from "next/navigation";
 
-import { PhotoUpload } from "@/components/photos/photo-upload";
+import {
+  PhotoUpload,
+  type TagDestination,
+} from "@/components/photos/photo-upload";
 import { PhotoGallery } from "@/components/photos/photo-gallery";
-import type { Photo } from "@/lib/types";
+import type { CoverPosition, Photo } from "@/lib/types";
 
 interface DestinationPhotosProps {
-  destinationId: string;
+  // The destination itself, passed as a taggable target so the review step
+  // can optionally file photos under one of its experiences.
+  destination: TagDestination;
   userId: string;
   isDemo: boolean;
   photos: Photo[];
   coverPhotoId: string | null;
-  coverPosition?: { x: number; y: number } | null;
+  coverPosition?: CoverPosition | null;
 }
 
-// The photos section on the destination detail page: an upload dropzone over an
-// editable gallery. Mutations refresh the route so the server re-supplies the
-// updated photo list.
+// The photos section on the destination detail page: an upload dropzone with a
+// review step over an editable gallery. Mutations refresh the route so the
+// server re-supplies the updated photo list.
 export function DestinationPhotos({
-  destinationId,
+  destination,
   userId,
   isDemo,
   photos,
@@ -35,9 +40,10 @@ export function DestinationPhotos({
       <div className="flex flex-col gap-4">
         <PhotoUpload
           ownerType="destination"
-          ownerId={destinationId}
+          ownerId={destination.id}
           userId={userId}
           isDemo={isDemo}
+          tagDestinations={[destination]}
           onUploaded={() => router.refresh()}
         />
 
@@ -48,7 +54,7 @@ export function DestinationPhotos({
             coverPosition={coverPosition}
             editable
             ownerType="destination"
-            ownerId={destinationId}
+            ownerId={destination.id}
             isDemo={isDemo}
             onChanged={() => router.refresh()}
           />

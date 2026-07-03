@@ -1,6 +1,6 @@
-import { getPhotoUrl } from "@/lib/photos";
+import { coverImageStyle, getPhotoUrl } from "@/lib/photos";
 import { cn } from "@/lib/utils";
-import type { Photo } from "@/lib/types";
+import type { CoverPosition, Photo } from "@/lib/types";
 
 // A header banner for trips and destinations. Renders the cover photo behind a
 // dark gradient so overlaid text stays readable, or a subtle gradient
@@ -12,13 +12,10 @@ export function PhotoBanner({
   children,
 }: {
   photo: Photo | null;
-  coverPosition?: { x: number; y: number } | null;
+  coverPosition?: CoverPosition | null;
   className?: string;
   children: React.ReactNode;
 }) {
-  const objectPosition = coverPosition
-    ? `${coverPosition.x}% ${coverPosition.y}%`
-    : "50% 50%";
 
   return (
     <div
@@ -33,7 +30,7 @@ export function PhotoBanner({
           src={getPhotoUrl(photo)}
           alt=""
           loading="lazy"
-          style={{ objectPosition }}
+          style={coverImageStyle(coverPosition)}
           className="absolute inset-0 size-full object-cover"
         />
       ) : null}

@@ -4,10 +4,12 @@
 export type TripStatus = "completed" | "ongoing" | "planned";
 
 // Focal-point position stored with a cover photo. Values are percentages (0-100)
-// matching CSS object-position semantics.
+// matching CSS object-position semantics. scale is an optional zoom factor
+// (1 = no zoom); rows written before zoom existed omit it and read as 1.
 export interface CoverPosition {
   x: number;
   y: number;
+  scale?: number;
 }
 
 export interface Trip {

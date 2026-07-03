@@ -6,7 +6,7 @@ import { getTrip } from "@/lib/trips";
 import { getPhotos, getPhotosForOwners, pickCover } from "@/lib/photos-data";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
-import { getPhotoUrl } from "@/lib/photos";
+import { coverImageStyle, getPhotoUrl } from "@/lib/photos";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { StatusBadge } from "@/components/trips/status-badge";
@@ -145,13 +145,7 @@ export default async function TripDetailPage({
                             src={getPhotoUrl(cover)}
                             alt=""
                             loading="lazy"
-                            style={
-                              destination.cover_position
-                                ? {
-                                    objectPosition: `${destination.cover_position.x}% ${destination.cover_position.y}%`,
-                                  }
-                                : undefined
-                            }
+                            style={coverImageStyle(destination.cover_position)}
                             className="size-full object-cover"
                           />
                         ) : (

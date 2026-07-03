@@ -1,5 +1,12 @@
+import type { CSSProperties } from "react";
+
 import { createClient } from "@/utils/supabase/client";
-import type { Photo, PhotoOwnerType, PhotoSource } from "@/lib/types";
+import type {
+  CoverPosition,
+  Photo,
+  PhotoOwnerType,
+  PhotoSource,
+} from "@/lib/types";
 
 // The fields a client passes when persisting a photo record via the
 // insertPhotoRecord server action.
@@ -181,6 +188,27 @@ export function pickCover(
     if (match) return match;
   }
   return photos[0] ?? null;
+}
+
+// Inline style that applies a stored cover position (and optional zoom) to an
+// object-cover image. object-position places the focal point at (x%, y%) of
+// the container, and transform-origin at the same point means scale() zooms
+// around that focal point, so the two compose without shifting the crop.
+// Callers must clip the image (overflow-hidden) since the scaled element
+// extends past its box. Returns undefined when there is nothing to apply.
+export function coverImageStyle(
+  position: CoverPosition | null | undefined,
+): CSSProperties | undefined {
+  if (!position) return undefined;
+  const scale = position.scale ?? 1;
+  const style: CSSProperties = {
+    objectPosition: `${position.x}% ${position.y}%`,
+  };
+  if (scale !== 1) {
+    style.transform = `scale(${scale})`;
+    style.transformOrigin = `${position.x}% ${position.y}%`;
+  }
+  return style;
 }
 
 // The display URL for a photo. Uploads resolve to the public Storage URL,

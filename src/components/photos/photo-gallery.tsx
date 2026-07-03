@@ -15,6 +15,8 @@ import {
   StarIcon,
   Trash2Icon,
   XIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
 } from "lucide-react";
 
 import {
@@ -47,10 +49,10 @@ import {
   retagPhoto,
   reorderPhotos,
 } from "@/lib/actions/photos";
-import { getPhotoUrl, pickCover } from "@/lib/photos";
+import { coverImageStyle, getPhotoUrl, pickCover } from "@/lib/photos";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { cn } from "@/lib/utils";
-import type { Photo, PhotoOwnerType } from "@/lib/types";
+import type { CoverPosition, Photo, PhotoOwnerType } from "@/lib/types";
 
 export interface RetagDestination {
   id: string;
@@ -61,7 +63,7 @@ export interface RetagDestination {
 interface PhotoGalleryProps {
   photos: Photo[];
   coverPhotoId?: string | null;
-  coverPosition?: { x: number; y: number } | null;
+  coverPosition?: CoverPosition | null;
   editable?: boolean;
   // Whether the menu offers "Set as cover". Off for entities without a cover.
   allowSetCover?: boolean;
@@ -171,6 +173,9 @@ export function PhotoGallery({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [positionPhoto, setPositionPhoto] = useState<Photo | null>(null);
   const [movePhoto, setMovePhoto] = useState<Photo | null>(null);
+  // Single-photo delete confirmation target.
+  const [deleteTarget, setDeleteTarget] = useState<Photo | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   // Multi-select state
   const [isSelecting, setIsSelecting] = useState(false);
@@ -223,7 +228,7 @@ export function PhotoGallery({
   const canSetCover = allowSetCover && Boolean(ownerType) && Boolean(ownerId);
   const canRetag = Boolean(retagDestinations?.length);
 
-  async function confirmSetCover(photo: Photo, position: { x: number; y: number }) {
+  async function confirmSetCover(photo: Photo, position: CoverPosition) {
     if (!ownerType || !ownerId) return;
     const result = await setCoverPhoto(ownerType, ownerId, photo.id, position);
     setPositionPhoto(null);
@@ -235,8 +240,17 @@ export function PhotoGallery({
     onChanged?.();
   }
 
-  async function handleDelete(photo: Photo) {
-    const result = await deletePhotoRecord(photo.id);
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    if (isDemo) {
+      toast.error(DEMO_READONLY_MESSAGE);
+      setDeleteTarget(null);
+      return;
+    }
+    setDeleteBusy(true);
+    const result = await deletePhotoRecord(deleteTarget.id);
+    setDeleteBusy(false);
+    setDeleteTarget(null);
     if ("error" in result) {
       toast.error(result.error);
       return;
@@ -501,7 +515,7 @@ export function PhotoGallery({
           {allowDelete ? (
             <DropdownMenuItem
               variant="destructive"
-              onSelect={() => handleDelete(photo)}
+              onSelect={() => setDeleteTarget(photo)}
             >
               <Trash2Icon />
               Delete
@@ -682,11 +696,7 @@ export function PhotoGallery({
                     src={getPhotoUrl(photo)}
                     alt=""
                     loading="eager"
-                    style={
-                      activeCoverPosition
-                        ? { objectPosition: `${activeCoverPosition.x}% ${activeCoverPosition.y}%` }
-                        : undefined
-                    }
+                    style={coverImageStyle(activeCoverPosition)}
                     className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.02]"
                   />
                   {isSelecting ? selectionCheckbox(photo) : coverBadge(photo)}
@@ -802,6 +812,50 @@ export function PhotoGallery({
             ) : null}
           </div>
         </div>
+      ) : null}
+
+      {deleteTarget ? (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !deleteBusy) setDeleteTarget(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete this photo?</DialogTitle>
+              <DialogDescription>
+                The photo will be permanently deleted. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="h-32 w-full overflow-hidden rounded-md bg-white/5">
+              <SafeImage
+                src={getPhotoUrl(deleteTarget)}
+                alt=""
+                loading="eager"
+                className="size-full object-cover"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleteBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deleteBusy}
+              >
+                {deleteBusy ? "Deleting..." : "Delete"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       {bulkMoveOpen && retagDestinations ? (
@@ -948,6 +1002,9 @@ function Lightbox({
   );
 }
 
+const MIN_COVER_SCALE = 1;
+const MAX_COVER_SCALE = 3;
+
 function CoverPositionDialog({
   photo,
   initialPosition,
@@ -955,14 +1012,17 @@ function CoverPositionDialog({
   onCancel,
 }: {
   photo: Photo;
-  initialPosition?: { x: number; y: number } | null;
-  onConfirm: (position: { x: number; y: number }) => void;
+  initialPosition?: CoverPosition | null;
+  onConfirm: (position: CoverPosition) => void;
   onCancel: () => void;
 }) {
   const [pos, setPos] = useState({
     x: initialPosition?.x ?? 50,
     y: initialPosition?.y ?? 50,
   });
+  const [scale, setScale] = useState(() =>
+    clampScale(initialPosition?.scale ?? 1),
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{
     mx: number;
@@ -970,21 +1030,39 @@ function CoverPositionDialog({
     px: number;
     py: number;
   } | null>(null);
+  // The drag math reads the current scale inside window-level listeners that
+  // are registered once, so it comes from a ref to avoid stale closures.
+  const scaleRef = useRef(scale);
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
 
   function clamp(v: number): number {
     return Math.min(100, Math.max(0, v));
   }
 
+  function clampScale(v: number): number {
+    return Math.min(MAX_COVER_SCALE, Math.max(MIN_COVER_SCALE, v));
+  }
+
+  // Dividing the pointer delta by the scale keeps the image tracking the
+  // pointer 1:1 on screen: at 2x zoom the same focal-point shift moves the
+  // rendered image twice as far.
+  function applyDrag(clientX: number, clientY: number) {
+    if (!dragStart.current || !containerRef.current) return;
+    const { width, height } = containerRef.current.getBoundingClientRect();
+    const s = scaleRef.current;
+    const dx = clientX - dragStart.current.mx;
+    const dy = clientY - dragStart.current.my;
+    setPos({
+      x: clamp(dragStart.current.px - (dx / (width * s)) * 100),
+      y: clamp(dragStart.current.py - (dy / (height * s)) * 100),
+    });
+  }
+
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
-      if (!dragStart.current || !containerRef.current) return;
-      const { width, height } = containerRef.current.getBoundingClientRect();
-      const dx = e.clientX - dragStart.current.mx;
-      const dy = e.clientY - dragStart.current.my;
-      setPos({
-        x: clamp(dragStart.current.px - (dx / width) * 100),
-        y: clamp(dragStart.current.py - (dy / height) * 100),
-      });
+      applyDrag(e.clientX, e.clientY);
     }
     function onMouseUp() {
       dragStart.current = null;
@@ -995,6 +1073,20 @@ function CoverPositionDialog({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Scroll-to-zoom. Attached natively because React registers onWheel as a
+  // passive listener, which would ignore preventDefault and scroll the dialog.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      setScale((current) => clampScale(current - e.deltaY * 0.002));
+    }
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
   function onMouseDown(e: React.MouseEvent<HTMLDivElement>) {
@@ -1014,16 +1106,9 @@ function CoverPositionDialog({
   }
 
   function onTouchMove(e: React.TouchEvent<HTMLDivElement>) {
-    if (!dragStart.current || !containerRef.current) return;
     const touch = e.changedTouches[0];
     if (!touch) return;
-    const { width, height } = containerRef.current.getBoundingClientRect();
-    const dx = touch.clientX - dragStart.current.mx;
-    const dy = touch.clientY - dragStart.current.my;
-    setPos({
-      x: clamp(dragStart.current.px - (dx / width) * 100),
-      y: clamp(dragStart.current.py - (dy / height) * 100),
-    });
+    applyDrag(touch.clientX, touch.clientY);
   }
 
   function onTouchEnd() {
@@ -1036,7 +1121,8 @@ function CoverPositionDialog({
         <DialogHeader>
           <DialogTitle>Position cover photo</DialogTitle>
           <DialogDescription>
-            Drag the image to choose which part is shown as the cover.
+            Drag to choose which part is shown, and zoom with the slider or
+            scroll wheel.
           </DialogDescription>
         </DialogHeader>
 
@@ -1053,10 +1139,28 @@ function CoverPositionDialog({
             src={getPhotoUrl(photo)}
             alt=""
             draggable={false}
-            style={{ objectPosition: `${pos.x}% ${pos.y}%` }}
+            style={coverImageStyle({ x: pos.x, y: pos.y, scale })}
             className="pointer-events-none size-full object-cover"
           />
           <div className="pointer-events-none absolute inset-0 border-2 border-brand/40" />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <ZoomOutIcon className="size-4 shrink-0 text-foreground/50" />
+          <input
+            type="range"
+            min={MIN_COVER_SCALE}
+            max={MAX_COVER_SCALE}
+            step={0.05}
+            value={scale}
+            onChange={(e) => setScale(clampScale(Number(e.target.value)))}
+            aria-label="Zoom"
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-brand"
+          />
+          <ZoomInIcon className="size-4 shrink-0 text-foreground/50" />
+          <span className="w-10 shrink-0 text-right text-xs tabular-nums text-foreground/50">
+            {scale.toFixed(2)}x
+          </span>
         </div>
 
         <DialogFooter>
@@ -1066,7 +1170,11 @@ function CoverPositionDialog({
           <Button
             type="button"
             onClick={() =>
-              onConfirm({ x: Math.round(pos.x), y: Math.round(pos.y) })
+              onConfirm({
+                x: Math.round(pos.x),
+                y: Math.round(pos.y),
+                scale: Math.round(scale * 100) / 100,
+              })
             }
             className="bg-brand text-brand-foreground hover:bg-brand/90"
           >

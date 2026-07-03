@@ -5,9 +5,20 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2Icon, Trash2Icon } from "lucide-react";
 
-import { PhotoUpload } from "@/components/photos/photo-upload";
+import {
+  PhotoUpload,
+  type TagDestination,
+} from "@/components/photos/photo-upload";
 import { PhotoGallery } from "@/components/photos/photo-gallery";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -19,29 +30,22 @@ import { retagPhoto, deletePhotoRecord } from "@/lib/actions/photos";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { getPhotoUrl } from "@/lib/photos";
 import { cn } from "@/lib/utils";
-import type { Photo, PhotoOwnerType } from "@/lib/types";
+import type { CoverPosition, Photo } from "@/lib/types";
 
-export interface TagDestination {
-  id: string;
-  name: string;
-  lat: number | null;
-  lng: number | null;
-  experiences: { id: string; name: string }[];
-}
+export type { TagDestination };
 
 interface TripPhotosSectionProps {
   tripId: string;
   userId: string;
   isDemo: boolean;
   coverPhotoId: string | null;
-  coverPosition?: { x: number; y: number } | null;
+  coverPosition?: CoverPosition | null;
   destinations: TagDestination[];
   untaggedPhotos: Photo[];
   taggedPhotos: Photo[];
 }
 
 const WHOLE_DESTINATION = "__whole__";
-const TRIP_LEVEL = "__trip__";
 
 function photoInDestination(photo: Photo, destination: TagDestination): boolean {
   if (photo.owner_type === "destination" && photo.owner_id === destination.id) {
@@ -68,24 +72,6 @@ export function TripPhotosSection({
 }: TripPhotosSectionProps) {
   const router = useRouter();
   const refresh = () => router.refresh();
-
-  // Bulk tag selector: which owner should newly uploaded photos be tagged to?
-  const [bulkDestId, setBulkDestId] = useState<string>(TRIP_LEVEL);
-  const [bulkExpId, setBulkExpId] = useState<string>(WHOLE_DESTINATION);
-
-  const bulkDestination =
-    destinations.find((d) => d.id === bulkDestId) ?? null;
-
-  // Resolve effective bulk owner for the upload component.
-  let bulkOwnerType: PhotoOwnerType | undefined;
-  let bulkOwnerId: string | undefined;
-
-  if (bulkDestId !== TRIP_LEVEL) {
-    const taggingExp =
-      bulkExpId !== WHOLE_DESTINATION && bulkExpId !== "";
-    bulkOwnerType = taggingExp ? "experience" : "destination";
-    bulkOwnerId = taggingExp ? bulkExpId : bulkDestId;
-  }
 
   const [activeDest, setActiveDest] = useState<string | null>(null);
   const [activeExp, setActiveExp] = useState<string | null>(null);
@@ -116,73 +102,17 @@ export function TripPhotosSection({
 
   const isEmpty = untaggedPhotos.length === 0 && taggedPhotos.length === 0;
 
-  // Build the destinations list for EXIF auto-tagging (lat/lng from the Destination).
-  const exifDestinations = destinations.map((d) => ({
-    id: d.id,
-    name: d.name,
-    lat: d.lat,
-    lng: d.lng,
-  }));
-
   return (
     <section className="mt-10">
       <h2 className="mb-4 text-sm font-medium text-foreground/80">Photos</h2>
 
       <div className="flex flex-col gap-5">
-        {/* Bulk tag selector: pick an owner before uploading */}
-        <div className="flex flex-col gap-2">
-          <p className="text-xs text-foreground/50">Tag all to:</p>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Select
-              value={bulkDestId}
-              onValueChange={(v) => {
-                setBulkDestId(v);
-                setBulkExpId(WHOLE_DESTINATION);
-              }}
-            >
-              <SelectTrigger className="h-8 text-xs sm:w-56" aria-label="Bulk destination tag">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={TRIP_LEVEL}>
-                  Untagged (trip level)
-                </SelectItem>
-                {destinations.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {bulkDestination && bulkDestination.experiences.length > 0 ? (
-              <Select value={bulkExpId} onValueChange={setBulkExpId}>
-                <SelectTrigger className="h-8 text-xs sm:w-56" aria-label="Bulk experience tag">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={WHOLE_DESTINATION}>
-                    Whole destination
-                  </SelectItem>
-                  {bulkDestination.experiences.map((exp) => (
-                    <SelectItem key={exp.id} value={exp.id}>
-                      {exp.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : null}
-          </div>
-        </div>
-
         <PhotoUpload
           ownerType="trip"
           ownerId={tripId}
           userId={userId}
           isDemo={isDemo}
-          defaultOwnerType={bulkOwnerType}
-          defaultOwnerId={bulkOwnerId}
-          destinations={bulkDestId === TRIP_LEVEL ? exifDestinations : undefined}
+          tagDestinations={destinations}
           onUploaded={refresh}
         />
 
@@ -256,7 +186,6 @@ export function TripPhotosSection({
                 coverPhotoId={coverPhotoId}
                 coverPosition={coverPosition}
                 editable
-                allowDelete={false}
                 ownerType="trip"
                 ownerId={tripId}
                 retagDestinations={destinations}
@@ -323,6 +252,7 @@ function UntaggedPhoto({
   const [destId, setDestId] = useState<string>("");
   const [expId, setExpId] = useState<string>(WHOLE_DESTINATION);
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const destination = destinations.find((d) => d.id === destId) ?? null;
 
@@ -354,11 +284,13 @@ function UntaggedPhoto({
   async function remove() {
     if (isDemo) {
       toast.error(DEMO_READONLY_MESSAGE);
+      setConfirmDelete(false);
       return;
     }
     setBusy(true);
     const result = await deletePhotoRecord(photo.id);
     setBusy(false);
+    setConfirmDelete(false);
     if ("error" in result) {
       toast.error(result.error);
       return;
@@ -427,7 +359,7 @@ function UntaggedPhoto({
             type="button"
             size="sm"
             variant="ghost"
-            onClick={remove}
+            onClick={() => setConfirmDelete(true)}
             disabled={busy}
             aria-label="Delete photo"
           >
@@ -435,6 +367,42 @@ function UntaggedPhoto({
           </Button>
         </div>
       </div>
+
+      {confirmDelete ? (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !busy) setConfirmDelete(false);
+          }}
+        >
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Delete this photo?</DialogTitle>
+              <DialogDescription>
+                The photo will be permanently deleted. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setConfirmDelete(false)}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={remove}
+                disabled={busy}
+              >
+                {busy ? "Deleting..." : "Delete"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

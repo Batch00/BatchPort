@@ -35,6 +35,7 @@ import { StatusBadge } from "@/components/trips/status-badge";
 import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
 import { deleteTripAction } from "@/lib/actions/trips";
+import { coverImageStyle } from "@/lib/photos";
 import { flagEmoji, formatDateRange } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TripStatus } from "@/lib/types";
@@ -74,13 +75,7 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
             src={trip.coverUrl}
             alt=""
             loading="lazy"
-            style={
-              trip.cover_position
-                ? {
-                    objectPosition: `${trip.cover_position.x}% ${trip.cover_position.y}%`,
-                  }
-                : undefined
-            }
+            style={coverImageStyle(trip.cover_position)}
             className="absolute inset-0 size-full object-cover"
           />
         ) : (
@@ -174,13 +169,7 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
                           src={destination.coverUrl}
                           alt=""
                           loading="lazy"
-                          style={
-                            destination.cover_position
-                              ? {
-                                  objectPosition: `${destination.cover_position.x}% ${destination.cover_position.y}%`,
-                                }
-                              : undefined
-                          }
+                          style={coverImageStyle(destination.cover_position)}
                           className="size-full object-cover"
                         />
                       ) : (

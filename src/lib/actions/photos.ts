@@ -3,6 +3,8 @@
  *
  * ALTER TABLE batchport.trips ADD COLUMN IF NOT EXISTS cover_position jsonb DEFAULT '{"x": 50, "y": 50}';
  * ALTER TABLE batchport.destinations ADD COLUMN IF NOT EXISTS cover_position jsonb DEFAULT '{"x": 50, "y": 50}';
+ * -- cover_position may also carry a zoom factor: {"x": 50, "y": 50, "scale": 1.4}.
+ * -- No migration needed: rows without "scale" are treated as scale 1 by the app.
  * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS date_taken timestamptz;
  * -- Duplicate detection: SHA-256 of the original file content.
  * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS fingerprint text;
@@ -77,14 +79,21 @@ export async function setCoverPhoto(
   ownerType: PhotoOwnerType,
   ownerId: string,
   photoId: string,
-  position?: { x: number; y: number },
+  position?: { x: number; y: number; scale?: number },
 ): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   const { supabase } = await requireUser();
   const table = ownerType === "trip" ? "trips" : "destinations";
   const patch =
     position !== undefined
-      ? { cover_photo_id: photoId, cover_position: { x: position.x, y: position.y } }
+      ? {
+          cover_photo_id: photoId,
+          cover_position: {
+            x: position.x,
+            y: position.y,
+            scale: position.scale ?? 1,
+          },
+        }
       : { cover_photo_id: photoId };
   const { error } = await supabase.from(table).update(patch).eq("id", ownerId);
   if (error) return { error: "Could not set the cover photo." };

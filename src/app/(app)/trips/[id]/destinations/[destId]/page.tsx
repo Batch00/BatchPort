@@ -108,7 +108,16 @@ export default async function DestinationDetailPage({
       />
 
       <DestinationPhotos
-        destinationId={destId}
+        destination={{
+          id: destination.id,
+          name: destination.name,
+          lat: destination.latitude,
+          lng: destination.longitude,
+          experiences: destination.experiences.map((experience) => ({
+            id: experience.id,
+            name: experience.name,
+          })),
+        }}
         userId={user.id}
         isDemo={isDemo}
         photos={photos}
