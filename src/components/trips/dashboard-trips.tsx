@@ -87,9 +87,13 @@ export function DashboardTrips({ trips }: { trips: ProfileTrip[] }) {
       </div>
 
       {sorted.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-white/10 px-6 py-12 text-center text-sm text-foreground/60">
-          Your trips will appear here.
-        </p>
+        <Link
+          href="/trips/new"
+          className="flex flex-col items-center gap-1 rounded-xl border border-dashed border-white/10 px-6 py-12 text-center text-sm text-foreground/60 transition-colors hover:border-white/25 hover:text-foreground/80"
+        >
+          <span>No trips yet.</span>
+          <span className="text-brand">Add your first trip to get started.</span>
+        </Link>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {sorted.map((trip) => (

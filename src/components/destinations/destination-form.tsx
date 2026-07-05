@@ -17,7 +17,7 @@ import {
 } from "@/lib/actions/destinations";
 import { flagEmoji } from "@/lib/format";
 import type { DestinationInput } from "@/lib/destinations";
-import type { GeoLocation, Photo } from "@/lib/types";
+import type { CoverPosition, GeoLocation, Photo } from "@/lib/types";
 
 interface DestinationFormProps {
   mode: "create" | "edit";
@@ -32,6 +32,7 @@ interface DestinationFormProps {
   defaultNotes?: string;
   coverPhotos?: Photo[];
   coverPhotoId?: string | null;
+  coverPosition?: CoverPosition | null;
 }
 
 export function DestinationForm({
@@ -47,6 +48,7 @@ export function DestinationForm({
   defaultNotes = "",
   coverPhotos = [],
   coverPhotoId = null,
+  coverPosition = null,
 }: DestinationFormProps) {
   const router = useRouter();
   const [location, setLocation] = useState<GeoLocation | null>(defaultLocation);
@@ -59,6 +61,10 @@ export function DestinationForm({
     event.preventDefault();
     if (!location) {
       toast.error("Search for and select a location.");
+      return;
+    }
+    if (arrival && departure && departure < arrival) {
+      toast.error("Departure date cannot be before the arrival date.");
       return;
     }
     setSubmitting(true);
@@ -151,6 +157,7 @@ export function DestinationForm({
           isDemo={isDemo}
           photos={coverPhotos}
           coverPhotoId={coverPhotoId}
+          coverPosition={coverPosition}
           suggestQuery={location?.name}
         />
       </div>

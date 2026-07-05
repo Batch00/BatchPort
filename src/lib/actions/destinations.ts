@@ -16,11 +16,32 @@ import {
 
 // Server actions for destination mutations.
 
+// The form validates too, but the action is the boundary that actually holds.
+function validateDestinationInput(input: DestinationInput): string | null {
+  if (!input.name || !input.name.trim()) return "A location is required.";
+  if (!Number.isFinite(input.lat) || input.lat < -90 || input.lat > 90) {
+    return "The location's latitude is out of range.";
+  }
+  if (!Number.isFinite(input.lng) || input.lng < -180 || input.lng > 180) {
+    return "The location's longitude is out of range.";
+  }
+  if (
+    input.arrival_date &&
+    input.departure_date &&
+    input.departure_date < input.arrival_date
+  ) {
+    return "Departure date cannot be before the arrival date.";
+  }
+  return null;
+}
+
 export async function createDestinationAction(
   tripId: string,
   input: DestinationInput,
 ): Promise<{ error: string } | void> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  const invalid = validateDestinationInput(input);
+  if (invalid) return { error: invalid };
   const destination = await createDestination(tripId, input);
   // Auto-fetch a Wikimedia cover for the new stop. Best-effort and silent: it
   // never blocks creation, and the photo simply appears as the cover.
@@ -45,6 +66,8 @@ export async function updateDestinationAction(
   input: DestinationInput,
 ): Promise<{ error: string } | void> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  const invalid = validateDestinationInput(input);
+  if (invalid) return { error: invalid };
   await updateDestination(id, input);
   revalidatePath(`/trips/${tripId}`);
   revalidatePath(`/trips/${tripId}/destinations/${id}`);

@@ -13,7 +13,12 @@ import { StatusBadge } from "@/components/trips/status-badge";
 import { DeleteTripButton } from "@/components/trips/delete-trip-button";
 import { PhotoBanner } from "@/components/photos/photo-banner";
 import { TripPhotosSection } from "@/components/photos/trip-photos";
-import { flagEmoji, formatDateRange } from "@/lib/format";
+import {
+  durationDays,
+  flagEmoji,
+  formatDateRange,
+  formatDuration,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Photo } from "@/lib/types";
 
@@ -98,11 +103,17 @@ export default async function TripDetailPage({
         </div>
         <p className="mt-1 text-sm text-white/70">
           {formatDateRange(trip.start_date, trip.end_date)}
+          {(() => {
+            const days = durationDays(trip.start_date, trip.end_date);
+            return days ? (
+              <span className="text-white/50"> · {formatDuration(days)}</span>
+            ) : null;
+          })()}
         </p>
       </PhotoBanner>
 
       {trip.notes ? (
-        <p className="mb-8 max-w-prose text-sm text-foreground/70">
+        <p className="mb-8 max-w-prose whitespace-pre-line text-sm text-foreground/70">
           {trip.notes}
         </p>
       ) : null}
@@ -174,9 +185,22 @@ export default async function TripDetailPage({
                           )}
                         </p>
                       </div>
-                      <span className="shrink-0 pr-4 text-xs text-foreground/50">
-                        {experienceCount}{" "}
-                        {experienceCount === 1 ? "experience" : "experiences"}
+                      <span className="flex shrink-0 flex-col items-end gap-0.5 pr-4 text-xs text-foreground/50">
+                        <span>
+                          {experienceCount}{" "}
+                          {experienceCount === 1 ? "experience" : "experiences"}
+                        </span>
+                        {(() => {
+                          const photoCount =
+                            photosByDestination.get(destination.id)?.length ??
+                            0;
+                          return photoCount > 0 ? (
+                            <span className="text-foreground/40">
+                              {photoCount}{" "}
+                              {photoCount === 1 ? "photo" : "photos"}
+                            </span>
+                          ) : null;
+                        })()}
                       </span>
                     </CardContent>
                   </Card>

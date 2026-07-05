@@ -13,14 +13,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PhotoUpload } from "@/components/photos/photo-upload";
+import { CoverPositionDialog } from "@/components/photos/cover-position-dialog";
 import { insertPhotoRecord, setCoverPhoto } from "@/lib/actions/photos";
 import {
+  coverImageStyle,
   getPhotoUrl,
   pickCover,
   formatWikimediaAttribution,
 } from "@/lib/photos";
 import { cn } from "@/lib/utils";
-import type { Photo, PhotoOwnerType } from "@/lib/types";
+import type { CoverPosition, Photo, PhotoOwnerType } from "@/lib/types";
 
 interface WikimediaSuggestion {
   url: string | null;
@@ -36,6 +38,7 @@ interface CoverPhotoPickerProps {
   isDemo: boolean;
   photos: Photo[];
   coverPhotoId: string | null;
+  coverPosition?: CoverPosition | null;
   // A place name used to fetch a Wikimedia suggestion when no cover is set.
   suggestQuery?: string;
 }
@@ -47,6 +50,7 @@ export function CoverPhotoPicker({
   isDemo,
   photos,
   coverPhotoId,
+  coverPosition = null,
   suggestQuery,
 }: CoverPhotoPickerProps) {
   const router = useRouter();
@@ -54,6 +58,13 @@ export function CoverPhotoPicker({
   const [mode, setMode] = useState<"idle" | "upload" | "gallery">("idle");
   const [suggestion, setSuggestion] = useState<WikimediaSuggestion | null>(null);
   const [applying, setApplying] = useState(false);
+  // The photo whose crop/zoom is being edited in the position dialog. Set by
+  // "Edit position" (current cover) or by choosing a photo from the gallery.
+  const [positionPhoto, setPositionPhoto] = useState<Photo | null>(null);
+
+  // The stored position only describes the explicitly-set cover photo.
+  const activePosition =
+    cover && coverPhotoId === cover.id ? coverPosition : null;
 
   // Offer a Wikimedia suggestion only when there is no cover yet.
   useEffect(() => {
@@ -75,9 +86,15 @@ export function CoverPhotoPicker({
     router.refresh();
   }
 
-  async function applyGalleryChoice(photo: Photo) {
+  async function confirmPosition(photo: Photo, position: CoverPosition) {
     if (!ownerId) return;
-    const result = await setCoverPhoto(ownerType, ownerId, photo.id);
+    if (isDemo) {
+      toast.error("Demo accounts are read-only.");
+      setPositionPhoto(null);
+      return;
+    }
+    const result = await setCoverPhoto(ownerType, ownerId, photo.id, position);
+    setPositionPhoto(null);
     if ("error" in result) {
       toast.error(result.error);
       return;
@@ -123,6 +140,7 @@ export function CoverPhotoPicker({
             <img
               src={getPhotoUrl(cover)}
               alt=""
+              style={coverImageStyle(activePosition)}
               className="size-full object-cover"
             />
           ) : (
@@ -154,6 +172,12 @@ export function CoverPhotoPicker({
                 >
                   Choose from gallery
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => cover && setPositionPhoto(cover)}
+                  disabled={!cover}
+                >
+                  Edit position
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
@@ -181,7 +205,8 @@ export function CoverPhotoPicker({
             <button
               key={photo.id}
               type="button"
-              onClick={() => applyGalleryChoice(photo)}
+              aria-label="Use this photo as the cover"
+              onClick={() => setPositionPhoto(photo)}
               className={cn(
                 "relative aspect-square overflow-hidden rounded-md ring-1 transition-all",
                 photo.id === cover?.id
@@ -232,6 +257,20 @@ export function CoverPhotoPicker({
             </Button>
           </div>
         </div>
+      ) : null}
+
+      {positionPhoto ? (
+        <CoverPositionDialog
+          photo={positionPhoto}
+          initialPosition={
+            positionPhoto.id === cover?.id ? activePosition : null
+          }
+          confirmLabel={
+            positionPhoto.id === coverPhotoId ? "Save position" : "Set as cover"
+          }
+          onConfirm={(position) => confirmPosition(positionPhoto, position)}
+          onCancel={() => setPositionPhoto(null)}
+        />
       ) : null}
     </div>
   );

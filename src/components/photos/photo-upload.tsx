@@ -34,7 +34,12 @@ import { extractExifFromBuffer, findNearestDestination } from "@/lib/utils/exif"
 import type { PhotoOwnerType } from "@/lib/types";
 
 const ACCEPTED = ["image/jpeg", "image/png", "image/webp"];
-const MAX_BYTES = 10 * 1024 * 1024;
+// Files over this size get a "Resized from X to Y" note in the review list so
+// the user knows the app handled them. There is no hard rejection limit: every
+// photo runs through the canvas resize before upload.
+const RESIZE_NOTE_BYTES = 4 * 1024 * 1024;
+// If a photo is somehow still this large after the resize, warn but allow it.
+const LARGE_AFTER_RESIZE_BYTES = 10 * 1024 * 1024;
 // How many files run each pipeline (staging or upload) concurrently.
 const CONCURRENCY = 4;
 
@@ -66,6 +71,8 @@ interface StagedPhoto {
   stageError: string | null;
   // Resized output, held in memory until the user confirms the batch.
   blob: Blob | null;
+  // Size of the resized output, for the "Resized from X to Y" review note.
+  resizedSize: number | null;
   fingerprint: string | null;
   dateTaken: string | null;
   hasGps: boolean;
@@ -223,10 +230,6 @@ export function PhotoUpload({
         toast.error(`${file.name} is not a supported image (jpg, png, webp).`);
         continue;
       }
-      if (file.size > MAX_BYTES) {
-        toast.error(`${file.name} is larger than 10MB.`);
-        continue;
-      }
       validFiles.push(file);
     }
     if (validFiles.length === 0) return;
@@ -243,6 +246,7 @@ export function PhotoUpload({
       stage: "processing",
       stageError: null,
       blob: null,
+      resizedSize: null,
       fingerprint: null,
       dateTaken: null,
       hasGps: false,
@@ -303,11 +307,19 @@ export function PhotoUpload({
           (await isDuplicatePhoto(owner.type, owner.id, fingerprint));
         batchFingerprints.add(fingerprint);
 
+        // The resize always runs, so oversized phone photos are shrunk rather
+        // than rejected.
         const blob = await resizeImage(item.file);
+        if (blob.size > LARGE_AFTER_RESIZE_BYTES) {
+          toast.warning(
+            `${item.name} is still ${formatFileSize(blob.size)} after resizing. It will upload, but may be slow.`,
+          );
+        }
 
         updateItem(item.id, {
           stage: "ready",
           blob,
+          resizedSize: blob.size,
           fingerprint,
           dateTaken: exif.dateTaken,
           hasGps,
@@ -500,7 +512,8 @@ export function PhotoUpload({
         <UploadCloudIcon className="size-6 text-brand" />
         <span>Drop photos here or click to browse</span>
         <span className="text-xs text-foreground/40">
-          jpg, png or webp, up to 10MB each. Nothing uploads until you confirm.
+          jpg, png or webp. Large photos are resized automatically. Nothing
+          uploads until you confirm.
         </span>
       </button>
 
@@ -710,6 +723,16 @@ function StagedPhotoRow({
 
         {item.stage === "error" ? (
           <p className="text-[0.7rem] text-destructive">{item.stageError}</p>
+        ) : null}
+
+        {item.stage === "ready" &&
+        item.size > RESIZE_NOTE_BYTES &&
+        item.resizedSize !== null &&
+        item.resizedSize < item.size ? (
+          <p className="text-[0.7rem] text-foreground/40">
+            Resized from {formatFileSize(item.size)} to{" "}
+            {formatFileSize(item.resizedSize)}
+          </p>
         ) : null}
 
         {item.duplicate ? (

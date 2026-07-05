@@ -56,6 +56,7 @@ export default async function EditTripPage({
         }}
         coverPhotos={coverPhotos}
         coverPhotoId={trip.cover_photo_id}
+        coverPosition={trip.cover_position}
       />
     </div>
   );

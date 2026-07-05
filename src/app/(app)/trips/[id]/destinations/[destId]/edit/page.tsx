@@ -59,6 +59,7 @@ export default async function EditDestinationPage({
         defaultNotes={destination.notes ?? ""}
         coverPhotos={coverPhotos}
         coverPhotoId={destination.cover_photo_id}
+        coverPosition={destination.cover_position}
       />
     </div>
   );

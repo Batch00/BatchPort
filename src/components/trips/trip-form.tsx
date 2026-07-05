@@ -19,7 +19,7 @@ import {
 import { CoverPhotoPicker } from "@/components/photos/cover-photo-picker";
 import { createTripAction, updateTripAction } from "@/lib/actions/trips";
 import type { TripInput } from "@/lib/trips";
-import type { Photo, TripStatus } from "@/lib/types";
+import type { CoverPosition, Photo, TripStatus } from "@/lib/types";
 
 export interface TripFormValues {
   name: string;
@@ -37,6 +37,7 @@ interface TripFormProps {
   defaultValues?: TripFormValues;
   coverPhotos?: Photo[];
   coverPhotoId?: string | null;
+  coverPosition?: CoverPosition | null;
 }
 
 const EMPTY: TripFormValues = {
@@ -65,6 +66,7 @@ export function TripForm({
   defaultValues,
   coverPhotos = [],
   coverPhotoId = null,
+  coverPosition = null,
 }: TripFormProps) {
   const router = useRouter();
   const [values, setValues] = useState<TripFormValues>(defaultValues ?? EMPTY);
@@ -78,6 +80,14 @@ export function TripForm({
     event.preventDefault();
     if (!values.name.trim()) {
       toast.error("Trip name is required.");
+      return;
+    }
+    if (
+      values.start_date &&
+      values.end_date &&
+      values.end_date < values.start_date
+    ) {
+      toast.error("End date cannot be before the start date.");
       return;
     }
     setSubmitting(true);
@@ -170,6 +180,7 @@ export function TripForm({
           isDemo={isDemo}
           photos={coverPhotos}
           coverPhotoId={coverPhotoId}
+          coverPosition={coverPosition}
         />
       </div>
 

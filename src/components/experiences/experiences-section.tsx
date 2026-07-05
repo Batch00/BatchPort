@@ -126,6 +126,11 @@ export function ExperiencesSection({
                         <span>{formatDate(experience.visited_date)}</span>
                       ) : null}
                     </div>
+                    {experience.notes ? (
+                      <p className="mt-1 whitespace-pre-line break-words text-xs text-foreground/60">
+                        {experience.notes}
+                      </p>
+                    ) : null}
                   </div>
                   {experience.rating ? (
                     <RatingDisplay rating={experience.rating} />

@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { MenuIcon, SettingsIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 // Links shown in the full mobile menu. The desktop bar shows the first three
 // plus a settings gear; the mobile sheet lists all of them.
@@ -24,6 +26,12 @@ interface AppNavProps {
 // collapses to a brand mark plus a hamburger that opens a stacked menu.
 export function AppNav({ email, signOut }: AppNavProps) {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+
+  // Exact match only: /dashboard/stats should highlight Stats, not Dashboard.
+  function isActive(href: string): boolean {
+    return pathname === href;
+  }
 
   return (
     <header className="border-b border-white/10">
@@ -40,7 +48,13 @@ export function AppNav({ email, signOut }: AppNavProps) {
               <Link
                 key={link.href}
                 href={link.href}
-                className="text-sm text-foreground/60 transition-colors hover:text-foreground"
+                aria-current={isActive(link.href) ? "page" : undefined}
+                className={cn(
+                  "text-sm transition-colors hover:text-foreground",
+                  isActive(link.href)
+                    ? "font-medium text-foreground"
+                    : "text-foreground/60",
+                )}
               >
                 {link.label}
               </Link>
@@ -87,7 +101,13 @@ export function AppNav({ email, signOut }: AppNavProps) {
               key={link.href}
               href={link.href}
               onClick={() => setOpen(false)}
-              className="rounded-md px-3 py-2 text-sm text-foreground/70 transition-colors hover:bg-white/5 hover:text-foreground"
+              aria-current={isActive(link.href) ? "page" : undefined}
+              className={cn(
+                "rounded-md px-3 py-2 text-sm transition-colors hover:bg-white/5 hover:text-foreground",
+                isActive(link.href)
+                  ? "bg-white/5 font-medium text-foreground"
+                  : "text-foreground/70",
+              )}
             >
               {link.label}
             </Link>

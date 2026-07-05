@@ -7,7 +7,12 @@ import { StatusBadge } from "@/components/trips/status-badge";
 import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
 import { coverImageStyle } from "@/lib/photos";
-import { flagEmoji, formatDateRange } from "@/lib/format";
+import {
+  durationDays,
+  flagEmoji,
+  formatDateRange,
+  formatDuration,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TripStatus } from "@/lib/types";
 import type { ProfileTrip } from "@/lib/share-data";
@@ -18,6 +23,7 @@ import type { ProfileTrip } from "@/lib/share-data";
 export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
   const [expanded, setExpanded] = useState(false);
   const destinationCount = trip.destinations.length;
+  const days = durationDays(trip.start_date, trip.end_date);
 
   return (
     <div className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
@@ -52,6 +58,9 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
           <div className="mt-0.5 flex items-center justify-between gap-2">
             <p className="text-sm text-white/70">
               {formatDateRange(trip.start_date, trip.end_date)}
+              {days ? (
+                <span className="text-white/50"> · {formatDuration(days)}</span>
+              ) : null}
             </p>
             <span className="flex items-center gap-1 text-xs text-white/60">
               {destinationCount}{" "}

@@ -12,7 +12,12 @@ import { DeleteDestinationButton } from "@/components/destinations/delete-destin
 import { ExperiencesSection } from "@/components/experiences/experiences-section";
 import { DestinationPhotos } from "@/components/photos/destination-photos";
 import { PhotoBanner } from "@/components/photos/photo-banner";
-import { flagEmoji, formatDateRange } from "@/lib/format";
+import {
+  durationDays,
+  flagEmoji,
+  formatDateRange,
+  formatDuration,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Photo } from "@/lib/types";
 
@@ -80,17 +85,27 @@ export default async function DestinationDetailPage({
           {destination.name}
           {destination.country_code ? (
             <span className="text-base font-normal text-white/70">
-              {flagEmoji(destination.country_code)} {destination.country_code}
+              {flagEmoji(destination.country_code)}{" "}
+              {destination.admin_region ?? destination.country_code}
             </span>
           ) : null}
         </h1>
         <p className="mt-1 text-sm text-white/70">
           {formatDateRange(destination.arrival_date, destination.departure_date)}
+          {(() => {
+            const days = durationDays(
+              destination.arrival_date,
+              destination.departure_date,
+            );
+            return days ? (
+              <span className="text-white/50"> · {formatDuration(days)}</span>
+            ) : null;
+          })()}
         </p>
       </PhotoBanner>
 
       {destination.notes ? (
-        <p className="mb-8 max-w-prose text-sm text-foreground/70">
+        <p className="mb-8 max-w-prose whitespace-pre-line text-sm text-foreground/70">
           {destination.notes}
         </p>
       ) : null}
