@@ -18,6 +18,9 @@ export interface InsertPhotoInput {
   externalUrl?: string | null;
   attribution?: string | null;
   dateTaken?: string | null;
+  // EXIF GPS coordinates from the original file, when present.
+  gpsLat?: number | null;
+  gpsLng?: number | null;
   // SHA-256 of the original file content, used for duplicate detection.
   fingerprint?: string | null;
 }
@@ -138,9 +141,13 @@ export async function uploadPhotoBlob(
   const path = `${userId}/${ownerType}/${ownerId}/${Date.now()}_${sanitizeFilename(
     originalName,
   )}`;
-  const { error } = await supabase.storage
-    .from(PHOTO_BUCKET)
-    .upload(path, blob, { contentType: blob.type, upsert: false });
+  const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(path, blob, {
+    contentType: blob.type,
+    upsert: false,
+    // Photos are immutable once uploaded (new content gets a new path), so
+    // the CDN and browser can cache them for a year.
+    cacheControl: "31536000",
+  });
   if (error) throw error;
   return path;
 }
@@ -177,6 +184,65 @@ export function formatWikimediaAttribution(
   return `${tail} via Wikimedia Commons`;
 }
 
+// Shared cover aspect ratios so a cover crops identically everywhere a given
+// context appears. Cards (dashboard and share trip cards) are 16:9; banners
+// (trip and destination detail headers) are wider, with a minimum height so
+// overlaid titles and actions always fit.
+export const COVER_CARD_ASPECT = "aspect-video";
+export const COVER_BANNER_ASPECT = "aspect-[3/1] min-h-48 sm:min-h-56";
+
+// Default gallery order: date taken ascending when known; photos without a
+// date sort after dated ones, falling back to manual order then upload time.
+export function compareByDateTaken(a: Photo, b: Photo): number {
+  const aDate = a.date_taken;
+  const bDate = b.date_taken;
+  if (aDate && bDate && aDate !== bDate) return aDate < bDate ? -1 : 1;
+  if (aDate && !bDate) return -1;
+  if (!aDate && bDate) return 1;
+  if (a.order_index !== b.order_index) return a.order_index - b.order_index;
+  return a.created_at < b.created_at ? -1 : 1;
+}
+
+// Client-side fetch of every photo attached to a trip at any level (the trip
+// itself, its destinations, and their experiences). Used by the dashboard
+// cover editor, which loads photos lazily on open instead of shipping every
+// trip's gallery with the dashboard payload. RLS scopes results to the user.
+export async function fetchTripGalleryPhotos(
+  tripId: string,
+  destinationIds: string[],
+  experienceIds: string[],
+): Promise<Photo[]> {
+  const supabase = createClient();
+  const queries = [
+    supabase
+      .from("photos")
+      .select("*")
+      .eq("owner_type", "trip")
+      .eq("owner_id", tripId),
+    destinationIds.length > 0
+      ? supabase
+          .from("photos")
+          .select("*")
+          .eq("owner_type", "destination")
+          .in("owner_id", destinationIds)
+      : null,
+    experienceIds.length > 0
+      ? supabase
+          .from("photos")
+          .select("*")
+          .eq("owner_type", "experience")
+          .in("owner_id", experienceIds)
+      : null,
+  ].filter((query) => query !== null);
+  const results = await Promise.all(queries);
+  const photos: Photo[] = [];
+  for (const result of results) {
+    if (result.error) throw result.error;
+    photos.push(...((result.data ?? []) as Photo[]));
+  }
+  return photos.sort(compareByDateTaken);
+}
+
 // Pick the cover photo for an owner from its photo list: the explicit cover if
 // it is present, otherwise the first photo, otherwise null.
 export function pickCover(
@@ -211,13 +277,14 @@ export function coverImageStyle(
   return style;
 }
 
-// The display URL for a photo. Uploads resolve to the public Storage URL,
-// Wikimedia images route through the proxy to avoid CORS and hotlinking, and
-// plain urls are returned as-is.
+// The display URL for a photo. Any photo with a storage_path (uploads, and
+// Wikimedia images the proxy has already cached into Storage) resolves to the
+// public Storage CDN URL directly. Uncached Wikimedia images route through the
+// proxy (which caches them for next time), and plain urls are returned as-is.
 export function getPhotoUrl(
   photo: Pick<Photo, "source" | "storage_path" | "external_url">,
 ): string {
-  if (photo.source === "upload" && photo.storage_path) {
+  if (photo.storage_path && photo.source !== "url") {
     const base = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
     return `${base}/storage/v1/object/public/${PHOTO_BUCKET}/${photo.storage_path}`;
   }

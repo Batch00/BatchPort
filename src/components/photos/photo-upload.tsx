@@ -434,6 +434,8 @@ export function PhotoUpload({
           source: "upload",
           storagePath,
           dateTaken: item.dateTaken ?? undefined,
+          gpsLat: item.gpsLat,
+          gpsLng: item.gpsLng,
           fingerprint: item.fingerprint,
         });
         if ("error" in result) {

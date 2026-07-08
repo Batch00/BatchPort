@@ -3,7 +3,11 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
 
 import { getTrip } from "@/lib/trips";
-import { getPhotos, getPhotosByIds } from "@/lib/photos-data";
+import {
+  getPhotos,
+  getPhotosByIds,
+  getPhotosForOwners,
+} from "@/lib/photos-data";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
 import { TripForm } from "@/components/trips/trip-form";
@@ -19,17 +23,26 @@ export default async function EditTripPage({
     notFound();
   }
 
-  // The cover photo can be owned by one of the trip's destinations (set from the
-  // aggregated gallery), so fetch it by id when it is not already in the
-  // trip-owned list. Otherwise the picker cannot display the current cover.
-  const tripPhotos = await getPhotos("trip", trip.id);
-  let coverPhotos = tripPhotos;
+  // The cover can be any photo attached to the trip at any level (trip,
+  // destination, or experience), so the picker gallery aggregates all three.
+  const destIds = trip.destinations.map((destination) => destination.id);
+  const expIds = trip.destinations.flatMap((destination) =>
+    destination.experiences.map((experience) => experience.id),
+  );
+  const [tripPhotos, destPhotos, expPhotos] = await Promise.all([
+    getPhotos("trip", trip.id),
+    getPhotosForOwners("destination", destIds),
+    getPhotosForOwners("experience", expIds),
+  ]);
+  let coverPhotos = [...tripPhotos, ...destPhotos, ...expPhotos];
+  // Covers set before this aggregation existed could in theory point at a
+  // photo outside the set; fetch it by id so the current cover always shows.
   if (
     trip.cover_photo_id &&
-    !tripPhotos.some((photo) => photo.id === trip.cover_photo_id)
+    !coverPhotos.some((photo) => photo.id === trip.cover_photo_id)
   ) {
     const [coverPhoto] = await getPhotosByIds([trip.cover_photo_id]);
-    if (coverPhoto) coverPhotos = [coverPhoto, ...tripPhotos];
+    if (coverPhoto) coverPhotos = [coverPhoto, ...coverPhotos];
   }
 
   return (

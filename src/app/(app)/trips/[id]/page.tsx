@@ -80,7 +80,7 @@ export default async function TripDetailPage({
         Back to trips
       </Link>
 
-      <PhotoBanner photo={bannerPhoto} coverPosition={bannerPosition} className="mb-8 min-h-52 sm:min-h-64">
+      <PhotoBanner photo={bannerPhoto} coverPosition={bannerPosition} className="mb-8">
         <div className="absolute right-4 top-4 flex items-center gap-2">
           <Link
             href={`/trips/${trip.id}/edit`}

@@ -48,7 +48,12 @@ import {
   retagPhoto,
   reorderPhotos,
 } from "@/lib/actions/photos";
-import { coverImageStyle, getPhotoUrl, pickCover } from "@/lib/photos";
+import {
+  compareByDateTaken,
+  coverImageStyle,
+  getPhotoUrl,
+  pickCover,
+} from "@/lib/photos";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { cn } from "@/lib/utils";
 import type { CoverPosition, Photo, PhotoOwnerType } from "@/lib/types";
@@ -100,6 +105,12 @@ export function PhotoGallery({
   // reorders (buttons or drag) so the grid updates without waiting for the
   // server round-trip; reset whenever the photo set itself changes.
   const [viewOrder, setViewOrder] = useState<string[] | null>(null);
+  // Photos deleted this session, hidden immediately while the server
+  // revalidation catches up.
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  // Sort mode. null = automatic: by date taken when any photo has one,
+  // otherwise the manual order. The user can override with the toggle.
+  const [sortChoice, setSortChoice] = useState<"date" | "custom" | null>(null);
   const photoIdsKey = photos
     .map((photo) => photo.id)
     .sort()
@@ -110,14 +121,21 @@ export function PhotoGallery({
   if (prevIdsKey !== photoIdsKey) {
     setPrevIdsKey(photoIdsKey);
     setViewOrder(null);
+    setHiddenIds(new Set());
   }
 
-  const photosById = new Map(photos.map((photo) => [photo.id, photo]));
-  const base = viewOrder
-    ? viewOrder
-        .map((id) => photosById.get(id))
-        .filter((photo): photo is Photo => Boolean(photo))
-    : photos;
+  const visible = photos.filter((photo) => !hiddenIds.has(photo.id));
+  const hasDates = visible.some((photo) => photo.date_taken);
+  const dateSorted = (sortChoice ?? (hasDates ? "date" : "custom")) === "date";
+
+  const photosById = new Map(visible.map((photo) => [photo.id, photo]));
+  const base = dateSorted
+    ? [...visible].sort(compareByDateTaken)
+    : viewOrder
+      ? viewOrder
+          .map((id) => photosById.get(id))
+          .filter((photo): photo is Photo => Boolean(photo))
+      : visible;
   const cover = pickCover(base, coverPhotoId);
   const ordered = cover
     ? [cover, ...base.filter((photo) => photo.id !== cover.id)]
@@ -128,14 +146,16 @@ export function PhotoGallery({
 
   // Reordering only makes sense when every photo belongs to the same owner:
   // the trip gallery can mix destination and experience photos, where a shared
-  // order_index sequence has no meaning.
+  // order_index sequence has no meaning. Date sort also disables it: dragging
+  // would be immediately re-sorted away.
   const reorderable =
     editable &&
-    photos.length > 1 &&
-    photos.every(
+    !dateSorted &&
+    visible.length > 1 &&
+    visible.every(
       (photo) =>
-        photo.owner_type === photos[0].owner_type &&
-        photo.owner_id === photos[0].owner_id,
+        photo.owner_type === visible[0].owner_type &&
+        photo.owner_id === visible[0].owner_id,
     );
   // With an explicit cover pinned to the lead slot, photos shuffle behind it.
   const minIndex = isExplicitCover ? 1 : 0;
@@ -246,11 +266,19 @@ export function PhotoGallery({
       setDeleteTarget(null);
       return;
     }
+    const targetId = deleteTarget.id;
     setDeleteBusy(true);
-    const result = await deletePhotoRecord(deleteTarget.id);
+    // Hide immediately; restore if the server delete fails.
+    setHiddenIds((prev) => new Set(prev).add(targetId));
+    const result = await deletePhotoRecord(targetId);
     setDeleteBusy(false);
     setDeleteTarget(null);
     if ("error" in result) {
+      setHiddenIds((prev) => {
+        const next = new Set(prev);
+        next.delete(targetId);
+        return next;
+      });
       toast.error(result.error);
       return;
     }
@@ -456,12 +484,23 @@ export function PhotoGallery({
     }
     setBulkBusy(true);
     const ids = Array.from(selectedIds);
+    // Hide immediately; restore any that fail to delete.
+    setHiddenIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
     const results = await Promise.all(ids.map((id) => deletePhotoRecord(id)));
     setBulkBusy(false);
     setBulkDeleteOpen(false);
-    const errors = results.filter((r) => "error" in r);
-    if (errors.length > 0) {
-      toast.error(`${errors.length} photo(s) could not be deleted.`);
+    const failedIds = ids.filter((_, i) => "error" in results[i]);
+    if (failedIds.length > 0) {
+      setHiddenIds((prev) => {
+        const next = new Set(prev);
+        for (const id of failedIds) next.delete(id);
+        return next;
+      });
+      toast.error(`${failedIds.length} photo(s) could not be deleted.`);
     } else {
       toast.success(`${ids.length} photo(s) deleted.`);
     }
@@ -580,46 +619,77 @@ export function PhotoGallery({
   const activeCoverPosition =
     isExplicitCover && cover ? coverPosition : null;
 
-  const toolbar = editable ? (
-    <div className="flex items-center justify-end gap-2">
-      {isSelecting ? (
-        <>
-          <span className="text-xs text-foreground/50">
-            {selectedIds.size} selected
-          </span>
-          <button
-            type="button"
-            onClick={() => setSelectedIds(new Set(ordered.map((p) => p.id)))}
-            className="text-xs text-foreground/70 hover:text-foreground"
-          >
-            Select all
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedIds(new Set())}
-            className="text-xs text-foreground/70 hover:text-foreground"
-          >
-            Deselect all
-          </button>
-          <button
-            type="button"
-            onClick={exitSelect}
-            className="text-xs text-foreground/70 hover:text-foreground"
-          >
-            Done
-          </button>
-        </>
-      ) : (
+  const showSortToggle = hasDates && visible.length > 1 && !isSelecting;
+  const sortToggle = showSortToggle ? (
+    <div className="flex items-center gap-1 text-xs">
+      <span className="text-foreground/40">Sort:</span>
+      {(["date", "custom"] as const).map((mode) => (
         <button
+          key={mode}
           type="button"
-          onClick={() => setIsSelecting(true)}
-          className="text-xs text-foreground/50 hover:text-foreground/80"
+          onClick={() => setSortChoice(mode)}
+          aria-pressed={dateSorted === (mode === "date")}
+          className={cn(
+            "rounded-md px-2 py-0.5 transition-colors",
+            dateSorted === (mode === "date")
+              ? "bg-white/10 font-medium text-foreground"
+              : "text-foreground/50 hover:text-foreground/80",
+          )}
         >
-          Select
+          {mode === "date" ? "Date" : "Custom"}
         </button>
-      )}
+      ))}
     </div>
   ) : null;
+
+  const toolbar =
+    editable || showSortToggle ? (
+      <div className="flex items-center justify-between gap-2">
+        {sortToggle ?? <span />}
+        <div className="flex items-center gap-2">
+          {editable ? (
+            isSelecting ? (
+              <>
+                <span className="text-xs text-foreground/50">
+                  {selectedIds.size} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedIds(new Set(ordered.map((p) => p.id)))
+                  }
+                  className="text-xs text-foreground/70 hover:text-foreground"
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(new Set())}
+                  className="text-xs text-foreground/70 hover:text-foreground"
+                >
+                  Deselect all
+                </button>
+                <button
+                  type="button"
+                  onClick={exitSelect}
+                  className="text-xs text-foreground/70 hover:text-foreground"
+                >
+                  Done
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsSelecting(true)}
+                className="text-xs text-foreground/50 hover:text-foreground/80"
+              >
+                Select
+              </button>
+            )
+          ) : null}
+        </div>
+      </div>
+    ) : null;
 
   return (
     <>
@@ -954,11 +1024,18 @@ function Lightbox({
         <XIcon className="size-5" />
       </button>
 
-      {hasMultiple ? (
-        <span className="absolute left-4 top-4 rounded-full bg-white/10 px-3 py-1.5 text-xs tabular-nums text-white/80">
-          {index + 1} / {total}
-        </span>
-      ) : null}
+      <div className="absolute left-4 top-4 flex items-center gap-2">
+        {hasMultiple ? (
+          <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs tabular-nums text-white/80">
+            {index + 1} / {total}
+          </span>
+        ) : null}
+        {dateTaken ? (
+          <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/80">
+            {dateTaken}
+          </span>
+        ) : null}
+      </div>
 
       {hasMultiple ? (
         <button
@@ -986,10 +1063,9 @@ function Lightbox({
           alt=""
           className="max-h-[80vh] w-auto rounded-lg object-contain"
         />
-        {photo.attribution || dateTaken ? (
-          <figcaption className="flex flex-col items-center gap-1 text-center text-xs text-white/60">
-            {dateTaken ? <span>{dateTaken}</span> : null}
-            {photo.attribution ? <span>{photo.attribution}</span> : null}
+        {photo.attribution ? (
+          <figcaption className="text-center text-xs text-white/60">
+            {photo.attribution}
           </figcaption>
         ) : null}
       </figure>

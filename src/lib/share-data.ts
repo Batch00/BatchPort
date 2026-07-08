@@ -36,6 +36,9 @@ export interface ProfileTrip {
   status: string;
   notes: string | null;
   coverUrl: string | null;
+  // The explicit cover photo id, when set. Lets the dashboard cover editor
+  // mark the current cover; the read-only share view ignores it.
+  cover_photo_id: string | null;
   cover_position: { x: number; y: number } | null;
   destinations: ProfileDestination[];
 }
@@ -238,6 +241,7 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       status: trip.status,
       notes: trip.notes,
       coverUrl: coverUrl(trip.cover_photo_id) ?? firstDestCover,
+      cover_photo_id: trip.cover_photo_id,
       cover_position: hasTripCover ? (trip.cover_position ?? null) : null,
       destinations,
     };

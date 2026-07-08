@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon } from "lucide-react";
 
 import { getDestination } from "@/lib/destinations";
-import { getPhotos } from "@/lib/photos-data";
+import { getPhotos, getPhotosForOwners } from "@/lib/photos-data";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
 import { DestinationForm } from "@/components/destinations/destination-form";
@@ -23,7 +23,16 @@ export default async function EditDestinationPage({
     notFound();
   }
 
-  const coverPhotos = await getPhotos("destination", destId);
+  // The picker gallery includes the destination's own photos plus any photos
+  // tagged to its experiences, so every relevant photo is selectable as cover.
+  const [destPhotos, expPhotos] = await Promise.all([
+    getPhotos("destination", destId),
+    getPhotosForOwners(
+      "experience",
+      destination.experiences.map((experience) => experience.id),
+    ),
+  ]);
+  const coverPhotos = [...destPhotos, ...expPhotos];
 
   const location: GeoLocation = {
     name: destination.name,

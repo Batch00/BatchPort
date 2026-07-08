@@ -6,7 +6,7 @@ import { ChevronDownIcon, ImageIcon, MapPinIcon } from "lucide-react";
 import { StatusBadge } from "@/components/trips/status-badge";
 import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
-import { coverImageStyle } from "@/lib/photos";
+import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
 import {
   durationDays,
   flagEmoji,
@@ -31,7 +31,10 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
         type="button"
         onClick={() => setExpanded((open) => !open)}
         aria-expanded={expanded}
-        className="group relative block h-32 w-full text-left"
+        className={cn(
+          "group relative block w-full text-left",
+          COVER_CARD_ASPECT,
+        )}
       >
         {trip.coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element

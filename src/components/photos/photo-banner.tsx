@@ -1,10 +1,16 @@
-import { coverImageStyle, getPhotoUrl } from "@/lib/photos";
+import {
+  COVER_BANNER_ASPECT,
+  coverImageStyle,
+  getPhotoUrl,
+} from "@/lib/photos";
 import { cn } from "@/lib/utils";
 import type { CoverPosition, Photo } from "@/lib/types";
 
 // A header banner for trips and destinations. Renders the cover photo behind a
 // dark gradient so overlaid text stays readable, or a subtle gradient
-// placeholder when there is no cover. Pure and server-renderable.
+// placeholder when there is no cover. Pure and server-renderable. All banners
+// share the COVER_BANNER_ASPECT ratio so covers crop consistently; the aspect
+// ratio also reserves the box height before the image loads (no layout shift).
 export function PhotoBanner({
   photo,
   coverPosition,
@@ -21,6 +27,7 @@ export function PhotoBanner({
     <div
       className={cn(
         "relative overflow-hidden rounded-2xl bg-gradient-to-br from-white/[0.08] to-transparent ring-1 ring-foreground/10",
+        COVER_BANNER_ASPECT,
         className,
       )}
     >

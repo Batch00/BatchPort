@@ -6,6 +6,9 @@
  * -- cover_position may also carry a zoom factor: {"x": 50, "y": 50, "scale": 1.4}.
  * -- No migration needed: rows without "scale" are treated as scale 1 by the app.
  * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS date_taken timestamptz;
+ * -- EXIF GPS coordinates captured at upload time.
+ * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS gps_lat double precision;
+ * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS gps_lng double precision;
  * -- Duplicate detection: SHA-256 of the original file content.
  * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS fingerprint text;
  * CREATE INDEX IF NOT EXISTS photos_owner_fingerprint_idx
@@ -63,15 +66,34 @@ export async function insertPhotoRecord(
   if (input.fingerprint !== undefined && input.fingerprint !== null) {
     payload.fingerprint = input.fingerprint;
   }
+  const hasGps = input.gpsLat != null && input.gpsLng != null;
+  if (hasGps) {
+    payload.gps_lat = input.gpsLat;
+    payload.gps_lng = input.gpsLng;
+  }
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("photos")
     .insert(payload)
     .select("id")
     .single();
+  // Databases created before the GPS columns existed reject the insert with a
+  // schema error. Retry without the GPS fields so the upload never fails just
+  // because coordinates could not be stored.
+  if (error && hasGps) {
+    delete payload.gps_lat;
+    delete payload.gps_lng;
+    ({ data, error } = await supabase
+      .from("photos")
+      .insert(payload)
+      .select("id")
+      .single());
+  }
   if (error || !data) return { error: "Could not save the photo." };
 
   revalidatePath("/dashboard");
+  revalidatePath("/trips/[id]", "page");
+  revalidatePath("/trips/[id]/destinations/[destId]", "page");
   return { ok: true, photoId: data.id as string };
 }
 
@@ -99,7 +121,8 @@ export async function setCoverPhoto(
   if (error) return { error: "Could not set the cover photo." };
 
   revalidatePath("/dashboard");
-  if (ownerType === "trip") revalidatePath(`/trips/${ownerId}`);
+  revalidatePath("/trips/[id]", "page");
+  revalidatePath("/trips/[id]/destinations/[destId]", "page");
   return { ok: true };
 }
 
@@ -130,6 +153,8 @@ export async function retagPhoto(
   if (error) return { error: "Could not tag the photo." };
 
   revalidatePath("/dashboard");
+  revalidatePath("/trips/[id]", "page");
+  revalidatePath("/trips/[id]/destinations/[destId]", "page");
   return { ok: true };
 }
 
@@ -166,6 +191,8 @@ export async function deletePhotoRecord(id: string): Promise<ActionResult> {
   }
 
   revalidatePath("/dashboard");
+  revalidatePath("/trips/[id]", "page");
+  revalidatePath("/trips/[id]/destinations/[destId]", "page");
   return { ok: true };
 }
 
@@ -210,5 +237,7 @@ export async function reorderPhotos(orderedIds: string[]): Promise<ActionResult>
   }
 
   revalidatePath("/dashboard");
+  revalidatePath("/trips/[id]", "page");
+  revalidatePath("/trips/[id]/destinations/[destId]", "page");
   return { ok: true };
 }

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
-  ArrowRightIcon,
+  CameraIcon,
   ChevronDownIcon,
   ImageIcon,
   Loader2Icon,
@@ -34,8 +34,9 @@ import {
 import { StatusBadge } from "@/components/trips/status-badge";
 import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
+import { TripCoverEditor } from "@/components/trips/trip-cover-editor";
 import { deleteTripAction } from "@/lib/actions/trips";
-import { coverImageStyle } from "@/lib/photos";
+import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
 import {
   durationDays,
   flagEmoji,
@@ -48,11 +49,14 @@ import type { ProfileTrip } from "@/lib/share-data";
 
 // The authenticated dashboard trip card. Visually identical to the demo/share
 // card (panoramic cover, overlaid title, expandable destination list) but with
-// an edit/delete menu in the top corner and destinations that link into the app.
+// cover-edit and edit/delete controls in the top corner and destinations that
+// link into the app. Clicking the cover opens the trip; the stops chevron
+// expands the inline destination list without navigating.
 export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
   const [expanded, setExpanded] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [coverEditorOpen, setCoverEditorOpen] = useState(false);
   const destinationCount = trip.destinations.length;
   const days = durationDays(trip.start_date, trip.end_date);
 
@@ -69,12 +73,7 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
 
   return (
     <div className="relative overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 transition-all hover:ring-brand/40">
-      <button
-        type="button"
-        onClick={() => setExpanded((open) => !open)}
-        aria-expanded={expanded}
-        className="group relative block h-36 w-full text-left"
-      >
+      <div className={cn("group relative w-full", COVER_CARD_ASPECT)}>
         {trip.coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -88,7 +87,16 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
           <div className="absolute inset-0 bg-gradient-to-br from-white/[0.08] to-transparent" />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/10" />
-        <div className="relative flex h-full flex-col justify-end p-4 pr-12">
+
+        {/* The whole cover is a link to the trip. The overlaid text is
+            click-through; only the stops chevron re-enables pointer events so
+            it can expand the card in place instead of navigating. */}
+        <Link
+          href={`/trips/${trip.id}`}
+          aria-label={`Open ${trip.name}`}
+          className="absolute inset-0"
+        />
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-end p-4 pr-12">
           <div className="flex items-start gap-2">
             <h3 className="min-w-0 break-words text-lg font-semibold tracking-tight text-white">
               {trip.name}
@@ -104,7 +112,15 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
                 <span className="text-white/50"> · {formatDuration(days)}</span>
               ) : null}
             </p>
-            <span className="flex items-center gap-1 text-xs text-white/60">
+            <button
+              type="button"
+              onClick={() => setExpanded((open) => !open)}
+              aria-expanded={expanded}
+              aria-label={
+                expanded ? "Hide destinations" : "Show destinations"
+              }
+              className="pointer-events-auto -mr-1.5 flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-white/60 transition-colors hover:bg-white/15 hover:text-white"
+            >
               {destinationCount} {destinationCount === 1 ? "stop" : "stops"}
               <ChevronDownIcon
                 className={cn(
@@ -112,13 +128,21 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
                   expanded && "rotate-180",
                 )}
               />
-            </span>
+            </button>
           </div>
         </div>
-      </button>
+      </div>
 
-      {/* Edit/delete menu, sibling of the expand button so they do not nest. */}
-      <div className="absolute right-2 top-2 z-10">
+      {/* Cover edit and menu controls, above the cover link. */}
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
+        <button
+          type="button"
+          aria-label="Edit cover photo"
+          onClick={() => setCoverEditorOpen(true)}
+          className="flex size-8 items-center justify-center rounded-md bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65"
+        >
+          <CameraIcon className="size-4" />
+        </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -130,12 +154,6 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem asChild>
-              <Link href={`/trips/${trip.id}`}>
-                <ArrowRightIcon />
-                Open trip
-              </Link>
-            </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link href={`/trips/${trip.id}/edit`}>
                 <PencilIcon />
@@ -255,6 +273,20 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
             </ol>
           )}
         </div>
+      ) : null}
+
+      {coverEditorOpen ? (
+        <TripCoverEditor
+          tripId={trip.id}
+          tripName={trip.name}
+          coverPhotoId={trip.cover_photo_id}
+          coverPosition={trip.cover_position}
+          destinationIds={trip.destinations.map((d) => d.id)}
+          experienceIds={trip.destinations.flatMap((d) =>
+            d.experiences.map((e) => e.id),
+          )}
+          onClose={() => setCoverEditorOpen(false)}
+        />
       ) : null}
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>

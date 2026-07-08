@@ -84,7 +84,13 @@ export async function GET(request: NextRequest) {
     const storagePath = storagePathForUrl(url);
     const { error: uploadError } = await admin.storage
       .from(PHOTO_BUCKET)
-      .upload(storagePath, bytes, { contentType, upsert: true });
+      .upload(storagePath, bytes, {
+        contentType,
+        upsert: true,
+        // Cached Wikimedia images are keyed by content URL hash, so they are
+        // immutable and can be cached for a year.
+        cacheControl: "31536000",
+      });
 
     if (!uploadError) {
       await admin
