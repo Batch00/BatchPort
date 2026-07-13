@@ -11,33 +11,3 @@ export const DEMO_READONLY_MESSAGE =
 export function isDemoUser(userId: string | null | undefined): boolean {
   return Boolean(DEMO_USER_ID) && userId === DEMO_USER_ID;
 }
-
-// Server helper: the standard 403 to return from a route handler when a demo
-// user attempts a mutation. The body carries a `demo` flag so the client can
-// recognise it via handleDemoResponse below.
-export function demoGuardResponse(): Response {
-  return new Response(
-    JSON.stringify({ error: DEMO_READONLY_MESSAGE, demo: true }),
-    {
-      status: 403,
-      headers: { "Content-Type": "application/json" },
-    },
-  );
-}
-
-// Client helper: inspect a fetch Response. If it is the demo 403, show a toast
-// and return true so the caller can stop. Returns false for any other response.
-// sonner is imported lazily so this module stays safe to import from server code.
-export async function handleDemoResponse(response: Response): Promise<boolean> {
-  if (response.status !== 403) return false;
-  let message = DEMO_READONLY_MESSAGE;
-  try {
-    const body = (await response.clone().json()) as { error?: string };
-    if (body.error) message = body.error;
-  } catch {
-    // Non-JSON 403: fall back to the default read-only message.
-  }
-  const { toast } = await import("sonner");
-  toast.error(message);
-  return true;
-}

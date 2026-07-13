@@ -77,6 +77,15 @@ export interface StatsData {
   distanceKm: number;
 }
 
+// The subset of stats the dashboard, demo, and share pages actually render
+// (summary cards, distance, bucket ring). Fetching only this cuts the page
+// from twelve stats queries to three.
+export interface SummaryStats {
+  summary: TravelSummary | null;
+  distanceKm: number;
+  bucket: BucketCompletion | null;
+}
+
 // --- Coercion helpers ------------------------------------------------------
 
 // PostgREST can serialize numeric columns as strings to preserve precision.
@@ -267,6 +276,19 @@ async function getExtremeNames(
 }
 
 // --- Aggregate -------------------------------------------------------------
+
+// Summary cards, distance, and bucket completion only: everything the
+// dashboard and share surfaces show. The full getAllStats remains for the
+// dedicated stats page with its charts and extremes.
+export async function getSummaryStats(userId: string): Promise<SummaryStats> {
+  const supabase = await createClient();
+  const [summary, distanceKm, bucket] = await Promise.all([
+    getTravelSummary(supabase, userId),
+    getDistanceTraveled(supabase, userId),
+    getBucketCompletion(supabase, userId),
+  ]);
+  return { summary, distanceKm, bucket };
+}
 
 export async function getAllStats(userId?: string): Promise<StatsData> {
   const supabase = await createClient();

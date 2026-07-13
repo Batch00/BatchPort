@@ -1,7 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
+import { revalidateAppData } from "@/lib/revalidate";
 
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { isDemoBlocked } from "@/lib/demo-guard";
@@ -31,7 +32,7 @@ export async function createTripAction(
   const invalid = validateTripInput(input);
   if (invalid) return { error: invalid };
   const trip = await createTrip(input);
-  revalidatePath("/dashboard");
+  revalidateAppData();
   redirect(`/trips/${trip.id}`);
 }
 
@@ -43,8 +44,7 @@ export async function updateTripAction(
   const invalid = validateTripInput(input);
   if (invalid) return { error: invalid };
   await updateTrip(id, input);
-  revalidatePath("/dashboard");
-  revalidatePath(`/trips/${id}`);
+  revalidateAppData();
   redirect(`/trips/${id}`);
 }
 
@@ -53,6 +53,6 @@ export async function deleteTripAction(
 ): Promise<{ error: string } | void> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   await deleteTrip(id);
-  revalidatePath("/dashboard");
+  revalidateAppData();
   redirect("/dashboard");
 }

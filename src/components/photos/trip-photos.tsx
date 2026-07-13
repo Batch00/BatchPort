@@ -253,6 +253,9 @@ function UntaggedPhoto({
   const [expId, setExpId] = useState<string>(WHOLE_DESTINATION);
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Optimistically hidden after a tag or delete, so the row disappears
+  // immediately instead of waiting for the server refresh. Restored on error.
+  const [hidden, setHidden] = useState(false);
 
   const destination = destinations.find((d) => d.id === destId) ?? null;
 
@@ -266,6 +269,7 @@ function UntaggedPhoto({
       return;
     }
     setBusy(true);
+    setHidden(true);
     const taggingExperience = expId !== WHOLE_DESTINATION;
     const result = await retagPhoto(
       photo.id,
@@ -274,6 +278,7 @@ function UntaggedPhoto({
     );
     setBusy(false);
     if ("error" in result) {
+      setHidden(false);
       toast.error(result.error);
       return;
     }
@@ -288,16 +293,20 @@ function UntaggedPhoto({
       return;
     }
     setBusy(true);
+    setHidden(true);
+    setConfirmDelete(false);
     const result = await deletePhotoRecord(photo.id);
     setBusy(false);
-    setConfirmDelete(false);
     if ("error" in result) {
+      setHidden(false);
       toast.error(result.error);
       return;
     }
     toast.success("Photo deleted.");
     onChanged();
   }
+
+  if (hidden) return null;
 
   return (
     <div className="flex gap-3 rounded-lg bg-white/[0.02] p-3 ring-1 ring-foreground/10">

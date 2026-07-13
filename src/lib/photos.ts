@@ -32,6 +32,11 @@ export interface InsertPhotoInput {
 // The single public Storage bucket shared by the app.
 export const PHOTO_BUCKET = "batchport";
 
+// Explicit photo column list shared by server and client reads, so queries
+// skip the columns the UI never renders (fingerprint, GPS coordinates).
+export const PHOTO_COLUMNS =
+  "id,user_id,owner_type,owner_id,source,storage_path,external_url,attribution,order_index,date_taken,created_at";
+
 const DEFAULT_MAX_WIDTH = 1920;
 const DEFAULT_MAX_HEIGHT = 1080;
 const DEFAULT_QUALITY = 0.85;
@@ -164,14 +169,6 @@ export async function uploadPhoto(
   return uploadPhotoBlob(resized, file.name, userId, ownerType, ownerId);
 }
 
-export async function deletePhoto(storagePath: string): Promise<void> {
-  const supabase = createClient();
-  const { error } = await supabase.storage
-    .from(PHOTO_BUCKET)
-    .remove([storagePath]);
-  if (error) throw error;
-}
-
 // Compose the single attribution string stored on a photo record from the
 // author and license returned by the Wikimedia API. Pure, so it is shared by
 // the server fetch and the client cover picker.
@@ -216,20 +213,20 @@ export async function fetchTripGalleryPhotos(
   const queries = [
     supabase
       .from("photos")
-      .select("*")
+      .select(PHOTO_COLUMNS)
       .eq("owner_type", "trip")
       .eq("owner_id", tripId),
     destinationIds.length > 0
       ? supabase
           .from("photos")
-          .select("*")
+          .select(PHOTO_COLUMNS)
           .eq("owner_type", "destination")
           .in("owner_id", destinationIds)
       : null,
     experienceIds.length > 0
       ? supabase
           .from("photos")
-          .select("*")
+          .select(PHOTO_COLUMNS)
           .eq("owner_type", "experience")
           .in("owner_id", experienceIds)
       : null,

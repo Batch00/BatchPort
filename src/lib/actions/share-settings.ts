@@ -1,8 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import { requireUser } from "@/lib/current-user";
+import { revalidateAppData } from "@/lib/revalidate";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { isDemoBlocked } from "@/lib/demo-guard";
@@ -72,6 +71,6 @@ export async function updateShareSettings(
     );
   if (error) return { error: "Could not save your settings." };
 
-  revalidatePath("/dashboard/settings");
+  revalidateAppData();
   return { ok: true };
 }

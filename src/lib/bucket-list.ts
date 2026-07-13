@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import { requireUser } from "@/lib/current-user";
 
 // Server-side data layer for the bucket list. Reads run with the user's session
@@ -115,8 +117,9 @@ export async function getBucketListStats(
   };
 }
 
-// The reference list of countries for the add/edit dialog dropdown.
-export async function getCountries(): Promise<CountryOption[]> {
+// The reference list of countries for the add/edit dialog dropdown. Static
+// reference data; cache() dedupes repeat calls within one request.
+export const getCountries = cache(async (): Promise<CountryOption[]> => {
   const { supabase } = await requireUser();
   const { data, error } = await supabase
     .from("countries")
@@ -127,7 +130,7 @@ export async function getCountries(): Promise<CountryOption[]> {
     code: row.code,
     name: row.name,
   }));
-}
+});
 
 // Distinct country codes of unfulfilled country-type items, for the globe's
 // "want to visit" fill layer.
@@ -194,13 +197,16 @@ export async function autoFulfillBucketItems(userId: string): Promise<void> {
   }
 
   const nowIso = new Date().toISOString();
-  for (const item of items) {
-    if (!item.country_code) continue;
+  const updates = items.flatMap((item) => {
+    if (!item.country_code) return [];
     const match = earliestTripByCountry.get(item.country_code);
-    if (!match) continue;
-    await supabase
-      .from("bucket_list")
-      .update({ fulfilled_trip_id: match.tripId, fulfilled_at: nowIso })
-      .eq("id", item.id);
-  }
+    if (!match) return [];
+    return [
+      supabase
+        .from("bucket_list")
+        .update({ fulfilled_trip_id: match.tripId, fulfilled_at: nowIso })
+        .eq("id", item.id),
+    ];
+  });
+  await Promise.all(updates);
 }

@@ -119,7 +119,7 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
               aria-label={
                 expanded ? "Hide destinations" : "Show destinations"
               }
-              className="pointer-events-auto -mr-1.5 flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-white/60 transition-colors hover:bg-white/15 hover:text-white"
+              className="pointer-events-auto -my-1 -mr-1.5 flex items-center gap-1 rounded-md px-1.5 py-2 text-xs text-white/60 transition-colors hover:bg-white/15 hover:text-white"
             >
               {destinationCount} {destinationCount === 1 ? "stop" : "stops"}
               <ChevronDownIcon
@@ -139,7 +139,7 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
           type="button"
           aria-label="Edit cover photo"
           onClick={() => setCoverEditorOpen(true)}
-          className="flex size-8 items-center justify-center rounded-md bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65"
+          className="flex size-9 items-center justify-center rounded-md bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65 sm:size-8"
         >
           <CameraIcon className="size-4" />
         </button>
@@ -148,7 +148,7 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
             <button
               type="button"
               aria-label="Trip options"
-              className="flex size-8 items-center justify-center rounded-md bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65 data-[state=open]:bg-black/65"
+              className="flex size-9 items-center justify-center rounded-md bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65 data-[state=open]:bg-black/65 sm:size-8"
             >
               <MoreVerticalIcon className="size-4" />
             </button>

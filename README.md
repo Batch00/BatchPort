@@ -288,11 +288,13 @@ src/
     constants.ts                 DEMO_USER_ID constant
     utils.ts                     cn() Tailwind class merge helper
     current-user.ts              requireUser(): resolves auth session and returns supabase + user
-    demo.ts                      isDemoUser(), demoGuardResponse(), handleDemoResponse()
+    demo.ts                      isDemoUser() and the shared read-only message
     demo-guard.ts                isDemoBlocked() helper for server actions
     format.ts                    formatDateRange(), flagEmoji()
+    geo.ts                       pointEwkt() and haversineKm() shared helpers
+    revalidate.ts                revalidateAppData(): app-wide cache purge after mutations
     action-result.ts             ActionResult type ({ ok: true } | { error: string })
-    trips.ts                     Trip data layer (getTrips, getTrip, create, update, delete)
+    trips.ts                     Trip data layer (getTrip, getTripOptions, create, update, delete)
     destinations.ts              Destination data layer (create sends EWKT geom)
     experiences.ts               Experience data layer and getCategories()
     bucket-list.ts               Bucket list data layer and autoFulfillBucketItems()

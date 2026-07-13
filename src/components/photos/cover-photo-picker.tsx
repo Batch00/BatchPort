@@ -133,7 +133,8 @@ export function CoverPhotoPicker({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-start gap-4">
+      {/* flex-wrap lets the controls drop below the thumbnail on narrow screens. */}
+      <div className="flex flex-wrap items-start gap-4">
         <div className="relative aspect-[16/10] w-40 shrink-0 overflow-hidden rounded-lg ring-1 ring-foreground/10">
           {cover ? (
             // eslint-disable-next-line @next/next/no-img-element

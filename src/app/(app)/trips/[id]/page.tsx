@@ -28,7 +28,14 @@ export default async function TripDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [{ user }, trip] = await Promise.all([requireUser(), getTrip(id)]);
+  // The trip-level photo list only depends on the URL id, so it joins the
+  // first batch; only the destination and experience photo queries need the
+  // ids that come back with the trip.
+  const [{ user }, trip, tripPhotos] = await Promise.all([
+    requireUser(),
+    getTrip(id),
+    getPhotos("trip", id),
+  ]);
   if (!trip) {
     notFound();
   }
@@ -37,8 +44,7 @@ export default async function TripDetailPage({
   const experienceIds = trip.destinations.flatMap((destination) =>
     destination.experiences.map((experience) => experience.id),
   );
-  const [tripPhotos, destPhotos, expPhotos] = await Promise.all([
-    getPhotos("trip", id),
+  const [destPhotos, expPhotos] = await Promise.all([
     getPhotosForOwners("destination", destIds),
     getPhotosForOwners("experience", experienceIds),
   ]);
@@ -95,8 +101,8 @@ export default async function TripDetailPage({
           <DeleteTripButton tripId={trip.id} tripName={trip.name} />
         </div>
 
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className="min-w-0 break-words text-2xl font-semibold tracking-tight text-white">
             {trip.name}
           </h1>
           <StatusBadge status={trip.status} />

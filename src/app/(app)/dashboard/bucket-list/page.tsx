@@ -8,7 +8,7 @@ import {
   getBucketListStats,
   getCountries,
 } from "@/lib/bucket-list";
-import { getTrips } from "@/lib/trips";
+import { getTripOptions } from "@/lib/trips";
 import { BucketListBoard } from "@/components/bucket-list/bucket-list-board";
 
 export const metadata = { title: "Bucket List" };
@@ -17,19 +17,12 @@ export const metadata = { title: "Bucket List" };
 // account when signed in as the demo) and hands the data to the client board.
 export default async function BucketListPage() {
   const { user } = await requireUser();
-  const [items, stats, countries, trips] = await Promise.all([
+  const [items, stats, countries, tripOptions] = await Promise.all([
     getBucketList(user.id),
     getBucketListStats(user.id),
     getCountries(),
-    getTrips(),
+    getTripOptions(),
   ]);
-
-  const tripOptions = trips.map((trip) => ({
-    id: trip.id,
-    name: trip.name,
-    start_date: trip.start_date,
-    end_date: trip.end_date,
-  }));
 
   return (
     <div className="mx-auto w-full max-w-4xl p-6 sm:p-8">

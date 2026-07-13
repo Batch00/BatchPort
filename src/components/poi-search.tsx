@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2Icon, SearchIcon } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { haversineKm } from "@/lib/geo";
 import type { PoiResult } from "@/lib/types";
 
 interface PoiSearchProps {
@@ -17,23 +18,6 @@ interface PoiSearchProps {
 
 const MIN_CHARS = 2;
 const DEBOUNCE_MS = 300;
-const EARTH_RADIUS_KM = 6371;
-
-function haversineKm(
-  aLat: number,
-  aLng: number,
-  bLat: number,
-  bLng: number,
-): number {
-  const dLat = ((bLat - aLat) * Math.PI) / 180;
-  const dLng = ((bLng - aLng) * Math.PI) / 180;
-  const lat1 = (aLat * Math.PI) / 180;
-  const lat2 = (bLat * Math.PI) / 180;
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
-}
 
 function formatDistance(km: number): string {
   if (km < 1) return `${Math.round(km * 1000)} m`;

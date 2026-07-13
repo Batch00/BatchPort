@@ -106,9 +106,10 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
         refreshing={refreshing}
       />
 
-      {/* Stats overlay */}
+      {/* Stats overlay. Wraps within the card on narrow screens so the pills
+          never push past the globe's edge. */}
       {!isEmpty ? (
-        <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
+        <div className="absolute left-4 right-4 top-4 z-20 flex flex-wrap items-center gap-2">
           <div className="pointer-events-none rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md">
             {stats.countries} {stats.countries === 1 ? "country" : "countries"},{" "}
             {stats.trips} {stats.trips === 1 ? "trip" : "trips"},{" "}
@@ -167,7 +168,7 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
               type="button"
               onClick={() => setSelected(null)}
               aria-label="Close"
-              className="rounded-md p-1 text-foreground/60 transition-colors hover:bg-white/5 hover:text-foreground"
+              className="-m-2 rounded-md p-2.5 text-foreground/60 transition-colors hover:bg-white/5 hover:text-foreground"
             >
               <XIcon className="size-4" />
             </button>

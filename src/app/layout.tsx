@@ -62,6 +62,12 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#0a0a0a",
+  width: "device-width",
+  initialScale: 1,
+  // Extend the layout into the iOS safe areas so fixed elements can pad
+  // themselves with env(safe-area-inset-*) instead of sitting under the
+  // home indicator.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -72,7 +78,9 @@ export default function RootLayout({
   // The `dark` class makes the dark token set the default for the whole app.
   return (
     <html lang="en" className={`${inter.variable} dark h-full`}>
-      <body className="flex min-h-full flex-col antialiased">
+      {/* overflow-x-clip is a backstop against horizontal scroll on small
+          screens; individual layouts still avoid overflowing on their own. */}
+      <body className="flex min-h-full flex-col overflow-x-clip antialiased">
         {children}
         <Toaster />
         <ServiceWorkerRegister />

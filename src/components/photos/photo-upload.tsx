@@ -278,7 +278,7 @@ export function PhotoUpload({
         // content fingerprint (crypto.subtle hashes off the main thread).
         const buffer = await item.file.arrayBuffer();
         const fingerprintPromise = computeFingerprint(buffer);
-        const exif = extractExifFromBuffer(buffer);
+        const exif = await extractExifFromBuffer(buffer);
         const hasGps = exif.gpsLat !== null && exif.gpsLng !== null;
 
         let destId = item.destId;
@@ -716,7 +716,7 @@ function StagedPhotoRow({
               type="button"
               aria-label={`Remove ${item.name}`}
               onClick={onRemove}
-              className="flex size-5 shrink-0 items-center justify-center rounded text-foreground/40 transition-colors hover:bg-white/10 hover:text-foreground"
+              className="-my-1 flex size-7 shrink-0 items-center justify-center rounded text-foreground/40 transition-colors hover:bg-white/10 hover:text-foreground"
             >
               <XIcon className="size-3.5" />
             </button>

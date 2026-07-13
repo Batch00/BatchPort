@@ -1,11 +1,11 @@
 import { requireUser } from "@/lib/current-user";
-import type {
-  Destination,
-  DestinationWithExperiences,
-  Experience,
-} from "@/lib/types";
+import { EXPERIENCE_COLUMNS, sortExperiences } from "@/lib/experiences";
+import { pointEwkt } from "@/lib/geo";
+import type { Destination, DestinationWithExperiences } from "@/lib/types";
 
-// Server-side data access for destinations.
+// Server-side data access for destinations. The destinations.geom column is a
+// PostGIS geography(Point,4326); writes send EWKT via pointEwkt, and the
+// latitude/longitude generated columns are never written directly.
 
 export interface DestinationInput {
   name: string;
@@ -18,26 +18,8 @@ export interface DestinationInput {
   notes: string | null;
 }
 
-const DESTINATION_COLUMNS =
+export const DESTINATION_COLUMNS =
   "id,trip_id,user_id,name,country_code,admin_region,latitude,longitude,arrival_date,departure_date,order_index,cover_photo_id,cover_position,notes,created_at,updated_at";
-
-// The destinations.geom column is a PostGIS geography(Point,4326). PostgREST
-// accepts an EWKT string for it, and the latitude/longitude columns are
-// generated from geom, so we never write them directly.
-function pointEwkt(lng: number, lat: number): string {
-  return `SRID=4326;POINT(${lng} ${lat})`;
-}
-
-function sortExperiences(a: Experience, b: Experience): number {
-  const aDate = a.visited_date ?? "";
-  const bDate = b.visited_date ?? "";
-  if (aDate !== bDate) {
-    if (!aDate) return 1;
-    if (!bDate) return -1;
-    return aDate < bDate ? -1 : 1;
-  }
-  return a.created_at < b.created_at ? -1 : 1;
-}
 
 export async function getDestination(
   id: string,
@@ -45,7 +27,7 @@ export async function getDestination(
   const { supabase } = await requireUser();
   const { data, error } = await supabase
     .from("destinations")
-    .select(`${DESTINATION_COLUMNS}, experiences(*)`)
+    .select(`${DESTINATION_COLUMNS}, experiences(${EXPERIENCE_COLUMNS})`)
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;

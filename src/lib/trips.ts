@@ -1,11 +1,11 @@
 import { requireUser } from "@/lib/current-user";
+import { DESTINATION_COLUMNS } from "@/lib/destinations";
+import { EXPERIENCE_COLUMNS, sortExperiences } from "@/lib/experiences";
 import type {
   Trip,
   TripStatus,
-  TripSummary,
   TripWithDestinations,
   DestinationWithExperiences,
-  Experience,
 } from "@/lib/types";
 
 // Server-side data access for trips. These functions run with the user's
@@ -20,52 +20,24 @@ export interface TripInput {
   notes: string | null;
 }
 
-const DESTINATION_COLUMNS =
-  "id,trip_id,user_id,name,country_code,admin_region,latitude,longitude,arrival_date,departure_date,order_index,cover_photo_id,cover_position,notes,created_at,updated_at";
-
-function sortExperiences(a: Experience, b: Experience): number {
-  const aDate = a.visited_date ?? "";
-  const bDate = b.visited_date ?? "";
-  if (aDate !== bDate) {
-    // Nulls (empty string) sort last; otherwise ascending by visited date.
-    if (!aDate) return 1;
-    if (!bDate) return -1;
-    return aDate < bDate ? -1 : 1;
-  }
-  return a.created_at < b.created_at ? -1 : 1;
+// A lightweight trip picker shape for dropdowns (the bucket list's fulfill
+// dialog). Selects only the columns the picker shows.
+export interface TripOption {
+  id: string;
+  name: string;
+  start_date: string | null;
+  end_date: string | null;
 }
 
-// All trips for the current user, newest first, with destination and country
-// counts for the dashboard cards.
-export async function getTrips(): Promise<TripSummary[]> {
+export async function getTripOptions(): Promise<TripOption[]> {
   const { supabase } = await requireUser();
   const { data, error } = await supabase
     .from("trips")
-    .select("*, destinations(country_code)")
+    .select("id, name, start_date, end_date")
     .order("start_date", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
   if (error) throw error;
-
-  const rows = (data ?? []) as (Trip & {
-    destinations: { country_code: string | null }[];
-  })[];
-
-  return rows.map((row) => {
-    const { destinations, ...trip } = row;
-    const list = destinations ?? [];
-    const countries = new Set(
-      list.map((d) => d.country_code).filter((c): c is string => Boolean(c)),
-    );
-    const primaryCountry =
-      list.map((d) => d.country_code).find((c): c is string => Boolean(c)) ??
-      null;
-    return {
-      ...trip,
-      destination_count: list.length,
-      country_count: countries.size,
-      primary_country_code: primaryCountry,
-    };
-  });
+  return (data ?? []) as TripOption[];
 }
 
 // A single trip with its destinations (ordered by order_index) and each
@@ -73,19 +45,21 @@ export async function getTrips(): Promise<TripSummary[]> {
 export async function getTrip(id: string): Promise<TripWithDestinations | null> {
   const { supabase } = await requireUser();
 
-  const { data: trip, error } = await supabase
-    .from("trips")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+  // Both queries filter by the id from the URL, so they run in parallel
+  // instead of waiting on the trip row before fetching its destinations.
+  const [tripResult, destResult] = await Promise.all([
+    supabase.from("trips").select("*").eq("id", id).maybeSingle(),
+    supabase
+      .from("destinations")
+      .select(`${DESTINATION_COLUMNS}, experiences(${EXPERIENCE_COLUMNS})`)
+      .eq("trip_id", id)
+      .order("order_index", { ascending: true }),
+  ]);
+  const { data: trip, error } = tripResult;
   if (error) throw error;
   if (!trip) return null;
 
-  const { data: destinations, error: destError } = await supabase
-    .from("destinations")
-    .select(`${DESTINATION_COLUMNS}, experiences(*)`)
-    .eq("trip_id", id)
-    .order("order_index", { ascending: true });
+  const { data: destinations, error: destError } = destResult;
   if (destError) throw destError;
 
   const withExperiences = ((destinations ?? []) as DestinationWithExperiences[]).map(

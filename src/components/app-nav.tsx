@@ -83,7 +83,7 @@ export function AppNav({ email, signOut }: AppNavProps) {
             aria-label="Menu"
             aria-expanded={open}
             onClick={() => setOpen((value) => !value)}
-            className="flex size-9 items-center justify-center rounded-md text-foreground/70 transition-colors hover:bg-white/5 hover:text-foreground sm:hidden"
+            className="flex size-10 items-center justify-center rounded-md text-foreground/70 transition-colors hover:bg-white/5 hover:text-foreground sm:hidden"
           >
             {open ? (
               <XIcon className="size-5" />
@@ -103,7 +103,7 @@ export function AppNav({ email, signOut }: AppNavProps) {
               onClick={() => setOpen(false)}
               aria-current={isActive(link.href) ? "page" : undefined}
               className={cn(
-                "rounded-md px-3 py-2 text-sm transition-colors hover:bg-white/5 hover:text-foreground",
+                "rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-white/5 hover:text-foreground",
                 isActive(link.href)
                   ? "bg-white/5 font-medium text-foreground"
                   : "text-foreground/70",

@@ -81,8 +81,8 @@ export default async function DestinationDetailPage({
           />
         </div>
 
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-white">
-          {destination.name}
+        <h1 className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xl font-semibold tracking-tight text-white">
+          <span className="min-w-0 break-words">{destination.name}</span>
           {destination.country_code ? (
             <span className="text-base font-normal text-white/70">
               {flagEmoji(destination.country_code)}{" "}

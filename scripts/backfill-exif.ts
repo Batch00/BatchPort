@@ -168,7 +168,7 @@ async function main() {
       continue;
     }
 
-    const exif = extractExifFromBuffer(await file.arrayBuffer());
+    const exif = await extractExifFromBuffer(await file.arrayBuffer());
     const hasGps = exif.gpsLat !== null && exif.gpsLng !== null;
     if (!exif.dateTaken && !hasGps) {
       skippedNoExif++;

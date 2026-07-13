@@ -1,7 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
+import { revalidateAppData } from "@/lib/revalidate";
 
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { isDemoBlocked } from "@/lib/demo-guard";
@@ -56,7 +57,7 @@ export async function createDestinationAction(
   } catch (error) {
     console.warn("Bucket auto-fulfill skipped:", error);
   }
-  revalidatePath(`/trips/${tripId}`);
+  revalidateAppData();
   redirect(`/trips/${tripId}`);
 }
 
@@ -69,8 +70,7 @@ export async function updateDestinationAction(
   const invalid = validateDestinationInput(input);
   if (invalid) return { error: invalid };
   await updateDestination(id, input);
-  revalidatePath(`/trips/${tripId}`);
-  revalidatePath(`/trips/${tripId}/destinations/${id}`);
+  revalidateAppData();
   redirect(`/trips/${tripId}/destinations/${id}`);
 }
 
@@ -80,6 +80,6 @@ export async function deleteDestinationAction(
 ): Promise<{ error: string } | void> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   await deleteDestination(id);
-  revalidatePath(`/trips/${tripId}`);
+  revalidateAppData();
   redirect(`/trips/${tripId}`);
 }

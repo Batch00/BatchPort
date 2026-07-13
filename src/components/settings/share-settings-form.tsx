@@ -127,7 +127,7 @@ export function ShareSettingsForm({ initial, isDemo }: ShareSettingsFormProps) {
             <Button
               type="button"
               variant="outline"
-              size="icon"
+              size="icon-lg"
               aria-label="Copy link"
               onClick={handleCopy}
             >
@@ -138,7 +138,7 @@ export function ShareSettingsForm({ initial, isDemo }: ShareSettingsFormProps) {
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Preview share page"
-              className="inline-flex size-8 items-center justify-center rounded-lg border border-border bg-background text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
             >
               <ExternalLinkIcon className="size-4" />
             </a>

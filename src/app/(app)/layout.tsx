@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/utils/supabase/server";
+import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
 import { AppNav } from "@/components/app-nav";
 import { signOut } from "./actions";
@@ -19,10 +19,11 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // requireUser is request-cached, so the layout and the page it wraps share
+  // one auth.getUser round-trip instead of each making their own.
+  const user = await requireUser()
+    .then((result) => result.user)
+    .catch(() => null);
 
   if (!user) {
     redirect("/");

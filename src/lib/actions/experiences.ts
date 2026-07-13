@@ -1,8 +1,7 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
+import { revalidateAppData } from "@/lib/revalidate";
 import { isDemoBlocked } from "@/lib/demo-guard";
 import type { ActionResult } from "@/lib/action-result";
 import {
@@ -23,7 +22,7 @@ export async function createExperienceAction(
 ): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   await createExperience(destinationId, input);
-  revalidatePath(`/trips/${tripId}/destinations/${destinationId}`);
+  revalidateAppData();
   return { ok: true };
 }
 
@@ -35,7 +34,7 @@ export async function updateExperienceAction(
 ): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   await updateExperience(id, input);
-  revalidatePath(`/trips/${tripId}/destinations/${destinationId}`);
+  revalidateAppData();
   return { ok: true };
 }
 
@@ -46,6 +45,6 @@ export async function deleteExperienceAction(
 ): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   await deleteExperience(id);
-  revalidatePath(`/trips/${tripId}/destinations/${destinationId}`);
+  revalidateAppData();
   return { ok: true };
 }

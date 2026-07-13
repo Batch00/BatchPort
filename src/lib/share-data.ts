@@ -1,6 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { getMapData, type MapData } from "@/lib/map-data";
-import { getAllStats, type StatsData } from "@/lib/stats-data";
+import { getSummaryStats, type SummaryStats } from "@/lib/stats-data";
 import { getPhotoUrl } from "@/lib/photos";
 import { DEMO_USER_ID } from "@/lib/constants";
 import type { PhotoSource } from "@/lib/types";
@@ -44,7 +44,7 @@ export interface ProfileTrip {
 }
 
 export interface SharedProfile {
-  stats: StatsData;
+  stats: SummaryStats;
   mapData: MapData;
   trips: ProfileTrip[];
 }
@@ -248,10 +248,11 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
   });
 }
 
-// Everything the public/demo surface needs, in parallel.
+// Everything the public/demo surface needs, in parallel. The share view only
+// renders summary stats, so it skips the chart and extremes queries entirely.
 export async function getSharedProfile(userId: string): Promise<SharedProfile> {
   const [stats, mapData, trips] = await Promise.all([
-    getAllStats(userId),
+    getSummaryStats(userId),
     getMapData(userId),
     getProfileTrips(userId),
   ]);

@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/current-user";
 import { getWikimediaPhoto } from "@/lib/wikimedia";
-import { formatWikimediaAttribution } from "@/lib/photos";
+import { PHOTO_COLUMNS, formatWikimediaAttribution } from "@/lib/photos";
 import type { Photo, PhotoOwnerType } from "@/lib/types";
 
 // pickCover lives in the client-safe photos module; re-export it so server
@@ -9,11 +9,6 @@ export { pickCover } from "@/lib/photos";
 
 // Server-side reads for photos. These run with the user's session, so
 // row-level security scopes every query to the current user.
-
-// date_taken is included so the lightbox can show when a photo was shot; it
-// was previously missing from the select, leaving Photo.date_taken undefined.
-const PHOTO_COLUMNS =
-  "id,user_id,owner_type,owner_id,source,storage_path,external_url,attribution,order_index,date_taken,created_at";
 
 // All photos for one entity, ordered for display.
 export async function getPhotos(

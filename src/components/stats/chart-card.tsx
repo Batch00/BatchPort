@@ -38,7 +38,9 @@ export function ChartCard({
   return (
     <div
       className={cn(
-        "rounded-2xl bg-card p-5 ring-1 ring-foreground/10",
+        // min-w-0 lets the chart's ResponsiveContainer shrink inside grid and
+        // flex parents instead of forcing horizontal overflow on phones.
+        "min-w-0 rounded-2xl bg-card p-5 ring-1 ring-foreground/10",
         className,
       )}
     >

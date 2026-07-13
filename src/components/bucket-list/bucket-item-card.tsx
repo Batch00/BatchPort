@@ -119,7 +119,7 @@ export function BucketItemCard({
           <button
             type="button"
             aria-label="Item options"
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-white/5 hover:text-foreground data-[state=open]:bg-white/5"
+            className="-m-1 flex size-9 shrink-0 items-center justify-center rounded-md text-foreground/50 transition-colors hover:bg-white/5 hover:text-foreground data-[state=open]:bg-white/5 sm:m-0 sm:size-7"
           >
             <MoreVerticalIcon className="size-4" />
           </button>

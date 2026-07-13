@@ -17,9 +17,8 @@
 
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import { requireUser } from "@/lib/current-user";
+import { revalidateAppData } from "@/lib/revalidate";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { isDemoBlocked } from "@/lib/demo-guard";
@@ -91,9 +90,7 @@ export async function insertPhotoRecord(
   }
   if (error || !data) return { error: "Could not save the photo." };
 
-  revalidatePath("/dashboard");
-  revalidatePath("/trips/[id]", "page");
-  revalidatePath("/trips/[id]/destinations/[destId]", "page");
+  revalidateAppData();
   return { ok: true, photoId: data.id as string };
 }
 
@@ -120,9 +117,7 @@ export async function setCoverPhoto(
   const { error } = await supabase.from(table).update(patch).eq("id", ownerId);
   if (error) return { error: "Could not set the cover photo." };
 
-  revalidatePath("/dashboard");
-  revalidatePath("/trips/[id]", "page");
-  revalidatePath("/trips/[id]/destinations/[destId]", "page");
+  revalidateAppData();
   return { ok: true };
 }
 
@@ -152,9 +147,7 @@ export async function retagPhoto(
     .eq("id", photoId);
   if (error) return { error: "Could not tag the photo." };
 
-  revalidatePath("/dashboard");
-  revalidatePath("/trips/[id]", "page");
-  revalidatePath("/trips/[id]/destinations/[destId]", "page");
+  revalidateAppData();
   return { ok: true };
 }
 
@@ -190,9 +183,7 @@ export async function deletePhotoRecord(id: string): Promise<ActionResult> {
       .remove([photo.storage_path]);
   }
 
-  revalidatePath("/dashboard");
-  revalidatePath("/trips/[id]", "page");
-  revalidatePath("/trips/[id]/destinations/[destId]", "page");
+  revalidateAppData();
   return { ok: true };
 }
 
@@ -236,8 +227,6 @@ export async function reorderPhotos(orderedIds: string[]): Promise<ActionResult>
     return { error: "Could not reorder the photos." };
   }
 
-  revalidatePath("/dashboard");
-  revalidatePath("/trips/[id]", "page");
-  revalidatePath("/trips/[id]/destinations/[destId]", "page");
+  revalidateAppData();
   return { ok: true };
 }

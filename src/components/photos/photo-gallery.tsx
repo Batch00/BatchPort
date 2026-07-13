@@ -469,9 +469,11 @@ export function PhotoGallery({
     setBulkMoveOpen(false);
     const errors = results.filter((r) => "error" in r);
     if (errors.length > 0) {
-      toast.error(`${errors.length} photo(s) could not be moved.`);
+      toast.error(
+        `${errors.length} ${errors.length === 1 ? "photo" : "photos"} could not be moved.`,
+      );
     } else {
-      toast.success(`${ids.length} photo(s) moved.`);
+      toast.success(`${ids.length} ${ids.length === 1 ? "photo" : "photos"} moved.`);
     }
     exitSelect();
     onChanged?.();
@@ -500,9 +502,13 @@ export function PhotoGallery({
         for (const id of failedIds) next.delete(id);
         return next;
       });
-      toast.error(`${failedIds.length} photo(s) could not be deleted.`);
+      toast.error(
+        `${failedIds.length} ${failedIds.length === 1 ? "photo" : "photos"} could not be deleted.`,
+      );
     } else {
-      toast.success(`${ids.length} photo(s) deleted.`);
+      toast.success(
+        `${ids.length} ${ids.length === 1 ? "photo" : "photos"} deleted.`,
+      );
     }
     exitSelect();
     onChanged?.();
@@ -524,7 +530,7 @@ export function PhotoGallery({
             type="button"
             aria-label="Photo options"
             onClick={(event) => event.stopPropagation()}
-            className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-md bg-black/55 text-white/90 backdrop-blur transition-colors hover:bg-black/75 data-[state=open]:bg-black/75"
+            className="absolute right-1.5 top-1.5 flex size-9 items-center justify-center rounded-md bg-black/55 text-white/90 backdrop-blur transition-colors hover:bg-black/75 data-[state=open]:bg-black/75 sm:right-2 sm:top-2 sm:size-7"
           >
             <MoreVerticalIcon className="size-4" />
           </button>
@@ -630,7 +636,7 @@ export function PhotoGallery({
           onClick={() => setSortChoice(mode)}
           aria-pressed={dateSorted === (mode === "date")}
           className={cn(
-            "rounded-md px-2 py-0.5 transition-colors",
+            "rounded-md px-2 py-1.5 transition-colors sm:py-0.5",
             dateSorted === (mode === "date")
               ? "bg-white/10 font-medium text-foreground"
               : "text-foreground/50 hover:text-foreground/80",
@@ -658,21 +664,21 @@ export function PhotoGallery({
                   onClick={() =>
                     setSelectedIds(new Set(ordered.map((p) => p.id)))
                   }
-                  className="text-xs text-foreground/70 hover:text-foreground"
+                  className="-my-1 px-1 py-2 text-xs text-foreground/70 hover:text-foreground"
                 >
                   Select all
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedIds(new Set())}
-                  className="text-xs text-foreground/70 hover:text-foreground"
+                  className="-my-1 px-1 py-2 text-xs text-foreground/70 hover:text-foreground"
                 >
                   Deselect all
                 </button>
                 <button
                   type="button"
                   onClick={exitSelect}
-                  className="text-xs text-foreground/70 hover:text-foreground"
+                  className="-my-1 px-1 py-2 text-xs font-medium text-foreground/70 hover:text-foreground"
                 >
                   Done
                 </button>
@@ -681,7 +687,7 @@ export function PhotoGallery({
               <button
                 type="button"
                 onClick={() => setIsSelecting(true)}
-                className="text-xs text-foreground/50 hover:text-foreground/80"
+                className="-my-1 px-1 py-2 text-xs text-foreground/50 hover:text-foreground/80"
               >
                 Select
               </button>
@@ -842,6 +848,8 @@ export function PhotoGallery({
 
       {movePhoto && retagDestinations ? (
         <RetagDialog
+          title="Move photo to..."
+          description="Choose a destination or experience to move this photo to."
           photo={movePhoto}
           destinations={retagDestinations}
           onConfirm={confirmRetag}
@@ -849,10 +857,12 @@ export function PhotoGallery({
         />
       ) : null}
 
-      {/* Floating action bar when items are selected */}
+      {/* Floating action bar when items are selected. inset-x keeps it inside
+          the viewport on narrow screens; the bottom offset clears the iOS home
+          indicator via the safe-area inset. */}
       {isSelecting && selectedIds.size > 0 ? (
-        <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2">
-          <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#111] px-4 py-3 shadow-lg">
+        <div className="fixed inset-x-4 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] z-50 flex justify-center">
+          <div className="flex max-w-full flex-wrap items-center justify-center gap-2 rounded-xl border border-white/10 bg-[#111] px-3 py-2.5 shadow-lg sm:gap-3 sm:px-4 sm:py-3">
             <span className="text-sm text-foreground/70">
               {selectedIds.size} selected
             </span>
@@ -929,8 +939,9 @@ export function PhotoGallery({
       ) : null}
 
       {bulkMoveOpen && retagDestinations ? (
-        <BulkRetagDialog
-          count={selectedIds.size}
+        <RetagDialog
+          title={`Move ${selectedIds.size} ${selectedIds.size === 1 ? "photo" : "photos"} to...`}
+          description="Choose a destination or experience to move the selected photos to."
           destinations={retagDestinations}
           busy={bulkBusy}
           onConfirm={handleBulkMove}
@@ -942,7 +953,10 @@ export function PhotoGallery({
         <Dialog open onOpenChange={(open) => { if (!open && !bulkBusy) setBulkDeleteOpen(false); }}>
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
-              <DialogTitle>Delete {selectedIds.size} photo(s)?</DialogTitle>
+              <DialogTitle>
+                Delete {selectedIds.size}{" "}
+                {selectedIds.size === 1 ? "photo" : "photos"}?
+              </DialogTitle>
               <DialogDescription>
                 This will permanently delete the selected photos. This cannot be undone.
               </DialogDescription>
@@ -1061,7 +1075,7 @@ function Lightbox({
         <img
           src={getPhotoUrl(photo)}
           alt=""
-          className="max-h-[80vh] w-auto rounded-lg object-contain"
+          className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain"
         />
         {photo.attribution ? (
           <figcaption className="text-center text-xs text-white/60">
@@ -1087,114 +1101,22 @@ function Lightbox({
   );
 }
 
+// Move one photo (with a preview thumbnail) or a selected batch to another
+// destination or experience. One dialog serves both flows.
 function RetagDialog({
+  title,
+  description,
   photo,
   destinations,
+  busy = false,
   onConfirm,
   onCancel,
 }: {
-  photo: Photo;
+  title: string;
+  description: string;
+  photo?: Photo;
   destinations: RetagDestination[];
-  onConfirm: (ownerType: PhotoOwnerType, ownerId: string) => void;
-  onCancel: () => void;
-}) {
-  const [destId, setDestId] = useState("");
-  const [expId, setExpId] = useState(WHOLE_DESTINATION);
-
-  const destination = destinations.find((d) => d.id === destId) ?? null;
-
-  function handleConfirm() {
-    if (!destId) return;
-    const isExp = expId !== WHOLE_DESTINATION;
-    onConfirm(isExp ? "experience" : "destination", isExp ? expId : destId);
-  }
-
-  return (
-    <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Move photo to...</DialogTitle>
-          <DialogDescription>
-            Choose a destination or experience to move this photo to.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="h-24 w-full overflow-hidden rounded-md bg-white/5">
-            <SafeImage
-              src={getPhotoUrl(photo)}
-              alt=""
-              loading="eager"
-              className="size-full object-cover"
-            />
-          </div>
-
-          <Select
-            value={destId}
-            onValueChange={(v) => {
-              setDestId(v);
-              setExpId(WHOLE_DESTINATION);
-            }}
-          >
-            <SelectTrigger aria-label="Destination">
-              <SelectValue placeholder="Choose destination" />
-            </SelectTrigger>
-            <SelectContent>
-              {destinations.map((d) => (
-                <SelectItem key={d.id} value={d.id}>
-                  {d.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {destination && destination.experiences.length > 0 ? (
-            <Select value={expId} onValueChange={setExpId}>
-              <SelectTrigger aria-label="Experience">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={WHOLE_DESTINATION}>
-                  Whole destination
-                </SelectItem>
-                {destination.experiences.map((exp) => (
-                  <SelectItem key={exp.id} value={exp.id}>
-                    {exp.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
-        </div>
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={!destId}
-            onClick={handleConfirm}
-            className="bg-brand text-brand-foreground hover:bg-brand/90"
-          >
-            Move
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function BulkRetagDialog({
-  count,
-  destinations,
-  busy,
-  onConfirm,
-  onCancel,
-}: {
-  count: number;
-  destinations: RetagDestination[];
-  busy: boolean;
+  busy?: boolean;
   onConfirm: (ownerType: PhotoOwnerType, ownerId: string) => void;
   onCancel: () => void;
 }) {
@@ -1213,13 +1135,22 @@ function BulkRetagDialog({
     <Dialog open onOpenChange={(open) => { if (!open && !busy) onCancel(); }}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Move {count} photo(s) to...</DialogTitle>
-          <DialogDescription>
-            Choose a destination or experience to move the selected photos to.
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
+          {photo ? (
+            <div className="h-24 w-full overflow-hidden rounded-md bg-white/5">
+              <SafeImage
+                src={getPhotoUrl(photo)}
+                alt=""
+                loading="eager"
+                className="size-full object-cover"
+              />
+            </div>
+          ) : null}
+
           <Select
             value={destId}
             onValueChange={(v) => {

@@ -91,7 +91,7 @@ Wikimedia auto-population on destination create: `createDestinationAction` calls
 
 ### Globe Rendering
 
-The globe is `src/components/map/globe.tsx`. It uses **MapLibre GL JS** native GeoJSON layers. The deck.gl packages in package.json are unused by the rendering code.
+The globe is `src/components/map/globe.tsx`. It uses **MapLibre GL JS** native GeoJSON layers.
 
 Layer stack (bottom to top):
 - Dark base style (bundled JSON or PMTiles raster)

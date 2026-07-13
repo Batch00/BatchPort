@@ -1,8 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import { requireUser } from "@/lib/current-user";
+import { revalidateAppData } from "@/lib/revalidate";
+import { pointEwkt } from "@/lib/geo";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { isDemoBlocked } from "@/lib/demo-guard";
 import type { ActionResult } from "@/lib/action-result";
@@ -10,17 +10,6 @@ import type { BucketItemInput } from "@/lib/bucket-list";
 
 // Server actions for bucket list mutations. Every write refuses the demo
 // account and revalidates the pages that surface bucket data.
-
-function revalidateBucketViews() {
-  revalidatePath("/dashboard/bucket-list");
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/stats");
-}
-
-// PostgREST accepts EWKT for the geom geography column.
-function pointEwkt(lng: number, lat: number): string {
-  return `SRID=4326;POINT(${lng} ${lat})`;
-}
 
 // Normalize the dialog input into the columns for one consistent row (excluding
 // user_id), keeping the country/place check constraint satisfied.
@@ -69,7 +58,7 @@ export async function createBucketItem(
     .insert({ user_id: user.id, ...toRow(input) });
   if (error) return { error: "Could not add the bucket list item." };
 
-  revalidateBucketViews();
+  revalidateAppData();
   return { ok: true };
 }
 
@@ -89,7 +78,7 @@ export async function updateBucketItem(
     .eq("id", id);
   if (error) return { error: "Could not update the bucket list item." };
 
-  revalidateBucketViews();
+  revalidateAppData();
   return { ok: true };
 }
 
@@ -99,7 +88,7 @@ export async function deleteBucketItem(id: string): Promise<ActionResult> {
   const { error } = await supabase.from("bucket_list").delete().eq("id", id);
   if (error) return { error: "Could not delete the bucket list item." };
 
-  revalidateBucketViews();
+  revalidateAppData();
   return { ok: true };
 }
 
@@ -115,7 +104,7 @@ export async function fulfillBucketItem(
     .eq("id", id);
   if (error) return { error: "Could not mark the item as completed." };
 
-  revalidateBucketViews();
+  revalidateAppData();
   return { ok: true };
 }
 
@@ -128,6 +117,6 @@ export async function unfulfillBucketItem(id: string): Promise<ActionResult> {
     .eq("id", id);
   if (error) return { error: "Could not undo the completion." };
 
-  revalidateBucketViews();
+  revalidateAppData();
   return { ok: true };
 }

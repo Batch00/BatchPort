@@ -4,7 +4,7 @@ import { ChevronRightIcon, ListChecksIcon } from "lucide-react";
 import { requireUser } from "@/lib/current-user";
 import { getProfileTrips } from "@/lib/share-data";
 import { getMapData } from "@/lib/map-data";
-import { getAllStats } from "@/lib/stats-data";
+import { getSummaryStats } from "@/lib/stats-data";
 import { Card } from "@/components/ui/card";
 import { DashboardGlobe } from "@/components/map/dashboard-globe";
 import { DashboardTrips } from "@/components/trips/dashboard-trips";
@@ -18,10 +18,12 @@ export const metadata = { title: "Dashboard" };
 // clickable trip cards, and links into the deep-dive stats and bucket pages.
 export default async function DashboardPage() {
   const { user } = await requireUser();
+  // Passing the user id lets each fetch skip its own auth.getUser round-trip,
+  // and the summary fetch loads only the stats this page renders.
   const [trips, mapData, stats] = await Promise.all([
     getProfileTrips(user.id),
-    getMapData(),
-    getAllStats(),
+    getMapData(user.id),
+    getSummaryStats(user.id),
   ]);
 
   const bucket = stats.bucket;

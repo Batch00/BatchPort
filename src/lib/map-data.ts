@@ -30,7 +30,7 @@ export interface MapDestination {
 
 /** A great-circle leg between two consecutive stops on a trip. */
 export interface MapArc {
-  /** [lng, lat], matching deck.gl position order. */
+  /** [lng, lat], GeoJSON coordinate order. */
   sourcePosition: [number, number];
   targetPosition: [number, number];
   tripName: string;

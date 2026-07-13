@@ -120,10 +120,17 @@ export function ExperiencesSection({
                     <div className="break-words font-medium text-foreground">
                       {experience.name}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                       {category ? <span>{category.label}</span> : null}
                       {experience.visited_date ? (
                         <span>{formatDate(experience.visited_date)}</span>
+                      ) : null}
+                      {experience.rating ? (
+                        // Compact rating for narrow screens, where the full
+                        // star row would crowd the name out of the header row.
+                        <span className="text-brand sm:hidden">
+                          {"★"} {(experience.rating / 2).toFixed(1)}
+                        </span>
                       ) : null}
                     </div>
                     {experience.notes ? (
@@ -133,7 +140,10 @@ export function ExperiencesSection({
                     ) : null}
                   </div>
                   {experience.rating ? (
-                    <RatingDisplay rating={experience.rating} />
+                    <RatingDisplay
+                      rating={experience.rating}
+                      className="hidden sm:inline-flex"
+                    />
                   ) : null}
                   <Button
                     variant="ghost"
@@ -145,7 +155,10 @@ export function ExperiencesSection({
                         current === experience.id ? null : experience.id,
                       )
                     }
-                    className={cn(expanded && "bg-white/5 text-foreground")}
+                    className={cn(
+                      "h-9 sm:h-7",
+                      expanded && "bg-white/5 text-foreground",
+                    )}
                   >
                     <ImageIcon />
                     {expPhotos.length > 0 ? (
@@ -159,6 +172,7 @@ export function ExperiencesSection({
                     size="icon-sm"
                     aria-label="Edit experience"
                     onClick={() => openEdit(experience)}
+                    className="size-9 sm:size-7"
                   >
                     <PencilIcon />
                   </Button>
@@ -188,6 +202,7 @@ export function ExperiencesSection({
                         allowSetCover={false}
                         ownerType="experience"
                         ownerId={experience.id}
+                        isDemo={isDemo}
                         onChanged={() => router.refresh()}
                       />
                     ) : null}
@@ -249,7 +264,12 @@ function DeleteExperienceButton({
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label="Delete experience">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Delete experience"
+          className="size-9 sm:size-7"
+        >
           <Trash2Icon />
         </Button>
       </AlertDialogTrigger>

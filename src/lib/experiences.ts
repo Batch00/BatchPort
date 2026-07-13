@@ -1,5 +1,8 @@
+import { cache } from "react";
+
 import { createClient } from "@/utils/supabase/server";
 import { requireUser } from "@/lib/current-user";
+import { pointEwkt } from "@/lib/geo";
 import type { Category, Experience } from "@/lib/types";
 
 // Server-side data access for experiences and the static category list.
@@ -15,9 +18,23 @@ export interface ExperienceInput {
   lng: number | null;
 }
 
-// PostgREST accepts EWKT for the geom geography(Point) column.
-function pointEwkt(lng: number, lat: number): string {
-  return `SRID=4326;POINT(${lng} ${lat})`;
+// Explicit column list so reads never pull the experiences geom column (WKB
+// bytes the UI does not render).
+export const EXPERIENCE_COLUMNS =
+  "id,destination_id,user_id,name,category_id,rating,visited_date,notes,created_at,updated_at";
+
+// Display order for a destination's experiences: visited date ascending with
+// undated ones last, then creation time. Shared by the trip and destination
+// data layers so both surfaces list experiences identically.
+export function sortExperiences(a: Experience, b: Experience): number {
+  const aDate = a.visited_date ?? "";
+  const bDate = b.visited_date ?? "";
+  if (aDate !== bDate) {
+    if (!aDate) return 1;
+    if (!bDate) return -1;
+    return aDate < bDate ? -1 : 1;
+  }
+  return a.created_at < b.created_at ? -1 : 1;
 }
 
 export async function createExperience(
@@ -40,7 +57,7 @@ export async function createExperience(
         ? pointEwkt(input.lng as number, input.lat as number)
         : null,
     })
-    .select("*")
+    .select(EXPERIENCE_COLUMNS)
     .single();
   if (error) throw error;
   return data as Experience;
@@ -67,7 +84,7 @@ export async function updateExperience(
     .from("experiences")
     .update(update)
     .eq("id", id)
-    .select("*")
+    .select(EXPERIENCE_COLUMNS)
     .single();
   if (error) throw error;
   return data as Experience;
@@ -81,13 +98,13 @@ export async function deleteExperience(id: string): Promise<void> {
 
 // Categories are static reference data readable by everyone, so this does not
 // require a session. Server components fetch it once and pass the list to the
-// experience form as props.
-export async function getCategories(): Promise<Category[]> {
+// experience form as props. cache() dedupes repeat calls within one request.
+export const getCategories = cache(async (): Promise<Category[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("categories")
-    .select("*")
+    .select("id,slug,label,icon,color,sort_order")
     .order("sort_order", { ascending: true });
   if (error) throw error;
   return (data ?? []) as Category[];
-}
+});

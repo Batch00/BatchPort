@@ -26,15 +26,6 @@ export interface Trip {
   updated_at: string;
 }
 
-// A trip plus the lightweight aggregates the dashboard cards need.
-export interface TripSummary extends Trip {
-  destination_count: number;
-  country_count: number;
-  // First destination's country code, used for the card placeholder when the
-  // trip has no cover photo.
-  primary_country_code: string | null;
-}
-
 export interface Destination {
   id: string;
   trip_id: string;

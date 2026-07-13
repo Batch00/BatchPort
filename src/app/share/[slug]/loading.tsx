@@ -1,9 +1,10 @@
-import { Loader2Icon } from "lucide-react";
+import { SharedProfileSkeleton } from "@/components/share/shared-profile-skeleton";
 
 export default function ShareLoading() {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-[#0a0a0a]">
-      <Loader2Icon className="size-6 animate-spin text-foreground/40" />
+    <div className="flex min-h-dvh flex-col bg-[#0a0a0a]">
+      <div className="h-12 border-b border-white/10" />
+      <SharedProfileSkeleton />
     </div>
   );
 }
