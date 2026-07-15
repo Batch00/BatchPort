@@ -72,7 +72,7 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
   }
 
   return (
-    <div className="relative overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 transition-all hover:ring-brand/40">
+    <div className="relative isolate overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 transition-all hover:ring-brand/40">
       <div className={cn("group relative w-full", COVER_CARD_ASPECT)}>
         {trip.coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -189,7 +189,7 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
                     href={`/trips/${trip.id}/destinations/${destination.id}`}
                     className="group flex gap-3 rounded-lg bg-white/[0.02] p-3 ring-1 ring-foreground/10 transition-colors hover:ring-brand/40"
                   >
-                    <div className="relative h-16 w-20 shrink-0 overflow-hidden rounded-md bg-white/5">
+                    <div className="relative isolate h-16 w-20 shrink-0 overflow-hidden rounded-md bg-white/5">
                       {destination.coverUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img

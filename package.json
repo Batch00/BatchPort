@@ -11,6 +11,7 @@
     "seed": "npx tsx scripts/seed-trips.ts",
     "backfill-photos": "npx tsx scripts/backfill-photos.ts",
     "backfill-exif": "npx tsx scripts/backfill-exif.ts",
+    "backfill-thumbnails": "npx tsx scripts/backfill-thumbnails.ts",
     "seed-countries": "npx tsx scripts/seed-countries.ts",
     "setup-shares": "npx tsx scripts/setup-share-settings.ts"
   },

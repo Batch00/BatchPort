@@ -1,5 +1,5 @@
 import {
-  COVER_BANNER_ASPECT,
+  COVER_BANNER_HEIGHT,
   coverImageStyle,
   getPhotoUrl,
 } from "@/lib/photos";
@@ -9,8 +9,11 @@ import type { CoverPosition, Photo } from "@/lib/types";
 // A header banner for trips and destinations. Renders the cover photo behind a
 // dark gradient so overlaid text stays readable, or a subtle gradient
 // placeholder when there is no cover. Pure and server-renderable. All banners
-// share the COVER_BANNER_ASPECT ratio so covers crop consistently; the aspect
-// ratio also reserves the box height before the image loads (no layout shift).
+// share the COVER_BANNER_HEIGHT ladder so covers crop consistently; the fixed
+// height also reserves the box before the image loads (no layout shift).
+// w-full pins the box to its container; isolate forces a stacking context so
+// Safari reliably clips the scaled (composited) cover image inside the
+// rounded corners.
 export function PhotoBanner({
   photo,
   coverPosition,
@@ -26,8 +29,8 @@ export function PhotoBanner({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl bg-gradient-to-br from-white/[0.08] to-transparent ring-1 ring-foreground/10",
-        COVER_BANNER_ASPECT,
+        "relative isolate w-full max-w-full overflow-hidden rounded-2xl bg-gradient-to-br from-white/[0.08] to-transparent ring-1 ring-foreground/10",
+        COVER_BANNER_HEIGHT,
         className,
       )}
     >

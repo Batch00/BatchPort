@@ -17,7 +17,7 @@ export default async function DemoPage() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-[#0a0a0a]">
-      <header className="flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-6">
+      <header className="flex items-center justify-between border-b border-white/10 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6">
         <Link
           href="/"
           className="inline-flex items-center gap-1.5 text-sm text-foreground/60 transition-colors hover:text-foreground"

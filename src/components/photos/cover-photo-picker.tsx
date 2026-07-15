@@ -135,11 +135,11 @@ export function CoverPhotoPicker({
     <div className="flex flex-col gap-3">
       {/* flex-wrap lets the controls drop below the thumbnail on narrow screens. */}
       <div className="flex flex-wrap items-start gap-4">
-        <div className="relative aspect-[16/10] w-40 shrink-0 overflow-hidden rounded-lg ring-1 ring-foreground/10">
+        <div className="relative isolate aspect-[16/10] w-40 shrink-0 overflow-hidden rounded-lg ring-1 ring-foreground/10">
           {cover ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={getPhotoUrl(cover)}
+              src={getPhotoUrl(cover, "thumb")}
               alt=""
               style={coverImageStyle(activePosition)}
               className="size-full object-cover"
@@ -217,7 +217,7 @@ export function CoverPhotoPicker({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={getPhotoUrl(photo)}
+                src={getPhotoUrl(photo, "thumb")}
                 alt=""
                 loading="lazy"
                 className="size-full object-cover"

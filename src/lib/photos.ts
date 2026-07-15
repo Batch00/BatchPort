@@ -23,6 +23,8 @@ export interface InsertPhotoInput {
   gpsLng?: number | null;
   // SHA-256 of the original file content, used for duplicate detection.
   fingerprint?: string | null;
+  // Storage path of the uploaded thumbnail, when one was generated.
+  thumbPath?: string | null;
 }
 
 // Shared photo helpers. These are safe to import from both server and client:
@@ -35,7 +37,17 @@ export const PHOTO_BUCKET = "batchport";
 // Explicit photo column list shared by server and client reads, so queries
 // skip the columns the UI never renders (fingerprint, GPS coordinates).
 export const PHOTO_COLUMNS =
-  "id,user_id,owner_type,owner_id,source,storage_path,external_url,attribution,order_index,date_taken,created_at";
+  "id,user_id,owner_type,owner_id,source,storage_path,external_url,attribution,order_index,date_taken,thumb_path,created_at";
+
+// Thumbnails live next to the full image at "{storage_path}_thumb". The
+// suffix convention (rather than a separate folder) keeps the thumb inside
+// the same user-scoped path prefix, so Storage policies apply unchanged, and
+// lets the delete path derive the thumb location without a column read.
+export const THUMB_SUFFIX = "_thumb";
+// Small enough for a 3-4 column grid tile on a 2x phone screen; large enough
+// to stay sharp in 200px cells.
+export const THUMB_MAX_DIM = 400;
+export const THUMB_QUALITY = 0.75;
 
 const DEFAULT_MAX_WIDTH = 1920;
 const DEFAULT_MAX_HEIGHT = 1080;
@@ -169,6 +181,30 @@ export async function uploadPhoto(
   return uploadPhotoBlob(resized, file.name, userId, ownerType, ownerId);
 }
 
+// Upload a thumbnail next to its full image. Strictly best-effort: any
+// failure returns null and the photo simply renders from the full image, so
+// a thumbnail problem can never fail an upload.
+export async function uploadThumbBlob(
+  blob: Blob,
+  storagePath: string,
+): Promise<string | null> {
+  try {
+    const supabase = createClient();
+    const path = `${storagePath}${THUMB_SUFFIX}`;
+    const { error } = await supabase.storage
+      .from(PHOTO_BUCKET)
+      .upload(path, blob, {
+        contentType: blob.type,
+        upsert: true,
+        cacheControl: "31536000",
+      });
+    if (error) return null;
+    return path;
+  } catch {
+    return null;
+  }
+}
+
 // Compose the single attribution string stored on a photo record from the
 // author and license returned by the Wikimedia API. Pure, so it is shared by
 // the server fetch and the client cover picker.
@@ -181,12 +217,16 @@ export function formatWikimediaAttribution(
   return `${tail} via Wikimedia Commons`;
 }
 
-// Shared cover aspect ratios so a cover crops identically everywhere a given
-// context appears. Cards (dashboard and share trip cards) are 16:9; banners
-// (trip and destination detail headers) are wider, with a minimum height so
-// overlaid titles and actions always fit.
+// Shared cover sizing so a cover crops identically everywhere a given context
+// appears. Cards (dashboard and share trip cards) are 16:9. Banners (trip and
+// destination detail headers) use fixed responsive heights rather than an
+// aspect-ratio with a min-height: combining aspect-ratio and min-height lets
+// WebKit transfer the min-height through the ratio into a minimum WIDTH
+// (3/1 x 192px = 576px), which forced the banner wider than a phone viewport
+// and caused horizontal overflow. The height ladder approximates the old 3:1
+// shape at each breakpoint with no width coupling.
 export const COVER_CARD_ASPECT = "aspect-video";
-export const COVER_BANNER_ASPECT = "aspect-[3/1] min-h-48 sm:min-h-56";
+export const COVER_BANNER_HEIGHT = "h-48 sm:h-56 lg:h-64";
 
 // Default gallery order: date taken ascending when known; photos without a
 // date sort after dated ones, falling back to manual order then upload time.
@@ -274,15 +314,26 @@ export function coverImageStyle(
   return style;
 }
 
+export type PhotoUrlSize = "full" | "thumb";
+
 // The display URL for a photo. Any photo with a storage_path (uploads, and
 // Wikimedia images the proxy has already cached into Storage) resolves to the
 // public Storage CDN URL directly. Uncached Wikimedia images route through the
 // proxy (which caches them for next time), and plain urls are returned as-is.
+//
+// size "thumb" returns the small gallery thumbnail when one exists; photos
+// without a thumb_path (older uploads, external urls) fall back to the full
+// image, so callers can always request "thumb" for grid contexts.
 export function getPhotoUrl(
-  photo: Pick<Photo, "source" | "storage_path" | "external_url">,
+  photo: Pick<Photo, "source" | "storage_path" | "external_url"> &
+    Partial<Pick<Photo, "thumb_path">>,
+  size: PhotoUrlSize = "full",
 ): string {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  if (size === "thumb" && photo.thumb_path) {
+    return `${base}/storage/v1/object/public/${PHOTO_BUCKET}/${photo.thumb_path}`;
+  }
   if (photo.storage_path && photo.source !== "url") {
-    const base = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
     return `${base}/storage/v1/object/public/${PHOTO_BUCKET}/${photo.storage_path}`;
   }
   if (photo.source === "wikimedia" && photo.external_url) {

@@ -11,15 +11,38 @@ interface SafeImageProps {
   className?: string;
   loading?: "lazy" | "eager";
   style?: React.CSSProperties;
+  // Tried once if src fails to load (e.g. a thumbnail whose file is missing
+  // falls back to the full image) before showing the error state.
+  fallbackSrc?: string;
 }
 
 // Drop-in replacement for <img> that shows an animate-pulse skeleton while
 // the image loads and an ImageOff icon if the src fails to fetch.
 // The parent container must have position: relative (or overflow: hidden)
 // so the skeleton div renders behind the image correctly.
-export function SafeImage({ src, alt, className, loading, style }: SafeImageProps) {
+export function SafeImage({
+  src,
+  alt,
+  className,
+  loading,
+  style,
+  fallbackSrc,
+}: SafeImageProps) {
   const [errored, setErrored] = useState(false);
+  const [useFallback, setUseFallback] = useState(false);
   const [loaded, setLoaded] = useState(false);
+
+  const activeSrc =
+    useFallback && fallbackSrc && fallbackSrc !== src ? fallbackSrc : src;
+
+  function handleError() {
+    if (!useFallback && fallbackSrc && fallbackSrc !== src) {
+      setUseFallback(true);
+      setLoaded(false);
+      return;
+    }
+    setErrored(true);
+  }
 
   if (errored) {
     return (
@@ -36,11 +59,11 @@ export function SafeImage({ src, alt, className, loading, style }: SafeImageProp
       )}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={src}
+        src={activeSrc}
         alt={alt}
         loading={loading}
         style={style}
-        onError={() => setErrored(true)}
+        onError={handleError}
         onLoad={() => setLoaded(true)}
         className={cn(
           "transition-opacity duration-300",

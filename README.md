@@ -183,6 +183,7 @@ npm run start            # Serve the production build
 npm run lint             # Run ESLint
 npm run seed             # Import seed trips for a user (requires the dev server running at localhost:3000)
 npm run backfill-photos  # Backfill Wikimedia cover photos for existing destinations
+npm run backfill-thumbnails  # Generate gallery thumbnails for photos uploaded before thumbnails existed
 npm run seed-countries   # Populate the countries reference table
 npm run setup-shares     # Initialize user_settings rows for existing users
 ```
@@ -331,6 +332,7 @@ scripts/
   generate-icons.mjs             Regenerates placeholder PWA icon PNGs
   seed-trips.ts                  Imports travel history for a user (idempotent per trip name + user_id)
   backfill-photos.ts             Backfills Wikimedia cover photos for existing destinations
+  backfill-thumbnails.ts         Generates {storage_path}_thumb thumbnails and sets photos.thumb_path
   seed-countries.ts              Populates the countries reference table
   setup-share-settings.ts        Creates user_settings rows for existing users
 ```

@@ -155,11 +155,11 @@ export default async function TripDetailPage({
                 >
                   <Card className="transition-all group-hover:ring-brand/40">
                     <CardContent className="flex items-center gap-4 pl-0">
-                      <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-white/5">
+                      <div className="relative isolate h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-white/5">
                         {cover ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={getPhotoUrl(cover)}
+                            src={getPhotoUrl(cover, "thumb")}
                             alt=""
                             loading="lazy"
                             style={coverImageStyle(destination.cover_position)}

@@ -86,6 +86,10 @@ export interface Photo {
   attribution: string | null;
   order_index: number;
   date_taken: string | null;
+  // Storage path of the small gallery thumbnail ("{storage_path}_thumb"), or
+  // null for photos uploaded before thumbnails existed (they fall back to the
+  // full image).
+  thumb_path: string | null;
   created_at: string;
 }
 

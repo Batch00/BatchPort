@@ -22,10 +22,13 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import {
+  THUMB_MAX_DIM,
+  THUMB_QUALITY,
   computeFingerprint,
   isDuplicatePhoto,
   resizeImage,
   uploadPhotoBlob,
+  uploadThumbBlob,
 } from "@/lib/photos";
 import { insertPhotoRecord, setCoverPhoto } from "@/lib/actions/photos";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
@@ -71,6 +74,9 @@ interface StagedPhoto {
   stageError: string | null;
   // Resized output, held in memory until the user confirms the batch.
   blob: Blob | null;
+  // Small gallery thumbnail, generated alongside the main resize. Null when
+  // thumbnail generation failed; the photo then renders from the full image.
+  thumbBlob: Blob | null;
   // Size of the resized output, for the "Resized from X to Y" review note.
   resizedSize: number | null;
   fingerprint: string | null;
@@ -246,6 +252,7 @@ export function PhotoUpload({
       stage: "processing",
       stageError: null,
       blob: null,
+      thumbBlob: null,
       resizedSize: null,
       fingerprint: null,
       dateTaken: null,
@@ -308,8 +315,14 @@ export function PhotoUpload({
         batchFingerprints.add(fingerprint);
 
         // The resize always runs, so oversized phone photos are shrunk rather
-        // than rejected.
-        const blob = await resizeImage(item.file);
+        // than rejected. The thumbnail is generated in the same pass; its
+        // failure is non-fatal (the photo just skips having a thumb).
+        const [blob, thumbBlob] = await Promise.all([
+          resizeImage(item.file),
+          resizeImage(item.file, THUMB_MAX_DIM, THUMB_MAX_DIM, THUMB_QUALITY).catch(
+            () => null,
+          ),
+        ]);
         if (blob.size > LARGE_AFTER_RESIZE_BYTES) {
           toast.warning(
             `${item.name} is still ${formatFileSize(blob.size)} after resizing. It will upload, but may be slow.`,
@@ -319,6 +332,7 @@ export function PhotoUpload({
         updateItem(item.id, {
           stage: "ready",
           blob,
+          thumbBlob,
           resizedSize: blob.size,
           fingerprint,
           dateTaken: exif.dateTaken,
@@ -426,7 +440,14 @@ export function PhotoUpload({
           owner.type,
           owner.id,
         );
-        updateItem(item.id, { progress: 65 });
+        updateItem(item.id, { progress: 55 });
+
+        // Best-effort thumbnail upload; null on failure means the record is
+        // saved without a thumb and galleries fall back to the full image.
+        const thumbPath = item.thumbBlob
+          ? await uploadThumbBlob(item.thumbBlob, storagePath)
+          : null;
+        updateItem(item.id, { progress: 70 });
 
         const result = await insertPhotoRecord({
           ownerType: owner.type,
@@ -437,6 +458,7 @@ export function PhotoUpload({
           gpsLat: item.gpsLat,
           gpsLng: item.gpsLng,
           fingerprint: item.fingerprint,
+          thumbPath,
         });
         if ("error" in result) {
           errorCount += 1;

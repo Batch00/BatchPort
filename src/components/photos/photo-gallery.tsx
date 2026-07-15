@@ -44,6 +44,7 @@ import { SafeImage } from "@/components/photos/safe-image";
 import { CoverPositionDialog } from "@/components/photos/cover-position-dialog";
 import {
   deletePhotoRecord,
+  deletePhotoRecords,
   setCoverPhoto,
   retagPhoto,
   reorderPhotos,
@@ -117,11 +118,20 @@ export function PhotoGallery({
     .join("|");
   // Render-phase state adjustment (the React-documented pattern for deriving
   // state from props): drop any optimistic order once the photo set changes.
+  // Hidden ids are NOT cleared wholesale: a mid-flight revalidation (another
+  // mutation finishing, a background refresh) must not resurrect photos whose
+  // delete is still pending. An id is only dropped once the server data no
+  // longer contains it (the delete is confirmed); failures are rolled back
+  // explicitly by the delete handlers.
   const [prevIdsKey, setPrevIdsKey] = useState(photoIdsKey);
   if (prevIdsKey !== photoIdsKey) {
     setPrevIdsKey(photoIdsKey);
     setViewOrder(null);
-    setHiddenIds(new Set());
+    setHiddenIds((prev) => {
+      if (prev.size === 0) return prev;
+      const currentIds = new Set(photos.map((photo) => photo.id));
+      return new Set([...prev].filter((id) => currentIds.has(id)));
+    });
   }
 
   const visible = photos.filter((photo) => !hiddenIds.has(photo.id));
@@ -249,7 +259,15 @@ export function PhotoGallery({
 
   async function confirmSetCover(photo: Photo, position: CoverPosition) {
     if (!ownerType || !ownerId) return;
-    const result = await setCoverPhoto(ownerType, ownerId, photo.id, position);
+    // Every action call is wrapped in try/catch in this component: a thrown
+    // rejection (network drop, expired session) must surface as a toast, never
+    // as a silently swallowed unhandled rejection.
+    const result = await setCoverPhoto(
+      ownerType,
+      ownerId,
+      photo.id,
+      position,
+    ).catch(() => ({ error: "Could not set the cover photo." }));
     setPositionPhoto(null);
     if ("error" in result) {
       toast.error(result.error);
@@ -257,6 +275,14 @@ export function PhotoGallery({
     }
     toast.success("Cover photo updated.");
     onChanged?.();
+  }
+
+  function unhideIds(ids: string[]) {
+    setHiddenIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
   }
 
   async function handleDelete() {
@@ -268,17 +294,16 @@ export function PhotoGallery({
     }
     const targetId = deleteTarget.id;
     setDeleteBusy(true);
-    // Hide immediately; restore if the server delete fails.
+    // Hide immediately; restore if the server delete fails or the request
+    // never lands.
     setHiddenIds((prev) => new Set(prev).add(targetId));
-    const result = await deletePhotoRecord(targetId);
+    const result = await deletePhotoRecord(targetId).catch(() => ({
+      error: "Could not delete the photo. Check your connection and retry.",
+    }));
     setDeleteBusy(false);
     setDeleteTarget(null);
     if ("error" in result) {
-      setHiddenIds((prev) => {
-        const next = new Set(prev);
-        next.delete(targetId);
-        return next;
-      });
+      unhideIds([targetId]);
       toast.error(result.error);
       return;
     }
@@ -295,7 +320,9 @@ export function PhotoGallery({
       setViewOrder(previous);
       return;
     }
-    const result = await reorderPhotos(newIds);
+    const result = await reorderPhotos(newIds).catch(() => ({
+      error: "Could not reorder the photos.",
+    }));
     if ("error" in result) {
       toast.error(result.error);
       setViewOrder(previous);
@@ -445,7 +472,11 @@ export function PhotoGallery({
       setMovePhoto(null);
       return;
     }
-    const result = await retagPhoto(movePhoto.id, targetOwnerType, targetOwnerId);
+    const result = await retagPhoto(
+      movePhoto.id,
+      targetOwnerType,
+      targetOwnerId,
+    ).catch(() => ({ error: "Could not move the photo." }));
     setMovePhoto(null);
     if ("error" in result) {
       toast.error(result.error);
@@ -462,15 +493,18 @@ export function PhotoGallery({
     }
     setBulkBusy(true);
     const ids = Array.from(selectedIds);
-    const results = await Promise.all(
+    // allSettled: one rejected call must not hide the outcome of the others.
+    const results = await Promise.allSettled(
       ids.map((id) => retagPhoto(id, targetOwnerType, targetOwnerId)),
     );
     setBulkBusy(false);
     setBulkMoveOpen(false);
-    const errors = results.filter((r) => "error" in r);
-    if (errors.length > 0) {
+    const failed = results.filter(
+      (r) => r.status === "rejected" || "error" in r.value,
+    );
+    if (failed.length > 0) {
       toast.error(
-        `${errors.length} ${errors.length === 1 ? "photo" : "photos"} could not be moved.`,
+        `${failed.length} ${failed.length === 1 ? "photo" : "photos"} could not be moved.`,
       );
     } else {
       toast.success(`${ids.length} ${ids.length === 1 ? "photo" : "photos"} moved.`);
@@ -486,24 +520,32 @@ export function PhotoGallery({
     }
     setBulkBusy(true);
     const ids = Array.from(selectedIds);
-    // Hide immediately; restore any that fail to delete.
+    // Hide immediately; restore whatever the server does not confirm deleted.
     setHiddenIds((prev) => {
       const next = new Set(prev);
       for (const id of ids) next.add(id);
       return next;
     });
-    const results = await Promise.all(ids.map((id) => deletePhotoRecord(id)));
+    // One batch action call: the whole selection is processed server-side in
+    // a single request, so a dropped connection either loses everything (and
+    // rolls back everything) or nothing; per-photo failures come back in
+    // failedIds. The catch covers the request itself never landing.
+    const result = await deletePhotoRecords(ids).catch(() => ({
+      error: "Could not delete the photos. Check your connection and retry.",
+    }));
     setBulkBusy(false);
     setBulkDeleteOpen(false);
-    const failedIds = ids.filter((_, i) => "error" in results[i]);
+    if ("error" in result) {
+      unhideIds(ids);
+      toast.error(result.error);
+      exitSelect();
+      return;
+    }
+    const failedIds = result.failedIds;
     if (failedIds.length > 0) {
-      setHiddenIds((prev) => {
-        const next = new Set(prev);
-        for (const id of failedIds) next.delete(id);
-        return next;
-      });
+      unhideIds(failedIds);
       toast.error(
-        `${failedIds.length} ${failedIds.length === 1 ? "photo" : "photos"} could not be deleted.`,
+        `${failedIds.length} of ${ids.length} photos could not be deleted.`,
       );
     } else {
       toast.success(
@@ -729,7 +771,8 @@ export function PhotoGallery({
                   }}
                 >
                   <SafeImage
-                    src={getPhotoUrl(photo)}
+                    src={getPhotoUrl(photo, "thumb")}
+                    fallbackSrc={getPhotoUrl(photo)}
                     alt=""
                     loading="lazy"
                     className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.04]"
@@ -752,7 +795,7 @@ export function PhotoGallery({
                   onPointerDown={(event) => beginDrag(event, photo.id)}
                   onDragStart={(event) => event.preventDefault()}
                   className={cn(
-                    "group/tile relative aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-xl ring-1",
+                    "group/tile relative isolate aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-xl ring-1",
                     selected
                       ? "ring-2 ring-brand"
                       : "ring-foreground/10",
@@ -807,7 +850,8 @@ export function PhotoGallery({
                       }}
                     >
                       <SafeImage
-                        src={getPhotoUrl(photo)}
+                        src={getPhotoUrl(photo, "thumb")}
+                        fallbackSrc={getPhotoUrl(photo)}
                         alt=""
                         loading="lazy"
                         className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.04]"
@@ -910,7 +954,8 @@ export function PhotoGallery({
             </DialogHeader>
             <div className="h-32 w-full overflow-hidden rounded-md bg-white/5">
               <SafeImage
-                src={getPhotoUrl(deleteTarget)}
+                src={getPhotoUrl(deleteTarget, "thumb")}
+                fallbackSrc={getPhotoUrl(deleteTarget)}
                 alt=""
                 loading="eager"
                 className="size-full object-cover"
@@ -1029,16 +1074,18 @@ function Lightbox({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 sm:p-8"
       onClick={onClose}
     >
+      {/* The lightbox is a fixed full-viewport overlay, so its top controls
+          need the status-bar inset just like page headers. */}
       <button
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+        className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top))] flex size-9 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
       >
         <XIcon className="size-5" />
       </button>
 
-      <div className="absolute left-4 top-4 flex items-center gap-2">
+      <div className="absolute left-4 top-[calc(1rem+env(safe-area-inset-top))] flex items-center gap-2">
         {hasMultiple ? (
           <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs tabular-nums text-white/80">
             {index + 1} / {total}
@@ -1143,7 +1190,8 @@ function RetagDialog({
           {photo ? (
             <div className="h-24 w-full overflow-hidden rounded-md bg-white/5">
               <SafeImage
-                src={getPhotoUrl(photo)}
+                src={getPhotoUrl(photo, "thumb")}
+                fallbackSrc={getPhotoUrl(photo)}
                 alt=""
                 loading="eager"
                 className="size-full object-cover"

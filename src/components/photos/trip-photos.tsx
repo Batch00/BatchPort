@@ -271,11 +271,13 @@ function UntaggedPhoto({
     setBusy(true);
     setHidden(true);
     const taggingExperience = expId !== WHOLE_DESTINATION;
+    // .catch: a dropped request must roll back and surface, never strand the
+    // row hidden with the server unchanged.
     const result = await retagPhoto(
       photo.id,
       taggingExperience ? "experience" : "destination",
       taggingExperience ? expId : destId,
-    );
+    ).catch(() => ({ error: "Could not tag the photo." }));
     setBusy(false);
     if ("error" in result) {
       setHidden(false);
@@ -295,7 +297,9 @@ function UntaggedPhoto({
     setBusy(true);
     setHidden(true);
     setConfirmDelete(false);
-    const result = await deletePhotoRecord(photo.id);
+    const result = await deletePhotoRecord(photo.id).catch(() => ({
+      error: "Could not delete the photo. Check your connection and retry.",
+    }));
     setBusy(false);
     if ("error" in result) {
       setHidden(false);
@@ -313,8 +317,9 @@ function UntaggedPhoto({
       <div className="size-20 shrink-0 overflow-hidden rounded-md bg-white/5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={getPhotoUrl(photo)}
+          src={getPhotoUrl(photo, "thumb")}
           alt=""
+          loading="lazy"
           className="size-full object-cover"
         />
       </div>

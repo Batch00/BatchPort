@@ -130,7 +130,8 @@ export function TripCoverEditor({
                     )}
                   >
                     <SafeImage
-                      src={getPhotoUrl(photo)}
+                      src={getPhotoUrl(photo, "thumb")}
+                      fallbackSrc={getPhotoUrl(photo)}
                       alt=""
                       loading="lazy"
                       className="size-full object-cover"

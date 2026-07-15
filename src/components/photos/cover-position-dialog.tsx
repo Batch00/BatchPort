@@ -145,7 +145,7 @@ export function CoverPositionDialog({
 
         <div
           ref={containerRef}
-          className="relative aspect-[16/9] w-full cursor-move select-none overflow-hidden rounded-lg ring-1 ring-foreground/10"
+          className="relative isolate aspect-[16/9] w-full cursor-move select-none overflow-hidden rounded-lg ring-1 ring-foreground/10"
           onMouseDown={onMouseDown}
           onTouchStart={onTouchStart}
           onTouchMove={onTouchMove}

@@ -4,7 +4,7 @@ export default function DestinationDetailLoading() {
   return (
     <div className="mx-auto w-full max-w-3xl animate-pulse p-6 sm:p-8">
       <div className="mb-6 h-4 w-24 rounded bg-white/5" />
-      <div className="mb-8 min-h-52 rounded-2xl bg-white/5 sm:min-h-64" />
+      <div className="mb-8 h-48 rounded-2xl bg-white/5 sm:h-56 lg:h-64" />
       <div className="mb-4 h-4 w-32 rounded bg-white/5" />
       <div className="mb-10 flex flex-col gap-3">
         {Array.from({ length: 2 }).map((_, i) => (

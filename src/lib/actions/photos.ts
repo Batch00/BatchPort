@@ -13,6 +13,8 @@
  * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS fingerprint text;
  * CREATE INDEX IF NOT EXISTS photos_owner_fingerprint_idx
  *   ON batchport.photos (owner_type, owner_id, fingerprint);
+ * -- Storage path of the small gallery thumbnail ("{storage_path}_thumb").
+ * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS thumb_path text;
  */
 
 "use server";
@@ -22,7 +24,11 @@ import { revalidateAppData } from "@/lib/revalidate";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { isDemoBlocked } from "@/lib/demo-guard";
-import { PHOTO_BUCKET, type InsertPhotoInput } from "@/lib/photos";
+import {
+  PHOTO_BUCKET,
+  THUMB_SUFFIX,
+  type InsertPhotoInput,
+} from "@/lib/photos";
 import type { ActionResult } from "@/lib/action-result";
 import type { Photo, PhotoOwnerType } from "@/lib/types";
 
@@ -70,18 +76,23 @@ export async function insertPhotoRecord(
     payload.gps_lat = input.gpsLat;
     payload.gps_lng = input.gpsLng;
   }
+  const hasThumb = input.thumbPath != null;
+  if (hasThumb) {
+    payload.thumb_path = input.thumbPath;
+  }
 
   let { data, error } = await supabase
     .from("photos")
     .insert(payload)
     .select("id")
     .single();
-  // Databases created before the GPS columns existed reject the insert with a
-  // schema error. Retry without the GPS fields so the upload never fails just
-  // because coordinates could not be stored.
-  if (error && hasGps) {
+  // Databases created before the GPS or thumbnail columns existed reject the
+  // insert with a schema error. Retry without those optional fields so the
+  // upload never fails just because the metadata could not be stored.
+  if (error && (hasGps || hasThumb)) {
     delete payload.gps_lat;
     delete payload.gps_lng;
+    delete payload.thumb_path;
     ({ data, error } = await supabase
       .from("photos")
       .insert(payload)
@@ -151,39 +162,117 @@ export async function retagPhoto(
   return { ok: true };
 }
 
-export async function deletePhotoRecord(id: string): Promise<ActionResult> {
+export type DeletePhotosResult =
+  | { ok: true; failedIds: string[] }
+  | { error: string };
+
+// Delete a batch of photos in ONE action round trip. The previous approach
+// (one action call per photo from the client) serialized N requests, each
+// re-rendering the whole app via revalidation; on a flaky mobile connection an
+// interrupted or rejected request silently stranded the remaining deletes
+// while the UI had already hidden the photos, so they "resurrected" later.
+// This action processes every id server-side in a single request and reports
+// per-photo outcomes.
+//
+// Ordering guarantees:
+// - Cover pointers are cleared first, with errors checked (an unchecked
+//   failure here would make the row delete hit the foreign key).
+// - Database rows are deleted next. The rows are the source of truth.
+// - Storage cleanup runs LAST and is strictly best-effort: a missing object
+//   or a Storage outage must never block or un-report a delete. Orphaned
+//   storage files are acceptable; resurrected photos are not.
+// - Only upload-sourced objects (and their derived "{path}_thumb" thumbnails)
+//   are removed. Wikimedia cache files live at a shared wikimedia/{hash} path
+//   that other photo rows may still reference, so they always stay in place.
+// - Ids whose row no longer exists count as already deleted, so retrying a
+//   partially-applied batch converges instead of erroring.
+export async function deletePhotoRecords(
+  ids: string[],
+): Promise<DeletePhotosResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  if (ids.length === 0) return { ok: true, failedIds: [] };
   const { supabase } = await requireUser();
 
-  const { data: photo } = await supabase
+  const { data: rows, error: fetchError } = await supabase
     .from("photos")
-    .select("id,owner_type,owner_id,source,storage_path")
-    .eq("id", id)
-    .maybeSingle<Pick<Photo, "id" | "owner_type" | "owner_id" | "source" | "storage_path">>();
-  if (!photo) return { error: "Photo not found." };
+    .select("id,source,storage_path")
+    .in("id", ids);
+  if (fetchError) {
+    return { error: "Could not load the photos to delete." };
+  }
+  const photos = (rows ?? []) as Pick<Photo, "id" | "source" | "storage_path">[];
+  const existingIds = photos.map((photo) => photo.id);
+  if (existingIds.length === 0) {
+    revalidateAppData();
+    return { ok: true, failedIds: [] };
+  }
 
-  // Clear cover pointers first so the foreign key never dangles. A trip's
-  // cover can reference a destination-owned photo (set from the trip gallery),
-  // so both tables are checked by pointer rather than by the photo's owner.
-  await Promise.all([
-    supabase.from("trips").update({ cover_photo_id: null }).eq("cover_photo_id", id),
+  // Clear cover pointers so the row deletes never dangle a foreign key. A
+  // trip's cover can reference a destination-owned photo (set from the trip
+  // gallery), so both tables are checked by pointer rather than by owner.
+  const [tripClear, destClear] = await Promise.all([
+    supabase
+      .from("trips")
+      .update({ cover_photo_id: null })
+      .in("cover_photo_id", existingIds),
     supabase
       .from("destinations")
       .update({ cover_photo_id: null })
-      .eq("cover_photo_id", id),
+      .in("cover_photo_id", existingIds),
   ]);
+  if (tripClear.error || destClear.error) {
+    return { error: "Could not detach the photos from their covers." };
+  }
 
-  const { error } = await supabase.from("photos").delete().eq("id", id);
-  if (error) return { error: "Could not delete the photo." };
+  // Delete every row in one statement; if that fails, fall back to per-id
+  // deletes so a single bad row cannot block the rest of the batch.
+  let failedIds: string[] = [];
+  const { error: bulkError } = await supabase
+    .from("photos")
+    .delete()
+    .in("id", existingIds);
+  if (bulkError) {
+    const results = await Promise.all(
+      existingIds.map((id) => supabase.from("photos").delete().eq("id", id)),
+    );
+    failedIds = existingIds.filter((_, index) => results[index].error);
+  }
 
-  // Remove the Storage object for uploads.
-  if (photo.source === "upload" && photo.storage_path) {
-    await createAdminClient()
-      .storage.from(PHOTO_BUCKET)
-      .remove([photo.storage_path]);
+  // Best-effort Storage cleanup for rows that are actually gone. The thumb
+  // path is derived ("{path}_thumb"), so cleanup works whether or not the
+  // thumb_path column exists yet; removing a nonexistent object is a no-op.
+  const failedSet = new Set(failedIds);
+  const removablePaths = photos
+    .filter(
+      (photo) =>
+        !failedSet.has(photo.id) &&
+        photo.source === "upload" &&
+        photo.storage_path,
+    )
+    .flatMap((photo) => [
+      photo.storage_path as string,
+      `${photo.storage_path}${THUMB_SUFFIX}`,
+    ]);
+  if (removablePaths.length > 0) {
+    try {
+      await createAdminClient()
+        .storage.from(PHOTO_BUCKET)
+        .remove(removablePaths);
+    } catch {
+      // Orphaned storage files are acceptable; the rows are already deleted.
+    }
   }
 
   revalidateAppData();
+  return { ok: true, failedIds };
+}
+
+export async function deletePhotoRecord(id: string): Promise<ActionResult> {
+  const result = await deletePhotoRecords([id]);
+  if ("error" in result) return result;
+  if (result.failedIds.length > 0) {
+    return { error: "Could not delete the photo." };
+  }
   return { ok: true };
 }
 

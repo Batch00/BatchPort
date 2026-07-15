@@ -133,6 +133,7 @@ interface PhotoRow {
   source: PhotoSource;
   storage_path: string | null;
   external_url: string | null;
+  thumb_path: string | null;
 }
 
 // Highest-rated experiences first, then alphabetical, for a tidy showcase.
@@ -184,17 +185,19 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
   if (coverIds.length > 0) {
     const { data: photos } = await supabase
       .from("photos")
-      .select("id, source, storage_path, external_url")
+      .select("id, source, storage_path, external_url, thumb_path")
       .eq("user_id", userId)
       .in("id", coverIds);
     for (const photo of (photos ?? []) as PhotoRow[]) {
       photoById.set(photo.id, photo);
     }
   }
+  // Card covers render at card size, so the thumbnail is enough; photos
+  // without one resolve to the full image inside getPhotoUrl.
   const coverUrl = (id: string | null): string | null => {
     if (!id) return null;
     const photo = photoById.get(id);
-    return photo ? getPhotoUrl(photo) : null;
+    return photo ? getPhotoUrl(photo, "thumb") : null;
   };
 
   // Group destinations under their trip.

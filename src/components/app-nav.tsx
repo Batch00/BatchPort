@@ -34,7 +34,10 @@ export function AppNav({ email, signOut }: AppNavProps) {
   }
 
   return (
-    <header className="border-b border-white/10">
+    // pt: with viewport-fit=cover (and black-translucent status bar in the
+    // installed PWA) the page starts under the iPhone status bar; the safe
+    // area inset pushes the nav below it. Zero everywhere else.
+    <header className="border-b border-white/10 pt-[env(safe-area-inset-top)]">
       <div className="flex items-center justify-between px-4 py-3 sm:px-6">
         <div className="flex items-center gap-5">
           <Link

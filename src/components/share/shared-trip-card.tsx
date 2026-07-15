@@ -26,7 +26,7 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
   const days = durationDays(trip.start_date, trip.end_date);
 
   return (
-    <div className="overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+    <div className="isolate overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
       <button
         type="button"
         onClick={() => setExpanded((open) => !open)}
@@ -92,7 +92,7 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
                   key={destination.id}
                   className="flex gap-3 rounded-lg bg-white/[0.02] p-3 ring-1 ring-foreground/10"
                 >
-                  <div className="relative h-16 w-20 shrink-0 overflow-hidden rounded-md bg-white/5">
+                  <div className="relative isolate h-16 w-20 shrink-0 overflow-hidden rounded-md bg-white/5">
                     {destination.coverUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img

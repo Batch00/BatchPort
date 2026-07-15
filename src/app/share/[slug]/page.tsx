@@ -63,7 +63,7 @@ export default async function SharePage({ params }: SharePageProps) {
 
   return (
     <div className="flex min-h-dvh flex-col bg-[#0a0a0a]">
-      <header className="flex items-center justify-between border-b border-white/10 px-4 py-3 sm:px-6">
+      <header className="flex items-center justify-between border-b border-white/10 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-6">
         <Link href="/" className="text-sm font-semibold tracking-tight">
           Batch<span className="text-brand">Port</span>
         </Link>
@@ -74,7 +74,7 @@ export default async function SharePage({ params }: SharePageProps) {
         <SharedProfileView profile={profile} />
       </main>
 
-      <footer className="border-t border-white/10 px-4 py-4 text-center text-xs text-foreground/40 sm:px-6">
+      <footer className="border-t border-white/10 px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] text-center text-xs text-foreground/40 sm:px-6">
         Powered by{" "}
         <Link href="/" className="text-foreground/60 hover:text-foreground">
           BatchPort
