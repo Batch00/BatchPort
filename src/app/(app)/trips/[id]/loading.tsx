@@ -4,7 +4,7 @@ export default function TripDetailLoading() {
   return (
     <div className="mx-auto w-full max-w-3xl animate-pulse p-6 sm:p-8">
       <div className="mb-6 h-4 w-24 rounded bg-white/5" />
-      <div className="mb-8 h-48 rounded-2xl bg-white/5 sm:h-56 lg:h-64" />
+      <div className="mb-8 aspect-video rounded-2xl bg-white/5 sm:aspect-auto sm:h-56 lg:h-64" />
       <div className="mb-4 flex items-center justify-between">
         <div className="h-4 w-28 rounded bg-white/5" />
         <div className="h-8 w-36 rounded-md bg-white/5" />

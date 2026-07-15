@@ -219,14 +219,14 @@ export function formatWikimediaAttribution(
 
 // Shared cover sizing so a cover crops identically everywhere a given context
 // appears. Cards (dashboard and share trip cards) are 16:9. Banners (trip and
-// destination detail headers) use fixed responsive heights rather than an
-// aspect-ratio with a min-height: combining aspect-ratio and min-height lets
-// WebKit transfer the min-height through the ratio into a minimum WIDTH
-// (3/1 x 192px = 576px), which forced the banner wider than a phone viewport
-// and caused horizontal overflow. The height ladder approximates the old 3:1
-// shape at each breakpoint with no width coupling.
+// destination detail headers) are also 16:9 on phones, so the crop chosen in
+// the 16:9 position editor renders identically on the card and the mobile
+// banner; from sm up the banner switches to fixed heights (a 16:9 banner at
+// desktop content width would be enormous). Never combine aspect-ratio with
+// min-height here: WebKit transfers the min-height through the ratio into a
+// minimum WIDTH and overflows the viewport.
 export const COVER_CARD_ASPECT = "aspect-video";
-export const COVER_BANNER_HEIGHT = "h-48 sm:h-56 lg:h-64";
+export const COVER_BANNER_SHAPE = "aspect-video sm:aspect-auto sm:h-56 lg:h-64";
 
 // Default gallery order: date taken ascending when known; photos without a
 // date sort after dated ones, falling back to manual order then upload time.
@@ -291,6 +291,27 @@ export function pickCover(
     if (match) return match;
   }
   return photos[0] ?? null;
+}
+
+// Resolve which photo an entity's cover actually shows. The explicit cover is
+// looked up BY ID across the whole photo pool, because a trip's cover can be
+// a destination- or experience-owned photo (set from the trip gallery) and a
+// destination's cover can be experience-owned. Resolving it only against the
+// entity's own photos silently swapped in a different photo, which is why the
+// dashboard and the trip page could disagree. Falls back to the entity's own
+// first photo. `explicit` tells the caller whether the stored cover_position
+// applies (it describes the explicit cover only).
+export function resolveCoverPhoto<T extends { id: string }>(
+  photoById: Map<string, T>,
+  ownPhotos: T[],
+  coverPhotoId: string | null,
+): { photo: T; explicit: boolean } | null {
+  if (coverPhotoId) {
+    const exact = photoById.get(coverPhotoId);
+    if (exact) return { photo: exact, explicit: true };
+  }
+  const first = ownPhotos[0];
+  return first ? { photo: first, explicit: false } : null;
 }
 
 // Inline style that applies a stored cover position (and optional zoom) to an

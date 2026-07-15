@@ -65,13 +65,25 @@ export interface RetagDestination {
   experiences: { id: string; name: string }[];
 }
 
+// A cover target the gallery can write to. Only trips and destinations carry
+// covers.
+export interface GalleryCoverTarget {
+  ownerType: Extract<PhotoOwnerType, "trip" | "destination">;
+  ownerId: string;
+}
+
 interface PhotoGalleryProps {
   photos: Photo[];
   coverPhotoId?: string | null;
   coverPosition?: CoverPosition | null;
   editable?: boolean;
-  // Whether the menu offers "Set as cover". Off for entities without a cover.
+  // Whether the menu offers "Set as ... cover". Off for entities without a
+  // cover (experience galleries).
   allowSetCover?: boolean;
+  // Maps a photo to an optional second cover target, shown as an extra menu
+  // item: the trip from a destination gallery, or the photo's own destination
+  // from the trip gallery. Return null for photos without one.
+  secondaryCoverTarget?: (photo: Photo) => GalleryCoverTarget | null;
   // Whether the menu offers "Delete".
   allowDelete?: boolean;
   // Whether the menu offers "Move to..." (only when provided).
@@ -92,6 +104,7 @@ export function PhotoGallery({
   coverPosition = null,
   editable = false,
   allowSetCover = true,
+  secondaryCoverTarget,
   allowDelete = true,
   retagDestinations,
   compact = false,
@@ -200,7 +213,14 @@ export function PhotoGallery({
   } | null>(null);
 
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const [positionPhoto, setPositionPhoto] = useState<Photo | null>(null);
+  // The photo whose crop is being edited plus the cover target it will be
+  // saved to (the gallery's own entity, or a secondary target such as the
+  // trip from a destination gallery).
+  const [positionRequest, setPositionRequest] = useState<{
+    photo: Photo;
+    target: GalleryCoverTarget;
+    isPrimary: boolean;
+  } | null>(null);
   const [movePhoto, setMovePhoto] = useState<Photo | null>(null);
   // Single-photo delete confirmation target.
   const [deleteTarget, setDeleteTarget] = useState<Photo | null>(null);
@@ -254,26 +274,41 @@ export function PhotoGallery({
 
   if (ordered.length === 0) return null;
 
-  const canSetCover = allowSetCover && Boolean(ownerType) && Boolean(ownerId);
+  const primaryTarget: GalleryCoverTarget | null =
+    ownerId && (ownerType === "trip" || ownerType === "destination")
+      ? { ownerType, ownerId }
+      : null;
+  const canSetCover = allowSetCover && primaryTarget !== null;
   const canRetag = Boolean(retagDestinations?.length);
 
-  async function confirmSetCover(photo: Photo, position: CoverPosition) {
-    if (!ownerType || !ownerId) return;
+  function coverTargetLabel(target: GalleryCoverTarget): string {
+    return target.ownerType === "trip"
+      ? "Set as trip cover"
+      : "Set as destination cover";
+  }
+
+  async function confirmSetCover(position: CoverPosition) {
+    if (!positionRequest) return;
+    const { photo, target } = positionRequest;
     // Every action call is wrapped in try/catch in this component: a thrown
     // rejection (network drop, expired session) must surface as a toast, never
     // as a silently swallowed unhandled rejection.
     const result = await setCoverPhoto(
-      ownerType,
-      ownerId,
+      target.ownerType,
+      target.ownerId,
       photo.id,
       position,
     ).catch(() => ({ error: "Could not set the cover photo." }));
-    setPositionPhoto(null);
+    setPositionRequest(null);
     if ("error" in result) {
       toast.error(result.error);
       return;
     }
-    toast.success("Cover photo updated.");
+    toast.success(
+      target.ownerType === "trip"
+        ? "Trip cover updated."
+        : "Destination cover updated.",
+    );
     onChanged?.();
   }
 
@@ -559,12 +594,15 @@ export function PhotoGallery({
   function tileMenu(photo: Photo, index: number) {
     if (!editable || isSelecting) return null;
     const showCover = canSetCover;
+    const secondary = allowSetCover ? (secondaryCoverTarget?.(photo) ?? null) : null;
     const showRetag = canRetag;
     // The pinned lead slot is not reorderable, so its tile hides the move items.
     const showReorder = reorderable && !(isExplicitCover && index === 0);
     const isFirst = index <= minIndex;
     const isLast = index === ordered.length - 1;
-    if (!showCover && !allowDelete && !showRetag && !showReorder) return null;
+    if (!showCover && !secondary && !allowDelete && !showRetag && !showReorder) {
+      return null;
+    }
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -578,16 +616,35 @@ export function PhotoGallery({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-          {showCover ? (
+          {showCover && primaryTarget ? (
             <DropdownMenuItem
-              onSelect={() => setPositionPhoto(photo)}
-              disabled={photo.id === cover?.id && isExplicitCover}
+              onSelect={() =>
+                setPositionRequest({
+                  photo,
+                  target: primaryTarget,
+                  isPrimary: true,
+                })
+              }
             >
               <StarIcon />
-              Set as cover
+              {coverTargetLabel(primaryTarget)}
             </DropdownMenuItem>
           ) : null}
-          {showCover && (showRetag || allowDelete) ? (
+          {secondary ? (
+            <DropdownMenuItem
+              onSelect={() =>
+                setPositionRequest({
+                  photo,
+                  target: secondary,
+                  isPrimary: false,
+                })
+              }
+            >
+              <StarIcon />
+              {coverTargetLabel(secondary)}
+            </DropdownMenuItem>
+          ) : null}
+          {(showCover || secondary) && (showRetag || allowDelete) ? (
             <DropdownMenuSeparator />
           ) : null}
           {showRetag ? (
@@ -879,14 +936,25 @@ export function PhotoGallery({
         />
       ) : null}
 
-      {positionPhoto ? (
+      {positionRequest ? (
         <CoverPositionDialog
-          photo={positionPhoto}
+          photo={positionRequest.photo}
+          // Seed the editor with the stored crop only when repositioning the
+          // gallery's own current cover; other targets start fresh.
           initialPosition={
-            positionPhoto.id === cover?.id ? coverPosition : null
+            positionRequest.isPrimary &&
+            isExplicitCover &&
+            positionRequest.photo.id === cover?.id
+              ? coverPosition
+              : null
           }
-          onConfirm={(position) => confirmSetCover(positionPhoto, position)}
-          onCancel={() => setPositionPhoto(null)}
+          confirmLabel={
+            positionRequest.target.ownerType === "trip"
+              ? "Set as trip cover"
+              : "Set as destination cover"
+          }
+          onConfirm={confirmSetCover}
+          onCancel={() => setPositionRequest(null)}
         />
       ) : null}
 

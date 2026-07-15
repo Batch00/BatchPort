@@ -1,7 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { getMapData, type MapData } from "@/lib/map-data";
 import { getSummaryStats, type SummaryStats } from "@/lib/stats-data";
-import { getPhotoUrl } from "@/lib/photos";
+import { getPhotoUrl, resolveCoverPhoto } from "@/lib/photos";
 import { DEMO_USER_ID } from "@/lib/constants";
 import type { PhotoSource } from "@/lib/types";
 
@@ -136,6 +136,11 @@ interface PhotoRow {
   thumb_path: string | null;
 }
 
+interface FallbackPhotoRow extends PhotoRow {
+  owner_type: string;
+  owner_id: string;
+}
+
 // Highest-rated experiences first, then alphabetical, for a tidy showcase.
 function sortExperiences(a: ExperienceRow, b: ExperienceRow): number {
   const ar = a.rating ?? -1;
@@ -172,7 +177,11 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
   const destRows = (destsResult.data ?? []) as unknown as DestinationRow[];
   if (tripRows.length === 0) return [];
 
-  // Resolve cover photos for trips and destinations in one query.
+  // Two parallel photo queries: the explicit covers by id (they can be owned
+  // by any entity, including experiences), and the trip- and destination-owned
+  // photos used as fallbacks when no explicit cover is set. The fallback rows
+  // mirror what the trip page shows, so the dashboard cards and the trip
+  // detail banner always resolve to the same image.
   const coverIds = Array.from(
     new Set(
       [
@@ -181,24 +190,40 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       ].filter((id): id is string => Boolean(id)),
     ),
   );
-  const photoById = new Map<string, PhotoRow>();
-  if (coverIds.length > 0) {
-    const { data: photos } = await supabase
+  const [coversResult, fallbacksResult] = await Promise.all([
+    coverIds.length > 0
+      ? supabase
+          .from("photos")
+          .select("id, source, storage_path, external_url, thumb_path")
+          .eq("user_id", userId)
+          .in("id", coverIds)
+      : Promise.resolve({ data: [] as PhotoRow[] }),
+    supabase
       .from("photos")
-      .select("id, source, storage_path, external_url, thumb_path")
+      .select(
+        "id, owner_type, owner_id, source, storage_path, external_url, thumb_path",
+      )
       .eq("user_id", userId)
-      .in("id", coverIds);
-    for (const photo of (photos ?? []) as PhotoRow[]) {
-      photoById.set(photo.id, photo);
-    }
+      .in("owner_type", ["trip", "destination"])
+      .order("order_index", { ascending: true })
+      .order("created_at", { ascending: true }),
+  ]);
+
+  const photoById = new Map<string, PhotoRow>();
+  // First photo per owner, in gallery order, keyed by "type:id".
+  const firstByOwner = new Map<string, PhotoRow>();
+  for (const row of (fallbacksResult.data ?? []) as FallbackPhotoRow[]) {
+    photoById.set(row.id, row);
+    const key = `${row.owner_type}:${row.owner_id}`;
+    if (!firstByOwner.has(key)) firstByOwner.set(key, row);
+  }
+  for (const photo of (coversResult.data ?? []) as PhotoRow[]) {
+    photoById.set(photo.id, photo);
   }
   // Card covers render at card size, so the thumbnail is enough; photos
   // without one resolve to the full image inside getPhotoUrl.
-  const coverUrl = (id: string | null): string | null => {
-    if (!id) return null;
-    const photo = photoById.get(id);
-    return photo ? getPhotoUrl(photo, "thumb") : null;
-  };
+  const thumbUrl = (photo: PhotoRow | null | undefined): string | null =>
+    photo ? getPhotoUrl(photo, "thumb") : null;
 
   // Group destinations under their trip.
   const destsByTrip = new Map<string, ProfileDestination[]>();
@@ -217,6 +242,12 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
             }
           : null,
       }));
+    const fallback = firstByOwner.get(`destination:${dest.id}`);
+    const cover = resolveCoverPhoto(
+      photoById,
+      fallback ? [fallback] : [],
+      dest.cover_photo_id,
+    );
     const list = destsByTrip.get(dest.trip_id) ?? [];
     list.push({
       id: dest.id,
@@ -224,8 +255,9 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       country_code: dest.country_code,
       arrival_date: dest.arrival_date,
       departure_date: dest.departure_date,
-      coverUrl: coverUrl(dest.cover_photo_id),
-      cover_position: dest.cover_position ?? null,
+      coverUrl: thumbUrl(cover?.photo),
+      // The stored crop position describes the explicit cover only.
+      cover_position: cover?.explicit ? (dest.cover_position ?? null) : null,
       experiences,
     });
     destsByTrip.set(dest.trip_id, list);
@@ -233,9 +265,14 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
 
   return tripRows.map((trip) => {
     const destinations = destsByTrip.get(trip.id) ?? [];
+    // Same order as the trip detail banner: explicit trip cover, then the
+    // first destination's cover, then the first trip-level photo.
+    const explicit = trip.cover_photo_id
+      ? photoById.get(trip.cover_photo_id)
+      : undefined;
     const firstDestCover =
       destinations.find((d) => d.coverUrl)?.coverUrl ?? null;
-    const hasTripCover = Boolean(trip.cover_photo_id && coverUrl(trip.cover_photo_id));
+    const tripFallback = firstByOwner.get(`trip:${trip.id}`);
     return {
       id: trip.id,
       name: trip.name,
@@ -243,9 +280,9 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       end_date: trip.end_date,
       status: trip.status,
       notes: trip.notes,
-      coverUrl: coverUrl(trip.cover_photo_id) ?? firstDestCover,
+      coverUrl: thumbUrl(explicit) ?? firstDestCover ?? thumbUrl(tripFallback),
       cover_photo_id: trip.cover_photo_id,
-      cover_position: hasTripCover ? (trip.cover_position ?? null) : null,
+      cover_position: explicit ? (trip.cover_position ?? null) : null,
       destinations,
     };
   });

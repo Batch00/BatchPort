@@ -112,6 +112,11 @@ export async function setCoverPhoto(
   position?: { x: number; y: number; scale?: number },
 ): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  // Only trips and destinations carry covers; guard so a bad ownerType can
+  // never fall through to the destinations table.
+  if (ownerType !== "trip" && ownerType !== "destination") {
+    return { error: "Covers apply to trips and destinations only." };
+  }
   const { supabase } = await requireUser();
   const table = ownerType === "trip" ? "trips" : "destinations";
   const patch =

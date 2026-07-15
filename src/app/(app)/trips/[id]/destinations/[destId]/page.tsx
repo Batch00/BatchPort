@@ -4,7 +4,8 @@ import { ArrowLeftIcon, PencilIcon } from "lucide-react";
 
 import { getDestination } from "@/lib/destinations";
 import { getCategories } from "@/lib/experiences";
-import { getPhotos, getPhotosForOwners, pickCover } from "@/lib/photos-data";
+import { getPhotos, getPhotosForOwners } from "@/lib/photos-data";
+import { resolveCoverPhoto } from "@/lib/photos";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
 import { buttonVariants } from "@/components/ui/button";
@@ -43,7 +44,20 @@ export default async function DestinationDetailPage({
 
   const experienceIds = destination.experiences.map((experience) => experience.id);
   const experiencePhotos = await getPhotosForOwners("experience", experienceIds);
-  const cover = pickCover(photos, destination.cover_photo_id);
+  // The explicit cover can be an experience-owned photo, so it resolves by id
+  // across every photo on the page; the crop position applies only to it.
+  const photoById = new Map(
+    [...photos, ...experiencePhotos].map((photo) => [photo.id, photo]),
+  );
+  const coverResolved = resolveCoverPhoto(
+    photoById,
+    photos,
+    destination.cover_photo_id,
+  );
+  const cover = coverResolved?.photo ?? null;
+  const coverPosition = coverResolved?.explicit
+    ? (destination.cover_position ?? null)
+    : null;
   const isDemo = isDemoUser(user.id);
 
   // Group experience photos by their owning experience for inline display.
@@ -62,7 +76,7 @@ export default async function DestinationDetailPage({
         Back to trip
       </Link>
 
-      <PhotoBanner photo={cover} coverPosition={destination.cover_position ?? null} className="mb-8">
+      <PhotoBanner photo={cover} coverPosition={coverPosition} className="mb-8">
         <div className="absolute right-4 top-4 flex items-center gap-2">
           <Link
             href={`/trips/${id}/destinations/${destId}/edit`}
@@ -123,6 +137,7 @@ export default async function DestinationDetailPage({
       />
 
       <DestinationPhotos
+        tripId={id}
         destination={{
           id: destination.id,
           name: destination.name,

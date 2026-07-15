@@ -87,6 +87,22 @@ export function TripPhotosSection({
     return activeDestination ? photoInDestination(photo, activeDestination) : true;
   });
 
+  // The destination a tagged photo belongs to (directly or via one of its
+  // experiences), offered as a second cover target in the gallery menu.
+  function destinationForPhoto(photo: Photo): TagDestination | null {
+    if (photo.owner_type === "destination") {
+      return destinations.find((d) => d.id === photo.owner_id) ?? null;
+    }
+    if (photo.owner_type === "experience") {
+      return (
+        destinations.find((d) =>
+          d.experiences.some((exp) => exp.id === photo.owner_id),
+        ) ?? null
+      );
+    }
+    return null;
+  }
+
   // Only show destinations that actually have tagged photos as filter pills.
   const destinationsWithPhotos = destinations.filter((destination) =>
     taggedPhotos.some((photo) => photoInDestination(photo, destination)),
@@ -188,6 +204,12 @@ export function TripPhotosSection({
                 editable
                 ownerType="trip"
                 ownerId={tripId}
+                secondaryCoverTarget={(photo) => {
+                  const destination = destinationForPhoto(photo);
+                  return destination
+                    ? { ownerType: "destination", ownerId: destination.id }
+                    : null;
+                }}
                 retagDestinations={destinations}
                 isDemo={isDemo}
                 onChanged={refresh}

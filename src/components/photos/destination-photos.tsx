@@ -13,6 +13,8 @@ interface DestinationPhotosProps {
   // The destination itself, passed as a taggable target so the review step
   // can optionally file photos under one of its experiences.
   destination: TagDestination;
+  // The owning trip, offered as a second cover target ("Set as trip cover").
+  tripId: string;
   userId: string;
   isDemo: boolean;
   photos: Photo[];
@@ -25,6 +27,7 @@ interface DestinationPhotosProps {
 // server re-supplies the updated photo list.
 export function DestinationPhotos({
   destination,
+  tripId,
   userId,
   isDemo,
   photos,
@@ -55,6 +58,7 @@ export function DestinationPhotos({
             editable
             ownerType="destination"
             ownerId={destination.id}
+            secondaryCoverTarget={() => ({ ownerType: "trip", ownerId: tripId })}
             isDemo={isDemo}
             onChanged={() => router.refresh()}
           />

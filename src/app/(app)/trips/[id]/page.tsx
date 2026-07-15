@@ -3,10 +3,10 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon, ImageIcon, PencilIcon, PlusIcon } from "lucide-react";
 
 import { getTrip } from "@/lib/trips";
-import { getPhotos, getPhotosForOwners, pickCover } from "@/lib/photos-data";
+import { getPhotos, getPhotosForOwners } from "@/lib/photos-data";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
-import { coverImageStyle, getPhotoUrl } from "@/lib/photos";
+import { coverImageStyle, getPhotoUrl, resolveCoverPhoto } from "@/lib/photos";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { StatusBadge } from "@/components/trips/status-badge";
@@ -56,25 +56,45 @@ export default async function TripDetailPage({
     list.push(photo);
     photosByDestination.set(photo.owner_id, list);
   }
-  const destinationCovers = new Map<string, Photo | null>();
+
+  // Covers resolve BY ID across every photo on the trip: a trip cover chosen
+  // from the trip gallery can be destination- or experience-owned, and a
+  // destination cover can be experience-owned. Resolving only against the
+  // entity's own photos (the old pickCover call) silently showed a different
+  // photo than the dashboard, which resolves by id.
+  const photoById = new Map<string, Photo>(
+    [...tripPhotos, ...destPhotos, ...expPhotos].map((photo) => [
+      photo.id,
+      photo,
+    ]),
+  );
+  const destinationCovers = new Map<
+    string,
+    { photo: Photo; explicit: boolean }
+  >();
   for (const destination of trip.destinations) {
-    destinationCovers.set(
-      destination.id,
-      pickCover(
-        photosByDestination.get(destination.id) ?? [],
-        destination.cover_photo_id,
-      ),
+    const resolved = resolveCoverPhoto(
+      photoById,
+      photosByDestination.get(destination.id) ?? [],
+      destination.cover_photo_id,
     );
+    if (resolved) destinationCovers.set(destination.id, resolved);
   }
 
-  // Banner: trip cover, falling back to the first destination cover available.
-  const firstDestinationCover = trip.destinations
-    .map((destination) => destinationCovers.get(destination.id))
-    .find((cover): cover is Photo => Boolean(cover));
-  const tripCoverPhoto = pickCover(tripPhotos, trip.cover_photo_id);
-  const bannerPhoto = tripCoverPhoto ?? firstDestinationCover ?? null;
-  // Only apply cover_position when the trip's own cover photo is used.
-  const bannerPosition = tripCoverPhoto ? (trip.cover_position ?? null) : null;
+  // Banner photo, in the same order the dashboard cards use: the explicit
+  // trip cover, then the first destination's cover, then the first
+  // trip-level photo.
+  const tripCover = resolveCoverPhoto(photoById, [], trip.cover_photo_id);
+  const firstDestinationCover =
+    trip.destinations
+      .map((destination) => destinationCovers.get(destination.id))
+      .find((cover) => Boolean(cover))?.photo ?? null;
+  const bannerPhoto =
+    tripCover?.photo ?? firstDestinationCover ?? tripPhotos[0] ?? null;
+  // The stored position describes the explicit cover only.
+  const bannerPosition = tripCover?.explicit
+    ? (trip.cover_position ?? null)
+    : null;
 
   return (
     <div className="mx-auto w-full max-w-3xl p-6 sm:p-8">
@@ -147,6 +167,10 @@ export default async function TripDetailPage({
           {trip.destinations.map((destination, index) => {
             const experienceCount = destination.experiences.length;
             const cover = destinationCovers.get(destination.id) ?? null;
+            // The crop position belongs to the explicitly set cover only.
+            const coverStyle = cover?.explicit
+              ? coverImageStyle(destination.cover_position)
+              : undefined;
             return (
               <li key={destination.id}>
                 <Link
@@ -159,10 +183,10 @@ export default async function TripDetailPage({
                         {cover ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={getPhotoUrl(cover, "thumb")}
+                            src={getPhotoUrl(cover.photo, "thumb")}
                             alt=""
                             loading="lazy"
-                            style={coverImageStyle(destination.cover_position)}
+                            style={coverStyle}
                             className="size-full object-cover"
                           />
                         ) : (

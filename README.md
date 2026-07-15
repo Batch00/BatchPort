@@ -44,7 +44,7 @@ BatchPort is a personal travel tracker and installable progressive web app built
 - Wikimedia images are served through /api/photos/wikimedia/proxy to avoid CORS and hotlinking issues
 - Photo galleries with lightbox on destination and trip pages
 - Trip-level photo upload: photos can be retagged to a specific destination or experience after uploading
-- Cover photo management on trips and destinations: explicit picker, or falls back to the first photo
+- Cover photo management on trips and destinations: explicit picker with crop/zoom, or falls back to the first photo; galleries can set a photo as either the destination cover or the trip cover
 - Attribution stored on Wikimedia photos (artist and license from Commons extmetadata)
 
 ### Stats Dashboard
