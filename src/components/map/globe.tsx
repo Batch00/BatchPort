@@ -72,6 +72,9 @@ export interface GlobeProps {
   /** Clicking a visited country flies to it and reports the selection. */
   enableCountryDrilldown?: boolean;
   onCountrySelect?: (selection: GlobeCountrySelection | null) => void;
+  /** Clicking an unvisited country flies to it and reports it for discovery. */
+  enableDiscovery?: boolean;
+  onDiscoverCountry?: (selection: GlobeCountrySelection | null) => void;
   /** When provided, shows a refresh control that re-fetches the map data. */
   onRefresh?: () => void;
   refreshing?: boolean;
@@ -88,6 +91,17 @@ const PIN_RADIUS = 6;
 const PIN_RADIUS_HOVER = 8.5;
 // Intermediate points per arc, so the line follows the great circle smoothly.
 const ARC_SEGMENTS = 48;
+
+// Match expression comparing ISO_A2_EH against a code list.
+function matchFilter(codes: string[]): FilterSpecification {
+  return [
+    "match",
+    ["get", "ISO_A2_EH"],
+    codes.length > 0 ? codes : [" "],
+    true,
+    false,
+  ] as unknown as FilterSpecification;
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   let value = hex.trim().replace("#", "");
@@ -314,6 +328,8 @@ export function Globe({
   enableDestinationLinks = false,
   enableCountryDrilldown = false,
   onCountrySelect,
+  enableDiscovery = false,
+  onDiscoverCountry,
   onRefresh,
   refreshing = false,
 }: GlobeProps) {
@@ -336,6 +352,8 @@ export function Globe({
     enableDestinationLinks,
     enableCountryDrilldown,
     onCountrySelect,
+    enableDiscovery,
+    onDiscoverCountry,
   });
   useEffect(() => {
     dataRef.current = {
@@ -348,6 +366,8 @@ export function Globe({
       enableDestinationLinks,
       enableCountryDrilldown,
       onCountrySelect,
+      enableDiscovery,
+      onDiscoverCountry,
     };
   });
 
@@ -363,6 +383,17 @@ export function Globe({
     destSource?.setData(destinationsFC(destinations, brandHex));
     arcSource?.setData(arcsFC(arcs));
   }, [destinations, arcs]);
+
+  // Keep the country fill filters in sync so a new bucket list country turns
+  // amber (and a newly visited one turns blue) without rebuilding the map.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current || !map.getLayer("country-visited")) return;
+    const visitedFilter = matchFilter(visitedCountryCodes);
+    map.setFilter("country-bucket", matchFilter(bucketCountryCodes));
+    map.setFilter("country-visited", visitedFilter);
+    map.setFilter("country-visited-outline", visitedFilter);
+  }, [visitedCountryCodes, bucketCountryCodes]);
 
   function handleToggle() {
     const map = mapRef.current;
@@ -420,17 +451,6 @@ export function Globe({
       );
     }
 
-    // Match expression comparing ISO_A2_EH against a code list.
-    function matchFilter(codes: string[]): FilterSpecification {
-      return [
-        "match",
-        ["get", "ISO_A2_EH"],
-        codes.length > 0 ? codes : [" "],
-        true,
-        false,
-      ] as unknown as FilterSpecification;
-    }
-
     function showPinPopupFromFeature(feature: MapGeoJSONFeature) {
       if (!maplibregl || !map) return;
       const props = feature.properties ?? {};
@@ -483,10 +503,16 @@ export function Globe({
         .addTo(map);
     }
 
-    function showTooltip(x: number, y: number, text: string) {
+    function showTooltip(x: number, y: number, text: string, hint?: string) {
       const el = tooltipRef.current;
       if (!el) return;
       el.textContent = text;
+      if (hint) {
+        const hintEl = document.createElement("div");
+        hintEl.className = "text-[10px] font-normal text-foreground/50";
+        hintEl.textContent = hint;
+        el.appendChild(hintEl);
+      }
       el.style.transform = `translate(${x + 14}px, ${y + 14}px)`;
       el.style.display = "block";
     }
@@ -575,8 +601,20 @@ export function Globe({
         count > 0
           ? `${name} · ${count} ${count === 1 ? "destination" : "destinations"}`
           : name;
-      showTooltip(event.point.x, event.point.y, text);
-      map.getCanvas().style.cursor = count > 0 ? "pointer" : "default";
+      // Unvisited countries are explorable when discovery is on: hint at the
+      // click affordance and show the pointer cursor.
+      const discoverable =
+        dataRef.current.enableDiscovery &&
+        Boolean(code) &&
+        !dataRef.current.visitedCountryCodes.includes(code as string);
+      showTooltip(
+        event.point.x,
+        event.point.y,
+        text,
+        discoverable ? "Click to explore" : undefined,
+      );
+      map.getCanvas().style.cursor =
+        count > 0 || discoverable ? "pointer" : "default";
     }
 
     function onMouseOut() {
@@ -610,34 +648,48 @@ export function Globe({
         }
       }
 
-      const select = dataRef.current.onCountrySelect;
-      if (!dataRef.current.enableCountryDrilldown) {
-        select?.(null);
-        return;
-      }
-      if (!map.getLayer("country-visited")) {
-        select?.(null);
-        return;
-      }
-      const features = map.queryRenderedFeatures(event.point, {
-        layers: ["country-visited"],
-      });
+      const {
+        onCountrySelect: select,
+        onDiscoverCountry: discover,
+        enableCountryDrilldown,
+        enableDiscovery,
+        visitedCountryCodes: visited,
+      } = dataRef.current;
+
+      // Resolve the clicked country from the all-countries fill layer, then
+      // route it: visited countries open the drill-down, unvisited ones open
+      // discovery. Anything else (ocean, no code) closes both panels.
+      const features = map.getLayer("country-fill")
+        ? map.queryRenderedFeatures(event.point, { layers: ["country-fill"] })
+        : [];
       const feature = features[0];
-      if (!feature) {
-        select?.(null);
-        return;
-      }
-      const code = feature.properties?.ISO_A2_EH as string | undefined;
+      const code = feature?.properties?.ISO_A2_EH as string | undefined;
       const name =
-        (feature.properties?.NAME as string | undefined) ??
-        (feature.properties?.ADMIN as string | undefined) ??
+        (feature?.properties?.NAME as string | undefined) ??
+        (feature?.properties?.ADMIN as string | undefined) ??
         "";
-      if (!code) {
+      if (!feature || !code) {
         select?.(null);
+        discover?.(null);
         return;
       }
-      flyToFeature(feature);
-      select?.({ code, name });
+      if (visited.includes(code)) {
+        if (enableCountryDrilldown) {
+          flyToFeature(feature);
+          select?.({ code, name });
+        } else {
+          select?.(null);
+          discover?.(null);
+        }
+        return;
+      }
+      if (enableDiscovery) {
+        flyToFeature(feature);
+        discover?.({ code, name });
+        return;
+      }
+      select?.(null);
+      discover?.(null);
     }
 
     function markInteraction() {

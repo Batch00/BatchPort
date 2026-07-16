@@ -185,6 +185,7 @@ npm run seed             # Import seed trips for a user (requires the dev server
 npm run backfill-photos  # Backfill Wikimedia cover photos for existing destinations
 npm run backfill-thumbnails  # Generate gallery thumbnails for photos uploaded before thumbnails existed
 npm run seed-countries   # Populate the countries reference table
+npm run seed-cities      # Populate the cities table from GeoNames cities15000 (powers Discovery top cities)
 npm run setup-shares     # Initialize user_settings rows for existing users
 ```
 

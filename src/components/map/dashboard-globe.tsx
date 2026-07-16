@@ -14,6 +14,7 @@ import type { MapData, MapDestination } from "@/lib/map-data";
 import { flagEmoji, formatDateRange } from "@/lib/format";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { DiscoveryPanel } from "@/components/discover/discovery-panel";
 
 interface DashboardGlobeProps {
   data: MapData;
@@ -48,6 +49,9 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
   const { destinations, visitedCountryCodes, bucketCountryCodes, arcs, stats } =
     data;
   const [selected, setSelected] = useState<GlobeCountrySelection | null>(null);
+  // Discovery panel target: an unvisited country picked on the globe. Only one
+  // panel is open at a time, so opening either closes the other.
+  const [discover, setDiscover] = useState<GlobeCountrySelection | null>(null);
   const router = useRouter();
   // Manual refresh: re-fetches the dashboard's server data (map + stats)
   // without a full page reload. The transition keeps the spinner going until
@@ -101,7 +105,15 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
         fitToData={!isEmpty}
         enableDestinationLinks
         enableCountryDrilldown
-        onCountrySelect={setSelected}
+        onCountrySelect={(selection) => {
+          setSelected(selection);
+          if (selection) setDiscover(null);
+        }}
+        enableDiscovery
+        onDiscoverCountry={(selection) => {
+          setDiscover(selection);
+          if (selection) setSelected(null);
+        }}
         onRefresh={() => startRefresh(() => router.refresh())}
         refreshing={refreshing}
       />
@@ -220,6 +232,18 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
             )}
           </div>
         </div>
+      ) : null}
+
+      {/* Discovery panel for unvisited countries */}
+      {discover ? (
+        <DiscoveryPanel
+          key={discover.code}
+          code={discover.code}
+          name={discover.name}
+          isOnBucketList={bucketCountryCodes.includes(discover.code)}
+          onClose={() => setDiscover(null)}
+          onBucketAdded={() => startRefresh(() => router.refresh())}
+        />
       ) : null}
     </div>
   );
