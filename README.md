@@ -338,6 +338,15 @@ scripts/
   setup-share-settings.ts        Creates user_settings rows for existing users
 ```
 
+## Database Notes
+
+The `geocode_cache.provider` check constraint must allow every provider the app
+writes: `photon`, `photon_poi`, `nominatim`, `wikimedia`, `discover_country`,
+`discover_cities`, and `discover_city`. If the constraint is stale, cache
+writes fail silently and every lookup hits the upstream API. Run
+`scripts/sql/2026-07-15-geocode-cache-providers.sql` in the Supabase SQL editor
+to widen it.
+
 ## Development Setup
 
 1. Clone the repository and install dependencies:

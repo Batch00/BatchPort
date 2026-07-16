@@ -61,12 +61,20 @@ async function writeCache(
     .eq("provider", PROVIDER)
     .eq("query_norm", queryNorm);
 
-  await admin.schema("batchport").from("geocode_cache").insert({
-    provider: PROVIDER,
-    query_norm: queryNorm,
-    result,
-    cached_at: new Date().toISOString(),
-  });
+  const { error } = await admin
+    .schema("batchport")
+    .from("geocode_cache")
+    .insert({
+      provider: PROVIDER,
+      query_norm: queryNorm,
+      result,
+      cached_at: new Date().toISOString(),
+    });
+  // Non-fatal, but a silently failing cache means every lookup pays the full
+  // Wikidata round trip. See scripts/sql/2026-07-15-geocode-cache-providers.sql.
+  if (error) {
+    console.warn(`geocode_cache write failed for ${PROVIDER}:`, error.message);
+  }
 }
 
 async function wikiFetch(url: string): Promise<unknown | null> {

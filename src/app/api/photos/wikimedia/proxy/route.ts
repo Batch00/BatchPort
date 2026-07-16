@@ -45,22 +45,25 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient();
   const supabaseBase = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 
-  // Fast path: if this URL is already cached in Storage, redirect to the CDN.
-  const { data: existing } = await admin
-    .schema("batchport")
-    .from("photos")
-    .select("storage_path")
-    .eq("external_url", url)
-    .eq("source", "wikimedia")
-    .not("storage_path", "is", null)
-    .maybeSingle();
-
-  if (existing?.storage_path) {
-    const cdnUrl = `${supabaseBase}/storage/v1/object/public/${PHOTO_BUCKET}/${existing.storage_path as string}`;
-    return NextResponse.redirect(cdnUrl, {
-      status: 302,
-      headers: CACHE_HEADERS,
+  // Fast path: the Storage path is derived deterministically from the URL, so
+  // a cheap existence probe against the public CDN covers every image this
+  // route has ever cached, including discover heroes and city photos that have
+  // no photos row. On a hit, redirect to the CDN and skip Wikimedia entirely.
+  const storagePath = storagePathForUrl(url);
+  const cdnUrl = `${supabaseBase}/storage/v1/object/public/${PHOTO_BUCKET}/${storagePath}`;
+  try {
+    const probe = await fetch(cdnUrl, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(4000),
     });
+    if (probe.ok) {
+      return NextResponse.redirect(cdnUrl, {
+        status: 302,
+        headers: CACHE_HEADERS,
+      });
+    }
+  } catch {
+    // Probe failure just means taking the slow path below.
   }
 
   // Fetch from Wikimedia.
@@ -81,7 +84,6 @@ export async function GET(request: NextRequest) {
   // Best-effort: upload to Storage and update the photo record. Failures are
   // swallowed so we still serve the freshly-fetched bytes.
   try {
-    const storagePath = storagePathForUrl(url);
     const { error: uploadError } = await admin.storage
       .from(PHOTO_BUCKET)
       .upload(storagePath, bytes, {

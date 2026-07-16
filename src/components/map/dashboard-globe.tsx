@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { XIcon, MapPinIcon, PlusIcon, BarChart3Icon } from "lucide-react";
+import {
+  XIcon,
+  MapPinIcon,
+  PlusIcon,
+  BarChart3Icon,
+  CompassIcon,
+} from "lucide-react";
 
 import {
   Globe,
@@ -14,7 +20,14 @@ import type { MapData, MapDestination } from "@/lib/map-data";
 import { flagEmoji, formatDateRange } from "@/lib/format";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { DiscoveryPanel } from "@/components/discover/discovery-panel";
+import {
+  DiscoveryPanel,
+  type DiscoveryCityTarget,
+} from "@/components/discover/discovery-panel";
+import {
+  GlobeSearch,
+  type GlobeSearchSelection,
+} from "@/components/discover/globe-search";
 
 interface DashboardGlobeProps {
   data: MapData;
@@ -24,6 +37,14 @@ interface TripGroup {
   tripId: string;
   tripName: string;
   destinations: MapDestination[];
+}
+
+// What the discovery panel is pointed at: a country, optionally opened straight
+// onto one of its cities (from a search result).
+interface DiscoverTarget {
+  code: string;
+  name: string;
+  city: DiscoveryCityTarget | null;
 }
 
 // Group the selected country's destinations by trip, preserving the order they
@@ -49,9 +70,10 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
   const { destinations, visitedCountryCodes, bucketCountryCodes, arcs, stats } =
     data;
   const [selected, setSelected] = useState<GlobeCountrySelection | null>(null);
-  // Discovery panel target: an unvisited country picked on the globe. Only one
-  // panel is open at a time, so opening either closes the other.
-  const [discover, setDiscover] = useState<GlobeCountrySelection | null>(null);
+  // Discovery panel target: a country picked on the globe, from the drill-down's
+  // Explore button, or from search (optionally landing straight on a city view).
+  // Only one panel is open at a time, so opening either closes the other.
+  const [discover, setDiscover] = useState<DiscoverTarget | null>(null);
   const router = useRouter();
   // Manual refresh: re-fetches the dashboard's server data (map + stats)
   // without a full page reload. The transition keeps the spinner going until
@@ -111,7 +133,11 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
         }}
         enableDiscovery
         onDiscoverCountry={(selection) => {
-          setDiscover(selection);
+          setDiscover(
+            selection
+              ? { code: selection.code, name: selection.name, city: null }
+              : null,
+          );
           if (selection) setSelected(null);
         }}
         onRefresh={() => startRefresh(() => router.refresh())}
@@ -121,7 +147,7 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
       {/* Stats overlay. Wraps within the card on narrow screens so the pills
           never push past the globe's edge. */}
       {!isEmpty ? (
-        <div className="absolute left-4 right-4 top-4 z-20 flex flex-wrap items-center gap-2">
+        <div className="absolute left-4 right-4 top-4 z-20 flex flex-wrap items-center gap-2 pr-14">
           <div className="pointer-events-none rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md">
             {stats.countries} {stats.countries === 1 ? "country" : "countries"},{" "}
             {stats.trips} {stats.trips === 1 ? "trip" : "trips"},{" "}
@@ -231,16 +257,52 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
               </div>
             )}
           </div>
+
+          {/* Switch to the discovery view for this country. */}
+          <div className="border-t border-white/10 px-4 py-3">
+            <button
+              type="button"
+              onClick={() => {
+                const target = selected;
+                setSelected(null);
+                setDiscover({
+                  code: target.code,
+                  name: target.name,
+                  city: null,
+                });
+              }}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-brand/30 bg-brand/15 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-brand/25"
+            >
+              <CompassIcon className="size-4 text-brand" />
+              Explore {selected.name}
+            </button>
+          </div>
         </div>
       ) : null}
 
-      {/* Discovery panel for unvisited countries */}
+      {/* Search: explore any city or country by name. z-30 keeps the expanded
+          dropdown above the stats pills. */}
+      <div className="absolute right-4 top-4 z-30 flex justify-end">
+        <GlobeSearch
+          onSelect={(selection: GlobeSearchSelection) => {
+            setSelected(null);
+            setDiscover({
+              code: selection.code,
+              name: selection.countryName,
+              city: selection.city,
+            });
+          }}
+        />
+      </div>
+
+      {/* Discovery panel */}
       {discover ? (
         <DiscoveryPanel
-          key={discover.code}
+          key={`${discover.code}:${discover.city?.name ?? ""}`}
           code={discover.code}
           name={discover.name}
           isOnBucketList={bucketCountryCodes.includes(discover.code)}
+          initialCity={discover.city}
           onClose={() => setDiscover(null)}
           onBucketAdded={() => startRefresh(() => router.refresh())}
         />

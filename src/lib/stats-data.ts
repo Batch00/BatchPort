@@ -175,12 +175,16 @@ export async function getYearlyBreakdown(
     .eq("user_id", userId)
     .order("year", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map((row) => ({
-    year: num(row.year),
-    trips: num(row.trips),
-    countries: num(row.countries),
-    new_countries: num(row.new_countries),
-  }));
+  // Dateless (planned) trips have no year; if the view emits a null-year row
+  // for them, drop it rather than charting a "year 0" bucket.
+  return (data ?? [])
+    .filter((row) => numOrNull(row.year) !== null)
+    .map((row) => ({
+      year: num(row.year),
+      trips: num(row.trips),
+      countries: num(row.countries),
+      new_countries: num(row.new_countries),
+    }));
 }
 
 export async function getBucketCompletion(

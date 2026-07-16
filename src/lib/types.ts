@@ -110,6 +110,9 @@ export interface GeoLocation {
   admin_region: string | null;
   lat: number;
   lng: number;
+  // Set when the result is a whole country rather than a place within one.
+  // Optional: cached responses parsed before this field existed omit it.
+  kind?: "country" | "place";
 }
 
 // A point of interest from the POI geocoder, used to prefill an experience.

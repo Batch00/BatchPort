@@ -126,6 +126,10 @@ export function parsePhoton(raw: unknown): GeoLocation[] {
       admin_region: props.state ?? props.county ?? null,
       lng: coords[0],
       lat: coords[1],
+      kind:
+        props.type === "country" || props.osm_value === "country"
+          ? "country"
+          : "place",
     });
   }
   // Photon often returns several rows for the same city (different admin levels).
