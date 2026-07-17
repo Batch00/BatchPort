@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   CalendarIcon,
   GlobeIcon,
@@ -11,8 +12,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { AnimatedNumber, CountUpGroup } from "@/components/stats/count-up";
+import { CountryFlag } from "@/components/country-flag";
 import { funDistanceComparison, lapProgress } from "@/lib/stats-format";
-import { flagEmoji } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TravelSummary } from "@/lib/stats-data";
 
@@ -51,6 +52,55 @@ function FeatureCard({
         <Icon className="size-4 text-brand/60" />
       </div>
       {children}
+    </div>
+  );
+}
+
+// The visited-country flag strip: SVG flags (emoji flags do not render on
+// Windows), capped by default with a "+N" chip that expands to the full list.
+// When the caller has fewer codes than the visited count (the stats page only
+// has the top-10 rows), the remainder stays as a static count.
+function FlagStrip({
+  codes,
+  countriesVisited,
+}: {
+  codes: string[];
+  countriesVisited: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (codes.length === 0) return null;
+
+  const shown = expanded ? codes : codes.slice(0, MAX_FLAGS);
+  const hidden = Math.max(0, countriesVisited - shown.length);
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {shown.map((code) => (
+        <CountryFlag key={code} code={code} />
+      ))}
+      {!expanded && codes.length > MAX_FLAGS ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          aria-label={`Show all ${codes.length} flags`}
+          className="rounded bg-white/5 px-1.5 py-0.5 text-xs font-medium text-foreground/60 transition-colors hover:bg-white/10 hover:text-foreground"
+        >
+          +{hidden}
+        </button>
+      ) : hidden > 0 ? (
+        <span className="text-xs font-medium text-foreground/50">
+          +{hidden}
+        </span>
+      ) : null}
+      {expanded && codes.length > MAX_FLAGS ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="text-xs font-medium text-foreground/50 transition-colors hover:text-foreground"
+        >
+          Show fewer
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -104,11 +154,9 @@ export function StatsOverview({
     );
   }
 
-  const flags = flagCodes
-    .map((code) => flagEmoji(code))
-    .filter(Boolean)
-    .slice(0, MAX_FLAGS);
-  const flagOverflow = Math.max(0, summary.countries_visited - flags.length);
+  const validFlagCodes = flagCodes.filter((code) =>
+    /^[A-Za-z]{2}$/.test(code),
+  );
   const continents = Math.max(
     0,
     Math.min(CONTINENTS_TOTAL, summary.continents_visited),
@@ -127,18 +175,10 @@ export function StatsOverview({
           </span>
         </div>
         <Sliver pct={summary.world_pct} />
-        {flags.length > 0 ? (
-          <div className="flex flex-wrap items-center gap-1 text-lg leading-none">
-            {flags.map((flag, index) => (
-              <span key={`${flag}-${index}`}>{flag}</span>
-            ))}
-            {flagOverflow > 0 ? (
-              <span className="ml-0.5 text-xs font-medium text-foreground/50">
-                +{flagOverflow}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
+        <FlagStrip
+          codes={validFlagCodes}
+          countriesVisited={summary.countries_visited}
+        />
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1.5">
             {Array.from({ length: CONTINENTS_TOTAL }, (_, index) => (
