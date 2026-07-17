@@ -1,20 +1,24 @@
 import { ShareGlobe } from "@/components/share/share-globe";
 import { SharedTripCard } from "@/components/share/shared-trip-card";
-import { StatsGrid } from "@/components/stats/stats-grid";
-import { BucketProgress } from "@/components/stats/bucket-progress";
+import { SharedBucketList } from "@/components/share/shared-bucket-list";
+import { StatsOverview } from "@/components/stats/stats-overview";
 import type { SharedProfile } from "@/lib/share-data";
 
 // The read-only profile shown on both the demo and public share surfaces:
-// globe, summary stats, expandable trips, and bucket progress. No interactive
-// or write affordances.
+// globe, summary stats, expandable trips, and the bucket list card grid. No
+// interactive or write affordances.
 export function SharedProfileView({ profile }: { profile: SharedProfile }) {
-  const { stats, mapData, trips } = profile;
+  const { stats, mapData, trips, bucketItems, bucketTripCovers } = profile;
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-8">
       <ShareGlobe data={mapData} />
 
-      <StatsGrid summary={stats.summary} distanceKm={stats.distanceKm} />
+      <StatsOverview
+        summary={stats.summary}
+        distanceKm={stats.distanceKm}
+        flagCodes={mapData.visitedCountryCodes}
+      />
 
       <section>
         <h2 className="mb-4 text-sm font-medium text-foreground/80">Trips</h2>
@@ -31,7 +35,11 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
         )}
       </section>
 
-      {stats.bucket ? <BucketProgress bucket={stats.bucket} /> : null}
+      <SharedBucketList
+        items={bucketItems}
+        tripCovers={bucketTripCovers}
+        bucket={stats.bucket}
+      />
     </div>
   );
 }

@@ -11,7 +11,14 @@ import {
   YAxis,
 } from "recharts";
 
-import { AXIS_COLOR, BRAND, ChartCard, ChartEmpty } from "./chart-card";
+import {
+  AXIS_COLOR,
+  BRAND,
+  ChartCard,
+  ChartEmpty,
+  ChartTooltipFrame,
+  tooltipCursor,
+} from "./chart-card";
 import type { CountryStat } from "@/lib/stats-data";
 
 interface TipProps {
@@ -23,7 +30,7 @@ function CountryTooltip({ active, payload }: TipProps) {
   if (!active || !payload || payload.length === 0) return null;
   const row = payload[0].payload;
   return (
-    <div className="rounded-lg border border-white/10 bg-[#0a0a0a] px-3 py-2 text-xs shadow-lg">
+    <ChartTooltipFrame>
       <div className="font-medium text-foreground">{row.country_name}</div>
       <div className="text-foreground/70">
         {row.destinations}{" "}
@@ -32,13 +39,19 @@ function CountryTooltip({ active, payload }: TipProps) {
       <div className="text-foreground/50">
         {row.trips} {row.trips === 1 ? "trip" : "trips"}
       </div>
-    </div>
+    </ChartTooltipFrame>
   );
 }
 
 // Top 10 most-visited countries by destination count. Bars share the electric
 // blue accent with a slight opacity falloff so the ranking reads at a glance.
-export function CountryChart({ data }: { data: CountryStat[] }) {
+export function CountryChart({
+  data,
+  description = "Where you keep going back",
+}: {
+  data: CountryStat[];
+  description?: string;
+}) {
   if (data.length === 0) {
     return (
       <ChartCard title="Top countries">
@@ -50,7 +63,7 @@ export function CountryChart({ data }: { data: CountryStat[] }) {
   const height = Math.max(200, data.length * 38);
 
   return (
-    <ChartCard title="Top countries" description="Where you keep going back">
+    <ChartCard title="Top countries" description={description}>
       <ResponsiveContainer width="100%" height={height}>
         <BarChart
           layout="vertical"
@@ -66,7 +79,7 @@ export function CountryChart({ data }: { data: CountryStat[] }) {
             tickLine={false}
             axisLine={false}
           />
-          <Tooltip content={<CountryTooltip />} />
+          <Tooltip content={<CountryTooltip />} cursor={tooltipCursor} />
           <Bar
             dataKey="destinations"
             fill={BRAND}

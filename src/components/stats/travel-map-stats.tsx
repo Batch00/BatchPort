@@ -1,77 +1,79 @@
-import {
-  ArrowDownIcon,
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  ArrowUpIcon,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { CompassIcon } from "lucide-react";
 
 import { ChartCard } from "./chart-card";
 import { formatLatitude, formatLongitude } from "@/lib/stats-format";
+import { extremesInsight } from "@/lib/stats-insights";
 import type { ExtremeEntry, TravelExtremes } from "@/lib/stats-data";
 
 function ExtremeTile({
-  icon: Icon,
   direction,
+  letter,
   entry,
   coordinate,
 }: {
-  icon: LucideIcon;
   direction: string;
+  letter: string;
   entry: ExtremeEntry;
   coordinate: string;
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-white/[0.02] p-4 ring-1 ring-foreground/10">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-        <Icon className="size-4" />
+    <div className="relative overflow-hidden rounded-xl bg-white/[0.02] p-4 ring-1 ring-foreground/10">
+      {/* Watermark compass letter, purely decorative. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-1 -top-3 select-none text-6xl font-bold tracking-tight text-brand/[0.08]"
+      >
+        {letter}
       </span>
-      <div className="min-w-0">
-        <p className="text-xs font-medium uppercase tracking-wide text-foreground/45">
-          {direction}
-        </p>
-        <p className="break-words text-sm font-medium text-foreground">
-          {entry.name ?? "Unknown"}
-        </p>
-        <p className="text-xs tabular-nums text-foreground/50">{coordinate}</p>
-      </div>
+      <p className="text-xs font-medium uppercase tracking-wide text-foreground/45">
+        {direction}
+      </p>
+      <p className="mt-1 break-words text-sm font-medium text-foreground">
+        {entry.name ?? "Unknown"}
+      </p>
+      <p className="text-xs tabular-nums text-brand/80">{coordinate}</p>
     </div>
   );
 }
 
-// A compact 2x2 compass of the four travel extremes. Coordinate values come
-// from v_travel_extremes; the destination names are resolved server-side.
+// The compass of your furthest points: the four travel extremes as quadrant
+// tiles around a compass motif. Coordinate values come from v_travel_extremes;
+// the destination names are resolved server-side.
 export function TravelMapStats({ extremes }: { extremes: TravelExtremes }) {
   return (
     <ChartCard
       title="Travel extremes"
-      description="The corners of your map so far"
+      description={extremesInsight(extremes) ?? "The corners of your map so far"}
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="relative grid grid-cols-1 gap-3 sm:grid-cols-2">
         <ExtremeTile
-          icon={ArrowUpIcon}
           direction="Northernmost"
+          letter="N"
           entry={extremes.north}
           coordinate={formatLatitude(extremes.north.value)}
         />
         <ExtremeTile
-          icon={ArrowDownIcon}
-          direction="Southernmost"
-          entry={extremes.south}
-          coordinate={formatLatitude(extremes.south.value)}
-        />
-        <ExtremeTile
-          icon={ArrowRightIcon}
           direction="Easternmost"
+          letter="E"
           entry={extremes.east}
           coordinate={formatLongitude(extremes.east.value)}
         />
         <ExtremeTile
-          icon={ArrowLeftIcon}
           direction="Westernmost"
+          letter="W"
           entry={extremes.west}
           coordinate={formatLongitude(extremes.west.value)}
         />
+        <ExtremeTile
+          direction="Southernmost"
+          letter="S"
+          entry={extremes.south}
+          coordinate={formatLatitude(extremes.south.value)}
+        />
+        {/* Center compass, only when the quadrants form a 2x2 grid. */}
+        <span className="pointer-events-none absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-brand/30 bg-[#0a0a0a] p-2 text-brand sm:flex">
+          <CompassIcon className="size-5" />
+        </span>
       </div>
     </ChartCard>
   );

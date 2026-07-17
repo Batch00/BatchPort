@@ -11,7 +11,13 @@ import {
   YAxis,
 } from "recharts";
 
-import { AXIS_COLOR, ChartCard, ChartEmpty } from "./chart-card";
+import {
+  AXIS_COLOR,
+  ChartCard,
+  ChartEmpty,
+  ChartTooltipFrame,
+  tooltipCursor,
+} from "./chart-card";
 import type { CategoryStat } from "@/lib/stats-data";
 
 // Recharts injects active/payload at render time; all fields are optional here.
@@ -24,7 +30,7 @@ function CategoryTooltip({ active, payload }: TipProps) {
   if (!active || !payload || payload.length === 0) return null;
   const row = payload[0].payload;
   return (
-    <div className="rounded-lg border border-white/10 bg-[#0a0a0a] px-3 py-2 text-xs shadow-lg">
+    <ChartTooltipFrame>
       <div className="font-medium text-foreground">{row.label}</div>
       <div className="text-foreground/70">
         {row.experience_count}{" "}
@@ -35,13 +41,19 @@ function CategoryTooltip({ active, payload }: TipProps) {
           {"★"} {row.avg_rating_stars.toFixed(1)} avg
         </div>
       ) : null}
-    </div>
+    </ChartTooltipFrame>
   );
 }
 
 // Horizontal bar chart of experience count per category, each bar tinted with
 // the category's own color. Data arrives pre-sorted by count descending.
-export function CategoryChart({ data }: { data: CategoryStat[] }) {
+export function CategoryChart({
+  data,
+  description = "What you spend your time on",
+}: {
+  data: CategoryStat[];
+  description?: string;
+}) {
   if (data.length === 0) {
     return (
       <ChartCard title="Experiences by category">
@@ -53,10 +65,7 @@ export function CategoryChart({ data }: { data: CategoryStat[] }) {
   const height = Math.max(160, data.length * 46);
 
   return (
-    <ChartCard
-      title="Experiences by category"
-      description="What you spend your time on"
-    >
+    <ChartCard title="Experiences by category" description={description}>
       <ResponsiveContainer width="100%" height={height}>
         <BarChart
           layout="vertical"
@@ -72,7 +81,7 @@ export function CategoryChart({ data }: { data: CategoryStat[] }) {
             tickLine={false}
             axisLine={false}
           />
-          <Tooltip content={<CategoryTooltip />} />
+          <Tooltip content={<CategoryTooltip />} cursor={tooltipCursor} />
           <Bar
             dataKey="experience_count"
             radius={[0, 4, 4, 0]}

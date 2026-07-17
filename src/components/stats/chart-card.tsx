@@ -8,20 +8,18 @@ export const GRID_COLOR = "rgba(255,255,255,0.06)";
 export const BRAND = "var(--brand)";
 export const TEAL = "#14b8a6";
 
-// Props that style the default Recharts Tooltip for the dark theme. Spread onto
-// a <Tooltip /> where a custom content component is not needed.
-export const tooltipStyleProps = {
-  cursor: { fill: "rgba(255,255,255,0.05)" },
-  contentStyle: {
-    background: "#0a0a0a",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 8,
-    fontSize: 12,
-    boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-  },
-  labelStyle: { color: "rgba(255,255,255,0.6)", marginBottom: 2 },
-  itemStyle: { color: "#ffffff" },
-};
+// The hover cursor fill shared by every chart's <Tooltip cursor={...}>.
+export const tooltipCursor = { fill: "rgba(255,255,255,0.05)" };
+
+// The dark container every custom tooltip renders into, so hover cards look
+// identical across all charts.
+export function ChartTooltipFrame({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-[#0a0a0a] px-3 py-2 text-xs shadow-lg">
+      {children}
+    </div>
+  );
+}
 
 // A titled card wrapper for a chart, matching the app's dark card aesthetic.
 export function ChartCard({

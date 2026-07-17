@@ -1,8 +1,11 @@
 import { cache } from "react";
 
 import { requireUser } from "@/lib/current-user";
+import { createClient } from "@/utils/supabase/server";
 import { parseEwkbPoint } from "@/lib/geo";
 import type { CoverPosition } from "@/lib/types";
+
+type BucketClient = Awaited<ReturnType<typeof createClient>>;
 
 // Server-side data layer for the bucket list. Reads run with the user's session
 // (RLS scopes them); the userId argument lets callers fetch a specific user's
@@ -86,12 +89,12 @@ async function resolveUserId(userId?: string): Promise<string> {
   return userId ?? user.id;
 }
 
-// All bucket items for the user: unfulfilled first, then highest priority, then
-// newest. Country and trip names come from joined reference rows.
-export async function getBucketList(userId?: string): Promise<BucketItem[]> {
-  const { supabase } = await requireUser();
-  const uid = await resolveUserId(userId);
-
+// The shared query and row mapping behind both the authenticated and the
+// public (share/demo) bucket reads.
+async function fetchBucketList(
+  supabase: BucketClient,
+  uid: string,
+): Promise<BucketItem[]> {
   const { data, error } = await supabase
     .from("bucket_list")
     .select(SELECT)
@@ -122,6 +125,24 @@ export async function getBucketList(userId?: string): Promise<BucketItem[]> {
       created_at: row.created_at,
     };
   });
+}
+
+// All bucket items for the user: unfulfilled first, then highest priority, then
+// newest. Country and trip names come from joined reference rows.
+export async function getBucketList(userId?: string): Promise<BucketItem[]> {
+  const { supabase } = await requireUser();
+  const uid = await resolveUserId(userId);
+  return fetchBucketList(supabase, uid);
+}
+
+// Sessionless read for the share and demo surfaces: the anon server client
+// triggers the is_shared() RLS helper, so rows come back only for profiles
+// with sharing enabled or the demo account. Never use the admin client here.
+export async function getSharedBucketList(
+  userId: string,
+): Promise<BucketItem[]> {
+  const supabase = await createClient();
+  return fetchBucketList(supabase, userId);
 }
 
 // Completion totals from the SQL view, or null when the user has no items.

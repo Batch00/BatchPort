@@ -8,7 +8,7 @@ import { getSummaryStats } from "@/lib/stats-data";
 import { Card } from "@/components/ui/card";
 import { DashboardGlobe } from "@/components/map/dashboard-globe";
 import { DashboardTrips } from "@/components/trips/dashboard-trips";
-import { StatsGrid } from "@/components/stats/stats-grid";
+import { StatsOverview } from "@/components/stats/stats-overview";
 import { BucketProgress } from "@/components/stats/bucket-progress";
 
 export const metadata = { title: "Dashboard" };
@@ -42,7 +42,11 @@ export default async function DashboardPage() {
             Detailed stats
           </Link>
         </div>
-        <StatsGrid summary={stats.summary} distanceKm={stats.distanceKm} />
+        <StatsOverview
+          summary={stats.summary}
+          distanceKm={stats.distanceKm}
+          flagCodes={mapData.visitedCountryCodes}
+        />
       </section>
 
       <DashboardTrips trips={trips} />

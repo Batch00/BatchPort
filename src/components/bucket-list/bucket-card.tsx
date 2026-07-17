@@ -43,11 +43,16 @@ interface BucketCardProps {
   rank?: number | null;
   tripCover?: BucketTripCover | null;
   dragging?: boolean;
-  onOpen: () => void;
-  onEdit: () => void;
-  onFulfill: () => void;
-  onUndo: () => void;
-  onDelete: () => void;
+  /**
+   * Share/demo rendering: no click target, no corner menu, and the fulfilling
+   * trip renders as plain text instead of a link into the authenticated app.
+   */
+  readOnly?: boolean;
+  onOpen?: () => void;
+  onEdit?: () => void;
+  onFulfill?: () => void;
+  onUndo?: () => void;
+  onDelete?: () => void;
 }
 
 // Session-level hero cache: cards remount on every router.refresh (any
@@ -86,6 +91,7 @@ export function BucketCard({
   rank = null,
   tripCover = null,
   dragging = false,
+  readOnly = false,
   onOpen,
   onEdit,
   onFulfill,
@@ -130,18 +136,24 @@ export function BucketCard({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-label={`Explore ${name}`}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
+      role={readOnly ? undefined : "button"}
+      tabIndex={readOnly ? undefined : 0}
+      aria-label={readOnly ? undefined : `Explore ${name}`}
+      onClick={readOnly ? undefined : onOpen}
+      onKeyDown={
+        readOnly
+          ? undefined
+          : (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onOpen?.();
+              }
+            }
+      }
       className={cn(
-        "group relative isolate aspect-video cursor-pointer overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 transition-all hover:ring-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60",
+        "group relative isolate aspect-video overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10",
+        !readOnly &&
+          "cursor-pointer transition-all hover:ring-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60",
         dragging && "opacity-60 ring-2 ring-brand",
       )}
     >
@@ -196,13 +208,21 @@ export function BucketCard({
         {fulfilled ? (
           <p className="mt-0.5 truncate text-xs text-white/65">
             {item.fulfilled_trip_id ? (
-              <Link
-                href={`/trips/${item.fulfilled_trip_id}`}
-                onClick={(event) => event.stopPropagation()}
-                className="font-medium text-brand hover:underline"
-              >
-                {item.fulfilled_trip_name ?? "View trip"}
-              </Link>
+              readOnly ? (
+                // The share surface must not link into protected routes; the
+                // trip name alone tells the story.
+                <span className="font-medium text-brand">
+                  {item.fulfilled_trip_name ?? "Completed"}
+                </span>
+              ) : (
+                <Link
+                  href={`/trips/${item.fulfilled_trip_id}`}
+                  onClick={(event) => event.stopPropagation()}
+                  className="font-medium text-brand hover:underline"
+                >
+                  {item.fulfilled_trip_name ?? "View trip"}
+                </Link>
+              )
             ) : (
               "Completed"
             )}
@@ -228,6 +248,7 @@ export function BucketCard({
       </div>
 
       {/* Corner menu; every interaction inside stops the card click. */}
+      {readOnly ? null : (
       <div
         className="absolute right-2 top-2"
         onClick={(event) => event.stopPropagation()}
@@ -269,6 +290,7 @@ export function BucketCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      )}
     </div>
   );
 }

@@ -21,6 +21,19 @@ export function funDistanceComparison(km: number): string {
   return `${pctToMoon.toFixed(1)}% of the way to the Moon`;
 }
 
+// Fraction of the current lap around the world completed, in [0, 1]. Feeds
+// the slim progress sliver on the distance card. Below one full lap this is
+// simply distance over circumference; past that it is progress into the
+// current lap.
+export function lapProgress(km: number): number {
+  if (km <= 0) return 0;
+  const laps = km / EARTH_CIRCUMFERENCE_KM;
+  if (laps < 1) return laps;
+  const fraction = laps % 1;
+  // A whole number of laps reads better as a full bar than an empty one.
+  return fraction === 0 ? 1 : fraction;
+}
+
 // "59.91 N" / "40.62 N" (sign decides the hemisphere letter).
 export function formatLatitude(value: number | null): string {
   if (value === null) return "Unknown";
