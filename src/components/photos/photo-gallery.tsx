@@ -741,7 +741,7 @@ export function PhotoGallery({
               : "text-foreground/50 hover:text-foreground/80",
           )}
         >
-          {mode === "date" ? "Date" : "Custom"}
+          {mode === "date" ? "By date" : "Manual order"}
         </button>
       ))}
     </div>

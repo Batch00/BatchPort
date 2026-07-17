@@ -10,8 +10,15 @@ import type { MapData } from "@/lib/map-data";
 // clicks fly the camera in but open nothing (the side panel and detail links
 // live only in the authenticated dashboard).
 export function ShareGlobe({ data }: { data: MapData }) {
-  const { destinations, visitedCountryCodes, bucketCountryCodes, arcs, stats } =
-    data;
+  const {
+    destinations,
+    visitedCountryCodes,
+    plannedCountryCodes,
+    bucketCountryCodes,
+    bucketPlaces,
+    arcs,
+    stats,
+  } = data;
 
   const globeDestinations = useMemo<GlobeDestination[]>(
     () =>
@@ -26,8 +33,25 @@ export function ShareGlobe({ data }: { data: MapData }) {
         arrivalDate: d.arrivalDate,
         departureDate: d.departureDate,
         categoryColor: d.category?.color ?? null,
+        planned: d.planned,
       })),
     [destinations],
+  );
+
+  // Bucket place pins are part of the profile story; without onExplorePlace
+  // their popups show the name only (no explore action on public surfaces).
+  const globeBucketPlaces = useMemo(
+    () =>
+      bucketPlaces
+        .filter((place) => place.lat !== null && place.lng !== null)
+        .map((place) => ({
+          id: place.id,
+          name: place.name,
+          countryCode: place.countryCode,
+          lat: place.lat as number,
+          lng: place.lng as number,
+        })),
+    [bucketPlaces],
   );
 
   const isEmpty = destinations.length === 0;
@@ -37,8 +61,10 @@ export function ShareGlobe({ data }: { data: MapData }) {
       <Globe
         visitedCountryCodes={visitedCountryCodes}
         bucketCountryCodes={bucketCountryCodes}
+        plannedCountryCodes={plannedCountryCodes}
         destinations={globeDestinations}
         arcs={arcs}
+        bucketPlaces={globeBucketPlaces}
         autoRotate={false}
         fitToData={!isEmpty}
         enableCountryDrilldown

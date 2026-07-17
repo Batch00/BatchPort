@@ -347,6 +347,11 @@ writes fail silently and every lookup hits the upstream API. Run
 `scripts/sql/2026-07-15-geocode-cache-providers.sql` in the Supabase SQL editor
 to widen it.
 
+Planned trips are excluded from visited countries and stats in the app data
+layer, but the SQL stats views also need the planned filter applied. See
+`scripts/sql/2026-07-16-stats-exclude-planned-trips.sql` for the per-view
+change to run in the Supabase SQL editor.
+
 ## Development Setup
 
 1. Clone the repository and install dependencies:

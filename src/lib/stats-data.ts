@@ -260,10 +260,12 @@ async function getExtremeNames(
     column: "latitude" | "longitude",
     ascending: boolean,
   ): Promise<string | null> => {
+    // Planned-trip stops have not been visited, so they cannot be extremes.
     const { data } = await supabase
       .from("destinations")
-      .select("name")
+      .select("name, trips!inner(status)")
       .eq("user_id", userId)
+      .neq("trips.status", "planned")
       .order(column, { ascending, nullsFirst: false })
       .limit(1)
       .maybeSingle();

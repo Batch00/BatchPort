@@ -112,6 +112,10 @@ export function TripCoverEditor({
               {photos.map((photo) => {
                 const isCover = photo.id === coverPhotoId;
                 return (
+                  // aspect-ratio lives on an inner div, not the button:
+                  // buttons have UA-specific internal layout that makes
+                  // aspect-ratio unreliable and collapses the tiles into an
+                  // overlapping stack in some browsers.
                   <button
                     key={photo.id}
                     type="button"
@@ -123,19 +127,21 @@ export function TripCoverEditor({
                     }
                     onClick={() => setPositionPhoto(photo)}
                     className={cn(
-                      "relative aspect-square overflow-hidden rounded-md ring-1 transition-all",
+                      "relative block w-full overflow-hidden rounded-md p-0 ring-1 transition-all",
                       isCover
                         ? "ring-2 ring-brand"
                         : "ring-foreground/10 hover:ring-brand/50",
                     )}
                   >
-                    <SafeImage
-                      src={getPhotoUrl(photo, "thumb")}
-                      fallbackSrc={getPhotoUrl(photo)}
-                      alt=""
-                      loading="lazy"
-                      className="size-full object-cover"
-                    />
+                    <div className="relative aspect-square w-full">
+                      <SafeImage
+                        src={getPhotoUrl(photo, "thumb")}
+                        fallbackSrc={getPhotoUrl(photo)}
+                        alt=""
+                        loading="lazy"
+                        className="absolute inset-0 size-full object-cover"
+                      />
+                    </div>
                     {isCover ? (
                       <span className="pointer-events-none absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-brand/90 px-1.5 py-0.5 text-[0.65rem] font-medium text-brand-foreground">
                         <StarIcon className="size-3" />

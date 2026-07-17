@@ -18,6 +18,7 @@ import {
 } from "./globe";
 import type { MapData, MapDestination } from "@/lib/map-data";
 import { flagEmoji, formatDateRange } from "@/lib/format";
+import { placeKey } from "@/lib/geo";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -67,8 +68,15 @@ function groupByTrip(destinations: MapDestination[]): TripGroup[] {
 }
 
 export function DashboardGlobe({ data }: DashboardGlobeProps) {
-  const { destinations, visitedCountryCodes, bucketCountryCodes, arcs, stats } =
-    data;
+  const {
+    destinations,
+    visitedCountryCodes,
+    plannedCountryCodes,
+    bucketCountryCodes,
+    bucketPlaces,
+    arcs,
+    stats,
+  } = data;
   const [selected, setSelected] = useState<GlobeCountrySelection | null>(null);
   // Discovery panel target: a country picked on the globe, from the drill-down's
   // Explore button, or from search (optionally landing straight on a city view).
@@ -95,8 +103,24 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
         arrivalDate: d.arrivalDate,
         departureDate: d.departureDate,
         categoryColor: d.category?.color ?? null,
+        planned: d.planned,
       })),
     [destinations],
+  );
+
+  // Amber pins need coordinates; items saved without them stay list-only.
+  const globeBucketPlaces = useMemo(
+    () =>
+      bucketPlaces
+        .filter((place) => place.lat !== null && place.lng !== null)
+        .map((place) => ({
+          id: place.id,
+          name: place.name,
+          countryCode: place.countryCode,
+          lat: place.lat as number,
+          lng: place.lng as number,
+        })),
+    [bucketPlaces],
   );
 
   const selectedGroups = useMemo<TripGroup[]>(() => {
@@ -121,8 +145,20 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
       <Globe
         visitedCountryCodes={visitedCountryCodes}
         bucketCountryCodes={bucketCountryCodes}
+        plannedCountryCodes={plannedCountryCodes}
         destinations={globeDestinations}
         arcs={arcs}
+        bucketPlaces={globeBucketPlaces}
+        onExplorePlace={(place) => {
+          if (!place.countryCode) return;
+          setSelected(null);
+          setDiscover({
+            code: place.countryCode,
+            // Placeholder until the country fetch supplies the display name.
+            name: place.countryCode,
+            city: { name: place.name, lat: place.lat, lng: place.lng },
+          });
+        }}
         autoRotate={false}
         fitToData={!isEmpty}
         enableDestinationLinks
@@ -302,6 +338,9 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
           code={discover.code}
           name={discover.name}
           isOnBucketList={bucketCountryCodes.includes(discover.code)}
+          bucketPlaceKeys={bucketPlaces.map((place) =>
+            placeKey(place.name, place.countryCode),
+          )}
           initialCity={discover.city}
           onClose={() => setDiscover(null)}
           onBucketAdded={() => startRefresh(() => router.refresh())}

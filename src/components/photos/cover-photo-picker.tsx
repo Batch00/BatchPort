@@ -203,25 +203,30 @@ export function CoverPhotoPicker({
       {ownerId && mode === "gallery" ? (
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {photos.map((photo) => (
+            // aspect-ratio lives on an inner div, not the button: buttons have
+            // UA-specific internal layout that makes aspect-ratio unreliable
+            // and collapses the tiles in some browsers.
             <button
               key={photo.id}
               type="button"
               aria-label="Use this photo as the cover"
               onClick={() => setPositionPhoto(photo)}
               className={cn(
-                "relative aspect-square overflow-hidden rounded-md ring-1 transition-all",
+                "relative block w-full overflow-hidden rounded-md p-0 ring-1 transition-all",
                 photo.id === cover?.id
                   ? "ring-2 ring-brand"
                   : "ring-foreground/10 hover:ring-brand/50",
               )}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={getPhotoUrl(photo, "thumb")}
-                alt=""
-                loading="lazy"
-                className="size-full object-cover"
-              />
+              <div className="relative aspect-square w-full">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={getPhotoUrl(photo, "thumb")}
+                  alt=""
+                  loading="lazy"
+                  className="absolute inset-0 size-full object-cover"
+                />
+              </div>
             </button>
           ))}
         </div>

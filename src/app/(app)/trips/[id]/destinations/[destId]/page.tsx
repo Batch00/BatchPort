@@ -151,6 +151,7 @@ export default async function DestinationDetailPage({
         userId={user.id}
         isDemo={isDemo}
         photos={photos}
+        experiencePhotos={experiencePhotos}
         coverPhotoId={destination.cover_photo_id}
         coverPosition={destination.cover_position ?? null}
       />

@@ -1,4 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
+import { parseEwkbPoint, placeKey } from "@/lib/geo";
 
 // Server-side data layer for the globe. getMapData fetches everything the map
 // needs in a minimal set of parallel queries and pre-computes the arcs so the
@@ -18,6 +19,8 @@ export interface MapDestination {
   tripId: string;
   tripName: string;
   tripStartDate: string | null;
+  /** True when the owning trip is still in the planned state. */
+  planned: boolean;
   name: string;
   countryCode: string | null;
   lat: number;
@@ -36,6 +39,18 @@ export interface MapArc {
   tripName: string;
   sourceCity: string;
   targetCity: string;
+  /** True when the trip is planned; rendered dashed. */
+  planned: boolean;
+}
+
+/** An unfulfilled place-type bucket list item, rendered as an amber pin. */
+export interface MapBucketPlace {
+  id: string;
+  name: string;
+  countryCode: string | null;
+  /** Null when the item was saved without coordinates (no pin, list only). */
+  lat: number | null;
+  lng: number | null;
 }
 
 export interface MapStats {
@@ -46,9 +61,18 @@ export interface MapStats {
 
 export interface MapData {
   destinations: MapDestination[];
+  /** Countries with at least one non-planned destination (blue fill). */
   visitedCountryCodes: string[];
-  /** Countries on the user's unfulfilled bucket list, for the "want to visit" fill. */
+  /** Countries visited only by planned trips (outline-only treatment). */
+  plannedCountryCodes: string[];
+  /**
+   * Countries on the user's unfulfilled bucket list. Unfiltered: the globe
+   * subtracts visited codes for the amber fill, while the discovery panel
+   * needs the complete list for its "on your bucket list" state.
+   */
   bucketCountryCodes: string[];
+  /** Unfulfilled place-type bucket items (amber pins when they have coords). */
+  bucketPlaces: MapBucketPlace[];
   arcs: MapArc[];
   stats: MapStats;
 }
@@ -65,7 +89,7 @@ interface DestinationRow {
   order_index: number;
   arrival_date: string | null;
   departure_date: string | null;
-  trips: { name: string; start_date: string | null } | null;
+  trips: { name: string; start_date: string | null; status: string } | null;
   experiences: {
     rating: number | null;
     categories: { slug: string; label: string; color: string | null } | null;
@@ -75,7 +99,7 @@ interface DestinationRow {
 const DESTINATION_SELECT = `
   id, trip_id, name, country_code, latitude, longitude, order_index,
   arrival_date, departure_date,
-  trips ( name, start_date ),
+  trips ( name, start_date, status ),
   experiences ( rating, categories ( slug, label, color ) )
 `;
 
@@ -83,7 +107,9 @@ function emptyMapData(): MapData {
   return {
     destinations: [],
     visitedCountryCodes: [],
+    plannedCountryCodes: [],
     bucketCountryCodes: [],
+    bucketPlaces: [],
     arcs: [],
     stats: { countries: 0, trips: 0, destinations: 0 },
   };
@@ -130,30 +156,38 @@ export async function getMapData(userId?: string): Promise<MapData> {
   }
   if (!resolvedUserId) return emptyMapData();
 
-  // Two parallel queries: the destination payload (which also yields the
-  // visited countries, arcs, and most counts) and an exact trip count so the
-  // overlay reflects every trip, including any without mapped destinations.
-  const [destResult, tripCountResult, bucketResult] = await Promise.all([
-    supabase
-      .from("destinations")
-      .select(DESTINATION_SELECT)
-      .eq("user_id", resolvedUserId)
-      .order("order_index", { ascending: true }),
-    supabase
-      .from("trips")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", resolvedUserId),
-    supabase
-      .from("bucket_list")
-      .select("country_code")
-      .eq("user_id", resolvedUserId)
-      .eq("type", "country")
-      .is("fulfilled_at", null),
-  ]);
+  // Parallel queries: the destination payload (which also yields the visited
+  // countries, arcs, and most counts), an exact trip count so the overlay
+  // reflects every trip, and the unfulfilled bucket items (countries + places).
+  const [destResult, tripCountResult, bucketResult, bucketPlaceResult] =
+    await Promise.all([
+      supabase
+        .from("destinations")
+        .select(DESTINATION_SELECT)
+        .eq("user_id", resolvedUserId)
+        .order("order_index", { ascending: true }),
+      supabase
+        .from("trips")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", resolvedUserId),
+      supabase
+        .from("bucket_list")
+        .select("country_code")
+        .eq("user_id", resolvedUserId)
+        .eq("type", "country")
+        .is("fulfilled_at", null),
+      supabase
+        .from("bucket_list")
+        .select("id, place_name, country_code, geom")
+        .eq("user_id", resolvedUserId)
+        .eq("type", "place")
+        .is("fulfilled_at", null),
+    ]);
 
   if (destResult.error) throw destResult.error;
   if (tripCountResult.error) throw tripCountResult.error;
   if (bucketResult.error) throw bucketResult.error;
+  if (bucketPlaceResult.error) throw bucketPlaceResult.error;
 
   const rows = (destResult.data ?? []) as unknown as DestinationRow[];
 
@@ -164,6 +198,7 @@ export async function getMapData(userId?: string): Promise<MapData> {
       tripId: row.trip_id,
       tripName: row.trips?.name ?? "Trip",
       tripStartDate: row.trips?.start_date ?? null,
+      planned: row.trips?.status === "planned",
       name: row.name,
       countryCode: row.country_code,
       lat: row.latitude as number,
@@ -175,12 +210,26 @@ export async function getMapData(userId?: string): Promise<MapData> {
     }))
     .sort(byTripThenOrder);
 
-  // Distinct visited codes are derived from the rows rather than a third query.
+  // Visited means actually been there: ongoing and completed trips count,
+  // planned ones do not. Countries reached only by planned trips get the
+  // separate outline-only treatment.
   const visitedCountryCodes = Array.from(
     new Set(
       rows
+        .filter((row) => row.trips?.status !== "planned")
         .map((row) => row.country_code)
         .filter((code): code is string => Boolean(code)),
+    ),
+  );
+  const visitedSet = new Set(visitedCountryCodes);
+  const plannedCountryCodes = Array.from(
+    new Set(
+      rows
+        .filter((row) => row.trips?.status === "planned")
+        .map((row) => row.country_code)
+        .filter(
+          (code): code is string => Boolean(code) && !visitedSet.has(code as string),
+        ),
     ),
   );
 
@@ -203,19 +252,43 @@ export async function getMapData(userId?: string): Promise<MapData> {
         tripName: source.tripName,
         sourceCity: source.name,
         targetCity: target.name,
+        planned: source.planned,
       });
     }
   }
 
-  // Bucket countries not already visited get the "want to visit" fill.
-  const visitedSet = new Set(visitedCountryCodes);
   const bucketCountryCodes = Array.from(
     new Set(
       ((bucketResult.data ?? []) as { country_code: string | null }[])
         .map((row) => row.country_code)
-        .filter((code): code is string => code !== null && !visitedSet.has(code)),
+        .filter((code): code is string => code !== null),
     ),
   );
+
+  // Place items keep a stable identity even without coordinates (the panel
+  // needs them for duplicate detection); only coordinate-bearing ones pin.
+  // Deduplicate by name + country so double-saved rows render one pin.
+  const seenPlaces = new Set<string>();
+  const bucketPlaces: MapBucketPlace[] = [];
+  for (const row of (bucketPlaceResult.data ?? []) as {
+    id: string;
+    place_name: string | null;
+    country_code: string | null;
+    geom: string | null;
+  }[]) {
+    if (!row.place_name) continue;
+    const key = placeKey(row.place_name, row.country_code);
+    if (seenPlaces.has(key)) continue;
+    seenPlaces.add(key);
+    const point = row.geom ? parseEwkbPoint(row.geom) : null;
+    bucketPlaces.push({
+      id: row.id,
+      name: row.place_name,
+      countryCode: row.country_code,
+      lat: point?.lat ?? null,
+      lng: point?.lng ?? null,
+    });
+  }
 
   const stats: MapStats = {
     countries: visitedCountryCodes.length,
@@ -223,5 +296,13 @@ export async function getMapData(userId?: string): Promise<MapData> {
     destinations: rows.length,
   };
 
-  return { destinations, visitedCountryCodes, bucketCountryCodes, arcs, stats };
+  return {
+    destinations,
+    visitedCountryCodes,
+    plannedCountryCodes,
+    bucketCountryCodes,
+    bucketPlaces,
+    arcs,
+    stats,
+  };
 }

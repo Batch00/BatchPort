@@ -40,6 +40,8 @@ export interface GlobeDestination {
   departureDate: string | null;
   /** Hex colour for the pin tint, or null to fall back to the brand colour. */
   categoryColor: string | null;
+  /** Planned-trip stops render hollow (dark core, no glow). Default false. */
+  planned?: boolean;
 }
 
 /** A great-circle leg between two consecutive stops on a trip. */
@@ -49,6 +51,17 @@ export interface GlobeArc {
   tripName: string;
   sourceCity: string;
   targetCity: string;
+  /** Planned-trip legs render dashed. Default false. */
+  planned?: boolean;
+}
+
+/** An unfulfilled place-type bucket list item with coordinates. */
+export interface GlobeBucketPlace {
+  id: string;
+  name: string;
+  countryCode: string | null;
+  lat: number;
+  lng: number;
 }
 
 /** The country a drill-down was opened on. */
@@ -61,8 +74,14 @@ export interface GlobeProps {
   visitedCountryCodes: string[];
   /** Countries the user wants to visit, shown in a distinct amber fill. */
   bucketCountryCodes?: string[];
+  /** Countries reached only by planned trips, shown as a dashed outline. */
+  plannedCountryCodes?: string[];
   destinations: GlobeDestination[];
   arcs: GlobeArc[];
+  /** Place-type bucket items, shown as amber pins. */
+  bucketPlaces?: GlobeBucketPlace[];
+  /** Clicking a bucket place pin's Explore button reports the place. */
+  onExplorePlace?: (place: GlobeBucketPlace) => void;
   /** Slowly spin the globe while idle. Default true (landing hero). */
   autoRotate?: boolean;
   /** Fit the camera to the destinations on load. Default false (full globe). */
@@ -85,6 +104,11 @@ const VISITED_BORDER = "#4a8af5";
 // Dim amber for "want to visit" countries: distinct from visited (blue) and
 // unvisited (dark gray) without competing with the brand accent.
 const BUCKET_FILL = "#b45309";
+// Amber pin colours for place-type bucket items.
+const BUCKET_PIN_FILL = "#b45309";
+const BUCKET_PIN_STROKE = "#fbbf24";
+// Hollow core for planned-trip pins: reads as "not yet filled in".
+const PLANNED_PIN_CORE = "#111318";
 const ROTATION_DEG_PER_SEC = 3;
 const IDLE_BEFORE_RESUME_MS = 5000;
 const PIN_RADIUS = 6;
@@ -220,6 +244,7 @@ function destinationsFC(
         arrivalDate: d.arrivalDate ?? "",
         departureDate: d.departureDate ?? "",
         color: d.categoryColor ?? brandHex,
+        planned: d.planned ?? false,
       },
     })),
   };
@@ -238,7 +263,25 @@ function arcsFC(arcs: GlobeArc[]): FeatureCollection<LineString> {
           ARC_SEGMENTS,
         ),
       },
-      properties: { tripName: arc.tripName },
+      properties: { tripName: arc.tripName, planned: arc.planned ?? false },
+    })),
+  };
+}
+
+function bucketPlacesFC(places: GlobeBucketPlace[]): FeatureCollection<Point> {
+  return {
+    type: "FeatureCollection",
+    features: places.map((place, index) => ({
+      type: "Feature",
+      id: index,
+      geometry: { type: "Point", coordinates: [place.lng, place.lat] },
+      properties: {
+        placeId: place.id,
+        name: place.name,
+        countryCode: place.countryCode ?? "",
+        lat: place.lat,
+        lng: place.lng,
+      },
     })),
   };
 }
@@ -321,8 +364,11 @@ async function buildPmtilesStyle(
 export function Globe({
   visitedCountryCodes,
   bucketCountryCodes = [],
+  plannedCountryCodes = [],
   destinations,
   arcs,
+  bucketPlaces = [],
+  onExplorePlace,
   autoRotate = true,
   fitToData = false,
   enableDestinationLinks = false,
@@ -345,8 +391,11 @@ export function Globe({
   const dataRef = useRef({
     visitedCountryCodes,
     bucketCountryCodes,
+    plannedCountryCodes,
     destinations,
     arcs,
+    bucketPlaces,
+    onExplorePlace,
     autoRotate,
     fitToData,
     enableDestinationLinks,
@@ -359,8 +408,11 @@ export function Globe({
     dataRef.current = {
       visitedCountryCodes,
       bucketCountryCodes,
+      plannedCountryCodes,
       destinations,
       arcs,
+      bucketPlaces,
+      onExplorePlace,
       autoRotate,
       fitToData,
       enableDestinationLinks,
@@ -380,9 +432,13 @@ export function Globe({
       | GeoJSONSource
       | undefined;
     const arcSource = map.getSource("arcs") as GeoJSONSource | undefined;
+    const bucketSource = map.getSource("bucket-places") as
+      | GeoJSONSource
+      | undefined;
     destSource?.setData(destinationsFC(destinations, brandHex));
     arcSource?.setData(arcsFC(arcs));
-  }, [destinations, arcs]);
+    bucketSource?.setData(bucketPlacesFC(bucketPlaces));
+  }, [destinations, arcs, bucketPlaces]);
 
   // Keep the country fill filters in sync so a new bucket list country turns
   // amber (and a newly visited one turns blue) without rebuilding the map.
@@ -390,10 +446,19 @@ export function Globe({
     const map = mapRef.current;
     if (!map || !loadedRef.current || !map.getLayer("country-visited")) return;
     const visitedFilter = matchFilter(visitedCountryCodes);
-    map.setFilter("country-bucket", matchFilter(bucketCountryCodes));
+    const visited = new Set(visitedCountryCodes);
+    // The amber fill only paints countries that are not already visited; the
+    // unfiltered list also feeds the discovery panel's bucket state.
+    map.setFilter(
+      "country-bucket",
+      matchFilter(bucketCountryCodes.filter((code) => !visited.has(code))),
+    );
     map.setFilter("country-visited", visitedFilter);
     map.setFilter("country-visited-outline", visitedFilter);
-  }, [visitedCountryCodes, bucketCountryCodes]);
+    if (map.getLayer("country-planned-outline")) {
+      map.setFilter("country-planned-outline", matchFilter(plannedCountryCodes));
+    }
+  }, [visitedCountryCodes, bucketCountryCodes, plannedCountryCodes]);
 
   function handleToggle() {
     const map = mapRef.current;
@@ -503,6 +568,63 @@ export function Globe({
         .addTo(map);
     }
 
+    // Popup for an amber bucket place pin: the place name, its country, and
+    // (when the host wires onExplorePlace, i.e. the dashboard) an Explore
+    // button that opens the discovery city view.
+    function showBucketPopupFromFeature(feature: MapGeoJSONFeature) {
+      if (!maplibregl || !map) return;
+      const props = feature.properties ?? {};
+      const name = String(props.name ?? "");
+      const countryCode = String(props.countryCode ?? "");
+      const lat = Number(props.lat);
+      const lng = Number(props.lng);
+      if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      const container = document.createElement("div");
+      const title = document.createElement("div");
+      title.style.cssText = "font-weight:600;color:#f4f4f5";
+      title.textContent = name;
+      container.appendChild(title);
+      const subtitle = document.createElement("div");
+      subtitle.style.cssText = "color:#a1a1aa";
+      subtitle.textContent = countryCode
+        ? `${flagEmoji(countryCode)} ${countryCode} · Bucket list`
+        : "Bucket list";
+      container.appendChild(subtitle);
+
+      const explore = dataRef.current.onExplorePlace;
+      if (explore && countryCode) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Explore";
+        button.style.cssText =
+          "display:inline-block;margin-top:8px;color:var(--brand,#3b82f6);font-weight:600;font-size:0.75rem;background:none;border:none;padding:0;cursor:pointer";
+        button.addEventListener("click", () => {
+          popup?.remove();
+          explore({
+            id: String(props.placeId ?? ""),
+            name,
+            countryCode,
+            lat,
+            lng,
+          });
+        });
+        container.appendChild(button);
+      }
+
+      popup?.remove();
+      popup = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: true,
+        className: "batchport-popup",
+        offset: 12,
+        maxWidth: "240px",
+      })
+        .setLngLat([lng, lat])
+        .setDOMContent(container)
+        .addTo(map);
+    }
+
     function showTooltip(x: number, y: number, text: string, hint?: string) {
       const el = tooltipRef.current;
       if (!el) return;
@@ -545,26 +667,41 @@ export function Globe({
     function onMouseMove(event: MapMouseEvent) {
       if (!map) return;
 
-      // Pins win over country hover.
-      const pinFeatures = map.getLayer("pins")
-        ? map.queryRenderedFeatures(event.point, { layers: ["pins"] })
-        : [];
+      // Pins (destination and bucket place) win over country hover.
+      const pinLayers = ["pins", "bucket-pins"].filter((layer) =>
+        map?.getLayer(layer),
+      );
+      const pinFeatures =
+        pinLayers.length > 0
+          ? map.queryRenderedFeatures(event.point, { layers: pinLayers })
+          : [];
       if (pinFeatures.length > 0) {
         const feature = pinFeatures[0];
-        const nextId = feature.id ?? null;
-        if (nextId !== hoveredPinId) {
+        const isBucketPin = feature.layer?.id === "bucket-pins";
+        if (isBucketPin) {
           clearPinHover();
-          hoveredPinId = nextId;
-          if (nextId !== null) {
-            map.setFeatureState(
-              { source: "destinations", id: nextId },
-              { hover: true },
-            );
+        } else {
+          const nextId = feature.id ?? null;
+          if (nextId !== hoveredPinId) {
+            clearPinHover();
+            hoveredPinId = nextId;
+            if (nextId !== null) {
+              map.setFeatureState(
+                { source: "destinations", id: nextId },
+                { hover: true },
+              );
+            }
           }
         }
         clearCountryHover();
         const name = String(feature.properties?.name ?? "");
-        showTooltip(event.point.x, event.point.y, name);
+        const planned = feature.properties?.planned === true;
+        showTooltip(
+          event.point.x,
+          event.point.y,
+          name,
+          isBucketPin ? "On your bucket list" : planned ? "Planned trip" : undefined,
+        );
         map.getCanvas().style.cursor = "pointer";
         return;
       }
@@ -638,12 +775,20 @@ export function Globe({
       if (!map) return;
 
       // A click on a pin opens its popup and never doubles as a country select.
-      if (map.getLayer("pins")) {
+      const pinLayers = ["pins", "bucket-pins"].filter((layer) =>
+        map?.getLayer(layer),
+      );
+      if (pinLayers.length > 0) {
         const pinFeatures = map.queryRenderedFeatures(event.point, {
-          layers: ["pins"],
+          layers: pinLayers,
         });
         if (pinFeatures.length > 0) {
-          showPinPopupFromFeature(pinFeatures[0]);
+          const feature = pinFeatures[0];
+          if (feature.layer?.id === "bucket-pins") {
+            showBucketPopupFromFeature(feature);
+          } else {
+            showPinPopupFromFeature(feature);
+          }
           return;
         }
       }
@@ -790,7 +935,12 @@ export function Globe({
         }
 
         const visitedFilter = matchFilter(dataRef.current.visitedCountryCodes);
-        const bucketFilter = matchFilter(dataRef.current.bucketCountryCodes);
+        const visitedSet = new Set(dataRef.current.visitedCountryCodes);
+        const bucketFilter = matchFilter(
+          dataRef.current.bucketCountryCodes.filter(
+            (code) => !visitedSet.has(code),
+          ),
+        );
 
         // Want-to-visit fill (dim amber), drawn beneath the visited fill.
         map.addLayer(
@@ -837,6 +987,21 @@ export function Globe({
           },
         });
 
+        // Planned trips: countries get a dashed brand-blue outline with no
+        // fill, so upcoming travel is visible but clearly not yet visited.
+        map.addLayer({
+          id: "country-planned-outline",
+          type: "line",
+          source: "countries",
+          filter: matchFilter(dataRef.current.plannedCountryCodes),
+          paint: {
+            "line-color": VISITED_BORDER,
+            "line-width": 1.5,
+            "line-opacity": 0.85,
+            "line-dasharray": [2, 2],
+          },
+        });
+
         // Native pins and arcs: rendered by MapLibre so they stay locked to
         // their coordinates on both globe and mercator projections.
         map.addSource("arcs", {
@@ -848,10 +1013,13 @@ export function Globe({
           data: destinationsFC(dataRef.current.destinations, brandHex),
         });
 
+        // Completed/ongoing legs: solid with a glow. Planned legs: dashed,
+        // no glow, slightly dimmer.
         map.addLayer({
           id: "trip-arcs-glow",
           type: "line",
           source: "arcs",
+          filter: ["!", ["get", "planned"]],
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
             "line-color": brandHex,
@@ -864,6 +1032,7 @@ export function Globe({
           id: "trip-arcs",
           type: "line",
           source: "arcs",
+          filter: ["!", ["get", "planned"]],
           layout: { "line-cap": "round", "line-join": "round" },
           paint: {
             "line-color": brandHex,
@@ -871,11 +1040,55 @@ export function Globe({
             "line-opacity": 0.9,
           },
         });
+        map.addLayer({
+          id: "trip-arcs-planned",
+          type: "line",
+          source: "arcs",
+          filter: ["get", "planned"],
+          layout: { "line-join": "round" },
+          paint: {
+            "line-color": brandHex,
+            "line-width": 2,
+            "line-opacity": 0.6,
+            "line-dasharray": [1.5, 2],
+          },
+        });
 
+        // Amber pins for place-type bucket items, drawn beneath destination
+        // pins so real stops win overlaps.
+        map.addSource("bucket-places", {
+          type: "geojson",
+          data: bucketPlacesFC(dataRef.current.bucketPlaces),
+        });
+        map.addLayer({
+          id: "bucket-pins-glow",
+          type: "circle",
+          source: "bucket-places",
+          paint: {
+            "circle-radius": 11,
+            "circle-color": BUCKET_PIN_STROKE,
+            "circle-opacity": 0.3,
+            "circle-blur": 1,
+          },
+        });
+        map.addLayer({
+          id: "bucket-pins",
+          type: "circle",
+          source: "bucket-places",
+          paint: {
+            "circle-radius": 5,
+            "circle-color": BUCKET_PIN_FILL,
+            "circle-stroke-color": BUCKET_PIN_STROKE,
+            "circle-stroke-width": 2,
+          },
+        });
+
+        // Glow only behind real (non-planned) stops.
         map.addLayer({
           id: "pins-glow",
           type: "circle",
           source: "destinations",
+          filter: ["!", ["get", "planned"]],
           paint: {
             "circle-radius": 14,
             "circle-color": ["get", "color"],
@@ -883,6 +1096,8 @@ export function Globe({
             "circle-blur": 1,
           },
         });
+        // One pins layer for both states: planned stops swap the white core
+        // for a dark one, reading as a hollow ring in the trip's colour.
         map.addLayer({
           id: "pins",
           type: "circle",
@@ -894,9 +1109,15 @@ export function Globe({
               PIN_RADIUS_HOVER,
               PIN_RADIUS,
             ],
-            "circle-color": "#ffffff",
+            "circle-color": [
+              "case",
+              ["get", "planned"],
+              PLANNED_PIN_CORE,
+              "#ffffff",
+            ],
             "circle-stroke-color": ["get", "color"],
-            "circle-stroke-width": 2.5,
+            "circle-stroke-width": ["case", ["get", "planned"], 2, 2.5],
+            "circle-opacity": ["case", ["get", "planned"], 0.9, 1],
           },
         });
 

@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/utils/supabase/admin";
 import { getWikimediaPhoto } from "@/lib/wikimedia";
-import { haversineKm } from "@/lib/geo";
+import { haversineKm, parseEwkbPoint } from "@/lib/geo";
 import { normalizeQuery } from "@/lib/geocode";
 
 // Server-side data layer for the Discovery panel. Aggregates the country
@@ -207,34 +207,6 @@ export async function getDiscoverCountry(
 }
 
 // --- Top cities ---
-
-// batchport.cities stores the location as a PostGIS point; PostgREST returns
-// it as hex-encoded EWKB. Decode the two doubles rather than round-tripping
-// through the database.
-function parseEwkbPoint(hex: string): { lat: number; lng: number } | null {
-  if (typeof hex !== "string" || hex.length < 50) return null;
-  try {
-    const buffer = Buffer.from(hex, "hex");
-    const littleEndian = buffer.readUInt8(0) === 1;
-    const type = littleEndian
-      ? buffer.readUInt32LE(1)
-      : buffer.readUInt32BE(1);
-    // Bit 0x20000000 flags an embedded SRID; the base type must be Point (1).
-    const hasSrid = (type & 0x20000000) !== 0;
-    if ((type & 0xff) !== 1) return null;
-    const offset = hasSrid ? 9 : 5;
-    const lng = littleEndian
-      ? buffer.readDoubleLE(offset)
-      : buffer.readDoubleBE(offset);
-    const lat = littleEndian
-      ? buffer.readDoubleLE(offset + 8)
-      : buffer.readDoubleBE(offset + 8);
-    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
-    return { lat, lng };
-  } catch {
-    return null;
-  }
-}
 
 const CITY_LIMIT = 8;
 const LOOKUP_BATCH_SIZE = 4;

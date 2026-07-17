@@ -1,0 +1,52 @@
+-- Exclude planned trips from the stats views.
+--
+-- The app now treats planned-trip destinations as "not yet visited": the globe
+-- shows them as a dashed outline and hollow pins, and the map data layer
+-- excludes them from visited country counts. The SQL views must match,
+-- otherwise the stats page still counts planned stops as visited.
+--
+-- The view definitions live in Supabase and are not checked into this repo,
+-- so this file documents the change to apply rather than full CREATE
+-- statements. In the Supabase SQL editor, open each definition with:
+--
+--   select pg_get_viewdef('batchport.v_user_travel_summary', true);
+--
+-- and re-create the view with the planned filter added.
+--
+-- What to change, per view:
+--
+-- 1. batchport.v_user_travel_summary
+--    countries_visited, world_pct, continents_visited, total_destinations,
+--    total_experiences, and days_traveling must only aggregate rows whose
+--    owning trip is not planned. total_trips may keep counting all trips
+--    (a planned trip is still a trip); if it should not, filter it the same
+--    way. Wherever the view reads destinations d, join trips and filter:
+--
+--      join batchport.trips t on t.id = d.trip_id and t.status <> 'planned'
+--
+--    days_traveling already ignores null dates; the status filter makes the
+--    intent explicit for planned trips that do carry dates.
+--
+-- 2. batchport.v_yearly_breakdown
+--    Filter the trips feeding the per-year counts:
+--
+--      where t.status <> 'planned'
+--
+--    (The app also defensively drops null-year rows.)
+--
+-- 3. batchport.v_country_frequency
+--    Join trips and exclude planned, as in (1), so upcoming stops do not
+--    inflate per-country destination/trip counts.
+--
+-- 4. batchport.v_travel_extremes
+--    Join trips and exclude planned, as in (1). The app-side extreme-name
+--    lookup already excludes planned stops; the view must match or the
+--    coordinates and names can disagree.
+--
+-- 5. batchport.f_distance_traveled(p_user_id uuid)
+--    Exclude planned trips' legs from the distance sum with the same join.
+--
+-- Ongoing and completed trips both keep counting as visited; only
+-- status = 'planned' is excluded. No table schema changes are needed, so a
+-- trip flipping from planned to ongoing/completed updates every stat
+-- automatically.

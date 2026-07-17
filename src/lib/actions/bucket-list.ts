@@ -28,7 +28,7 @@ function toRow(input: BucketItemInput) {
   return {
     type: "place",
     country_code: input.country_code,
-    place_name: input.place_name,
+    place_name: input.place_name?.trim() ?? null,
     geom: hasCoords ? pointEwkt(input.lng as number, input.lat as number) : null,
     priority: input.priority,
     target_date: input.target_date,
@@ -53,6 +53,27 @@ export async function createBucketItem(
   if (invalid) return { error: invalid };
 
   const { supabase, user } = await requireUser();
+
+  // Duplicate guard, mirroring the country-type behavior: adding a place that
+  // is already on the list succeeds without inserting a second row. Matching
+  // is case-insensitive on the trimmed name plus the country code, since
+  // coordinates for the same place can differ between geocode results.
+  if (input.type === "place" && input.place_name) {
+    let query = supabase
+      .from("bucket_list")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("type", "place")
+      .ilike("place_name", input.place_name.trim());
+    query = input.country_code
+      ? query.eq("country_code", input.country_code)
+      : query.is("country_code", null);
+    const { data: existing } = await query.limit(1);
+    if ((existing ?? []).length > 0) {
+      return { ok: true };
+    }
+  }
+
   const { error } = await supabase
     .from("bucket_list")
     .insert({ user_id: user.id, ...toRow(input) });

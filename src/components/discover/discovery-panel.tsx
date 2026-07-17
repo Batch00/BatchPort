@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { createBucketItem } from "@/lib/actions/bucket-list";
 import { startTripFromCityAction } from "@/lib/actions/trips";
 import { flagEmoji } from "@/lib/format";
+import { placeKey } from "@/lib/geo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SafeImage } from "@/components/photos/safe-image";
@@ -51,6 +52,11 @@ interface DiscoveryPanelProps {
   name: string;
   /** Whether the country is already an unfulfilled bucket list item. */
   isOnBucketList: boolean;
+  /**
+   * placeKey() identities of the user's unfulfilled place-type bucket items,
+   * so a city already on the list shows the checked state instead of Add.
+   */
+  bucketPlaceKeys?: string[];
   /** When set, the panel opens directly on this city's view. */
   initialCity?: DiscoveryCityTarget | null;
   onClose: () => void;
@@ -315,18 +321,24 @@ function CountryBody({
 function CityBody({
   city,
   countryCode,
+  isOnBucketList,
   onHeroLoaded,
+  onBucketAdded,
 }: {
   city: DiscoveryCityTarget;
   countryCode: string;
+  /** Whether this city already matches a place-type bucket item. */
+  isOnBucketList: boolean;
   /** Reports the city hero URL up so the shared shell hero can show it. */
   onHeroLoaded: (cityName: string, url: string | null) => void;
+  onBucketAdded?: () => void;
 }) {
   const [detail, setDetail] = useState<DiscoverCityDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [added, setAdded] = useState(false);
   const [adding, startAdding] = useTransition();
   const [starting, startStarting] = useTransition();
+  const onList = added || isOnBucketList;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -365,6 +377,7 @@ function CityBody({
       }
       toast.success(`${city.name} added to your bucket list.`);
       setAdded(true);
+      onBucketAdded?.();
     });
   }
 
@@ -388,7 +401,7 @@ function CityBody({
       <SummaryBlock summary={detail?.summary ?? null} loading={loading} />
 
       <div className="mt-4 grid grid-cols-2 gap-2">
-        {added ? (
+        {onList ? (
           <Button variant="secondary" disabled>
             <CheckIcon className="text-brand" />
             On your list
@@ -456,6 +469,7 @@ export function DiscoveryPanel({
   code,
   name,
   isOnBucketList,
+  bucketPlaceKeys = [],
   initialCity = null,
   onClose,
   onBucketAdded,
@@ -596,11 +610,15 @@ export function DiscoveryPanel({
               key={cityView.name}
               city={cityView}
               countryCode={code}
+              isOnBucketList={bucketPlaceKeys.includes(
+                placeKey(cityView.name, code),
+              )}
               onHeroLoaded={(cityName, url) =>
                 setCityHeroes((current) =>
                   url ? { ...current, [cityName]: url } : current,
                 )
               }
+              onBucketAdded={onBucketAdded}
             />
           ) : (
             <CountryBody
