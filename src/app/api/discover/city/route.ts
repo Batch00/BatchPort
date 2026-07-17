@@ -22,33 +22,41 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const name = (params.get("name") ?? "").trim();
   const code = (params.get("code") ?? "").trim().toUpperCase();
-  const lat = Number(params.get("lat"));
-  const lng = Number(params.get("lng"));
+  const latRaw = params.get("lat");
+  const lngRaw = params.get("lng");
 
   if (!name || name.length > 120) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
-  if (!/^[A-Z]{2}$/.test(code)) {
+  // code and coordinates are optional (bucket list places can lack either);
+  // when present they must be valid.
+  if (code && !/^[A-Z]{2}$/.test(code)) {
     return NextResponse.json(
       { error: "code must be a 2-letter ISO country code" },
       { status: 400 },
     );
   }
-  if (
-    !Number.isFinite(lat) ||
-    lat < -90 ||
-    lat > 90 ||
-    !Number.isFinite(lng) ||
-    lng < -180 ||
-    lng > 180
-  ) {
-    return NextResponse.json(
-      { error: "lat and lng must be valid coordinates" },
-      { status: 400 },
-    );
+  let lat: number | null = null;
+  let lng: number | null = null;
+  if (latRaw !== null || lngRaw !== null) {
+    lat = Number(latRaw);
+    lng = Number(lngRaw);
+    if (
+      !Number.isFinite(lat) ||
+      lat < -90 ||
+      lat > 90 ||
+      !Number.isFinite(lng) ||
+      lng < -180 ||
+      lng > 180
+    ) {
+      return NextResponse.json(
+        { error: "lat and lng must be valid coordinates" },
+        { status: 400 },
+      );
+    }
   }
 
-  const city = await getDiscoverCity(name, lat, lng, code);
+  const city = await getDiscoverCity(name, lat, lng, code || null);
   return NextResponse.json({
     ...city,
     heroImageUrl: proxied(city.heroImageUrl),

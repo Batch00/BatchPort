@@ -1,6 +1,8 @@
 import { cache } from "react";
 
 import { requireUser } from "@/lib/current-user";
+import { parseEwkbPoint } from "@/lib/geo";
+import type { CoverPosition } from "@/lib/types";
 
 // Server-side data layer for the bucket list. Reads run with the user's session
 // (RLS scopes them); the userId argument lets callers fetch a specific user's
@@ -14,10 +16,19 @@ export interface BucketItem {
   country_code: string | null;
   country_name: string | null;
   place_name: string | null;
+  /** Rank weight: higher sorts first. Written by drag-to-rank. */
   priority: number | null;
   target_date: string | null;
+  /** Why this place. Null until the notes column migration has run. */
+  notes: string | null;
+  /** Stored coordinates for place items, when saved with them. */
+  lat: number | null;
+  lng: number | null;
   fulfilled_trip_id: string | null;
   fulfilled_trip_name: string | null;
+  /** The fulfilling trip's cover, so completed cards can show the memory. */
+  fulfilled_trip_cover_photo_id: string | null;
+  fulfilled_trip_cover_position: CoverPosition | null;
   fulfilled_at: string | null;
   created_at: string;
 }
@@ -42,10 +53,13 @@ export interface BucketItemInput {
   lng: number | null;
   priority: number | null;
   target_date: string | null;
+  notes: string | null;
 }
 
+// The base row uses * so the read keeps working whether or not the optional
+// notes column migration has run; missing columns simply read as undefined.
 const SELECT =
-  "id, type, country_code, place_name, priority, target_date, fulfilled_trip_id, fulfilled_at, created_at, countries(name), fulfilling_trip:trips!fulfilled_trip_id(name)";
+  "*, countries(name), fulfilling_trip:trips!fulfilled_trip_id(name, cover_photo_id, cover_position)";
 
 interface BucketRow {
   id: string;
@@ -54,11 +68,17 @@ interface BucketRow {
   place_name: string | null;
   priority: number | null;
   target_date: string | null;
+  notes?: string | null;
+  geom: string | null;
   fulfilled_trip_id: string | null;
   fulfilled_at: string | null;
   created_at: string;
   countries: { name: string } | null;
-  fulfilling_trip: { name: string } | null;
+  fulfilling_trip: {
+    name: string;
+    cover_photo_id: string | null;
+    cover_position: CoverPosition | null;
+  } | null;
 }
 
 async function resolveUserId(userId?: string): Promise<string> {
@@ -81,19 +101,27 @@ export async function getBucketList(userId?: string): Promise<BucketItem[]> {
     .order("created_at", { ascending: false });
   if (error) throw error;
 
-  return ((data ?? []) as unknown as BucketRow[]).map((row) => ({
-    id: row.id,
-    type: row.type === "place" ? "place" : "country",
-    country_code: row.country_code,
-    country_name: row.countries?.name ?? null,
-    place_name: row.place_name,
-    priority: row.priority,
-    target_date: row.target_date,
-    fulfilled_trip_id: row.fulfilled_trip_id,
-    fulfilled_trip_name: row.fulfilling_trip?.name ?? null,
-    fulfilled_at: row.fulfilled_at,
-    created_at: row.created_at,
-  }));
+  return ((data ?? []) as unknown as BucketRow[]).map((row) => {
+    const point = row.geom ? parseEwkbPoint(row.geom) : null;
+    return {
+      id: row.id,
+      type: (row.type === "place" ? "place" : "country") as BucketType,
+      country_code: row.country_code,
+      country_name: row.countries?.name ?? null,
+      place_name: row.place_name,
+      priority: row.priority,
+      target_date: row.target_date,
+      notes: row.notes ?? null,
+      lat: point?.lat ?? null,
+      lng: point?.lng ?? null,
+      fulfilled_trip_id: row.fulfilled_trip_id,
+      fulfilled_trip_name: row.fulfilling_trip?.name ?? null,
+      fulfilled_trip_cover_photo_id: row.fulfilling_trip?.cover_photo_id ?? null,
+      fulfilled_trip_cover_position: row.fulfilling_trip?.cover_position ?? null,
+      fulfilled_at: row.fulfilled_at,
+      created_at: row.created_at,
+    };
+  });
 }
 
 // Completion totals from the SQL view, or null when the user has no items.

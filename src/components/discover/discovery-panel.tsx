@@ -38,11 +38,13 @@ import type {
 // and a bottom sheet on mobile. Shells paint immediately from the known name;
 // each content section streams in as its fetch resolves.
 
-/** A city the panel can show: from a city card or a search result. */
+/** A city the panel can show: from a city card, search, or a bucket item.
+ * Coordinates are optional (bucket places saved without them); the city view
+ * then degrades to summary and hero only. */
 export interface DiscoveryCityTarget {
   name: string;
-  lat: number;
-  lng: number;
+  lat?: number | null;
+  lng?: number | null;
   population?: number | null;
 }
 
@@ -249,6 +251,7 @@ function CountryBody({
         lng: null,
         priority: null,
         target_date: null,
+        notes: null,
       });
       if ("error" in result) {
         toast.error(result.error);
@@ -339,13 +342,20 @@ function CityBody({
   const [adding, startAdding] = useTransition();
   const [starting, startStarting] = useTransition();
   const onList = added || isOnBucketList;
+  const hasCoords =
+    typeof city.lat === "number" && typeof city.lng === "number";
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(
-      `/api/discover/city?name=${encodeURIComponent(city.name)}&lat=${city.lat}&lng=${city.lng}&code=${countryCode}`,
-      { signal: controller.signal },
-    )
+    const query = new URLSearchParams({ name: city.name });
+    if (typeof city.lat === "number" && typeof city.lng === "number") {
+      query.set("lat", String(city.lat));
+      query.set("lng", String(city.lng));
+    }
+    if (countryCode) query.set("code", countryCode);
+    fetch(`/api/discover/city?${query.toString()}`, {
+      signal: controller.signal,
+    })
       .then((response) => (response.ok ? response.json() : null))
       .then((data: DiscoverCityDetail | null) => {
         setDetail(data);
@@ -364,12 +374,13 @@ function CityBody({
     startAdding(async () => {
       const result = await createBucketItem({
         type: "place",
-        country_code: countryCode,
+        country_code: countryCode || null,
         place_name: city.name,
-        lat: city.lat,
-        lng: city.lng,
+        lat: city.lat ?? null,
+        lng: city.lng ?? null,
         priority: null,
         target_date: null,
+        notes: null,
       });
       if ("error" in result) {
         toast.error(result.error);
@@ -382,12 +393,13 @@ function CityBody({
   }
 
   function handleStartTrip() {
+    if (!hasCoords) return;
     startStarting(async () => {
       const result = await startTripFromCityAction({
         name: city.name,
-        lat: city.lat,
-        lng: city.lng,
-        country_code: countryCode,
+        lat: city.lat as number,
+        lng: city.lng as number,
+        country_code: countryCode || null,
       });
       // A successful action redirects to the new trip and never returns.
       if (result && "error" in result) {
@@ -418,7 +430,10 @@ function CityBody({
         )}
         <Button
           onClick={handleStartTrip}
-          disabled={starting}
+          disabled={starting || !hasCoords}
+          title={
+            hasCoords ? undefined : "This place was saved without coordinates"
+          }
           className="bg-brand text-brand-foreground hover:bg-brand/90"
         >
           <PlaneIcon />
@@ -479,13 +494,18 @@ export function DiscoveryPanel({
     initialCity,
   );
   const [country, setCountry] = useState<DiscoverCountry | null>(null);
-  const [countryLoading, setCountryLoading] = useState(true);
-  const [cities, setCities] = useState<DiscoverCity[] | null>(null);
+  // Items saved without a country code have nothing country-level to fetch;
+  // the panel then only ever shows the city view, non-loading.
+  const [countryLoading, setCountryLoading] = useState(() => Boolean(code));
+  const [cities, setCities] = useState<DiscoverCity[] | null>(() =>
+    code ? null : [],
+  );
   const [cityHeroes, setCityHeroes] = useState<Record<string, string>>({});
 
   // The country payload always loads (it is the back target and supplies the
   // region line); the cities grid loads alongside it.
   useEffect(() => {
+    if (!code) return;
     const controller = new AbortController();
 
     fetch(`/api/discover/country?code=${code}`, { signal: controller.signal })

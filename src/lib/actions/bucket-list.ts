@@ -23,6 +23,7 @@ function toRow(input: BucketItemInput) {
       geom: null,
       priority: input.priority,
       target_date: input.target_date,
+      notes: input.notes?.trim() || null,
     };
   }
   return {
@@ -32,7 +33,21 @@ function toRow(input: BucketItemInput) {
     geom: hasCoords ? pointEwkt(input.lng as number, input.lat as number) : null,
     priority: input.priority,
     target_date: input.target_date,
+    notes: input.notes?.trim() || null,
   };
+}
+
+// PostgREST reports a payload column that does not exist as PGRST204. Until
+// the notes column migration has run, retry the write without it so the rest
+// of the item still saves (the note text is dropped, not the whole write).
+function isMissingColumn(error: { code?: string } | null): boolean {
+  return error?.code === "PGRST204";
+}
+
+function withoutNotes<T extends { notes: unknown }>(row: T): Omit<T, "notes"> {
+  const clone: Record<string, unknown> = { ...row };
+  delete clone.notes;
+  return clone as Omit<T, "notes">;
 }
 
 function validate(input: BucketItemInput): string | null {
@@ -74,10 +89,44 @@ export async function createBucketItem(
     }
   }
 
-  const { error } = await supabase
+  const row = toRow(input);
+  let { error } = await supabase
     .from("bucket_list")
-    .insert({ user_id: user.id, ...toRow(input) });
+    .insert({ user_id: user.id, ...row });
+  if (isMissingColumn(error)) {
+    ({ error } = await supabase
+      .from("bucket_list")
+      .insert({ user_id: user.id, ...withoutNotes(row) }));
+  }
   if (error) return { error: "Could not add the bucket list item." };
+
+  revalidateAppData();
+  return { ok: true };
+}
+
+// Persist a new rank order for the unfulfilled items: the first id gets the
+// largest priority so the existing "higher sorts first" ordering holds, and
+// items never dragged (null priority) keep sorting after ranked ones.
+export async function reorderBucketItems(
+  orderedIds: string[],
+): Promise<ActionResult> {
+  if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  if (orderedIds.length === 0) return { ok: true };
+
+  const { supabase } = await requireUser();
+  // One scoped update per id: PostgREST cannot set per-row values in a single
+  // request. RLS restricts each update to the caller's own rows.
+  const results = await Promise.all(
+    orderedIds.map((id, index) =>
+      supabase
+        .from("bucket_list")
+        .update({ priority: orderedIds.length - index })
+        .eq("id", id),
+    ),
+  );
+  if (results.some((result) => result.error)) {
+    return { error: "Could not save the new order." };
+  }
 
   revalidateAppData();
   return { ok: true };
@@ -93,10 +142,14 @@ export async function updateBucketItem(
 
   const { supabase } = await requireUser();
   // Rewrite the row's fields so a country/place switch stays consistent.
-  const { error } = await supabase
-    .from("bucket_list")
-    .update(toRow(input))
-    .eq("id", id);
+  const row = toRow(input);
+  let { error } = await supabase.from("bucket_list").update(row).eq("id", id);
+  if (isMissingColumn(error)) {
+    ({ error } = await supabase
+      .from("bucket_list")
+      .update(withoutNotes(row))
+      .eq("id", id));
+  }
   if (error) return { error: "Could not update the bucket list item." };
 
   revalidateAppData();

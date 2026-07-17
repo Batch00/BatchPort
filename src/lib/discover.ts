@@ -444,32 +444,43 @@ function mergeHighlights(
   return merged;
 }
 
+// lat/lng and code are optional: bucket list place items can lack either. No
+// coordinates means no highlights (they are proximity searches); no code means
+// no country-title fallback for the Wikipedia lookup. Both degrade to a
+// summary-plus-hero view.
 export async function getDiscoverCity(
   name: string,
-  lat: number,
-  lng: number,
-  code: string,
+  lat: number | null,
+  lng: number | null,
+  code: string | null,
 ): Promise<DiscoverCityDetail> {
-  const queryNorm = `${normalizeQuery(name)}|${code.toLowerCase()}`;
+  const hasCoords = lat !== null && lng !== null;
+  const queryNorm = `${normalizeQuery(name)}|${code?.toLowerCase() ?? ""}`;
 
   const cached = await readCache(CITY_PROVIDER, queryNorm);
   if (cached) return cached as DiscoverCityDetail;
 
   // Country name for the Wikipedia disambiguation fallback title.
   const admin = createAdminClient();
-  const { data: country } = await admin
-    .schema("batchport")
-    .from("countries")
-    .select("name")
-    .eq("code", code)
-    .maybeSingle<{ name: string }>();
+  const { data: country } = code
+    ? await admin
+        .schema("batchport")
+        .from("countries")
+        .select("name")
+        .eq("code", code)
+        .maybeSingle<{ name: string }>()
+    : { data: null };
 
   const [initialWiki, p18, lists] = await Promise.all([
     fetchWikipediaSummary(name),
     getWikimediaPhoto(name),
-    Promise.all(
-      HIGHLIGHT_QUERIES(name).map((query) => photonHighlights(query, lat, lng)),
-    ),
+    hasCoords
+      ? Promise.all(
+          HIGHLIGHT_QUERIES(name).map((query) =>
+            photonHighlights(query, lat as number, lng as number),
+          ),
+        )
+      : Promise.resolve([] as DiscoverPoi[][]),
   ]);
   let wiki = initialWiki;
 
@@ -522,8 +533,13 @@ export async function getDiscoverCity(
   };
 
   // Skip caching fully empty results so a transient upstream failure does not
-  // pin an empty city view for 90 days.
-  if (result.summary || result.heroImageUrl || result.pois.length > 0) {
+  // pin an empty city view for 90 days. Coordinate-less lookups are not cached
+  // either: they have no highlights, and caching them would serve a degraded
+  // payload to a later request that does carry coordinates.
+  if (
+    hasCoords &&
+    (result.summary || result.heroImageUrl || result.pois.length > 0)
+  ) {
     await writeCache(CITY_PROVIDER, queryNorm, result);
   }
   return result;

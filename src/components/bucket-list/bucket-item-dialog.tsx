@@ -14,18 +14,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { LocationSearch } from "@/components/location-search";
 import { CountryCombobox } from "@/components/bucket-list/country-combobox";
 import { createBucketItem, updateBucketItem } from "@/lib/actions/bucket-list";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
-import { PRIORITY_OPTIONS } from "@/lib/bucket-format";
 import { cn } from "@/lib/utils";
 import type {
   BucketItem,
@@ -43,8 +36,6 @@ interface BucketItemDialogProps {
   isDemo: boolean;
   onSaved: () => void;
 }
-
-const NO_PRIORITY = "none";
 
 // The dialog keeps the open state; the form lives in a child so it mounts fresh
 // (and therefore resets from the current item) each time the dialog opens,
@@ -99,12 +90,12 @@ function BucketItemForm({
   );
   const [placeName, setPlaceName] = useState(item?.place_name ?? "");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
-    null,
-  );
-  const [priority, setPriority] = useState<string>(
-    item?.priority ? String(item.priority) : NO_PRIORITY,
+    item && item.lat !== null && item.lng !== null
+      ? { lat: item.lat, lng: item.lng }
+      : null,
   );
   const [targetDate, setTargetDate] = useState(item?.target_date ?? "");
+  const [notes, setNotes] = useState(item?.notes ?? "");
   const [submitting, setSubmitting] = useState(false);
 
   function handlePlaceChange(location: GeoLocation) {
@@ -135,8 +126,10 @@ function BucketItemForm({
       place_name: type === "place" ? placeName.trim() : null,
       lat: type === "place" ? coords?.lat ?? null : null,
       lng: type === "place" ? coords?.lng ?? null : null,
-      priority: priority === NO_PRIORITY ? null : Number(priority),
+      // Rank is set by dragging on the board; editing keeps the current rank.
+      priority: item?.priority ?? null,
       target_date: targetDate || null,
+      notes: notes.trim() || null,
     };
 
     setSubmitting(true);
@@ -215,32 +208,25 @@ function BucketItemForm({
         </>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="bucket-priority">Priority</Label>
-          <Select value={priority} onValueChange={setPriority}>
-            <SelectTrigger id="bucket-priority">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NO_PRIORITY}>No priority</SelectItem>
-              {PRIORITY_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={String(option.value)}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="bucket-target">Target date</Label>
-          <Input
-            id="bucket-target"
-            type="date"
-            value={targetDate}
-            onChange={(event) => setTargetDate(event.target.value)}
-          />
-        </div>
+      <div className="grid gap-2">
+        <Label htmlFor="bucket-target">Target date</Label>
+        <Input
+          id="bucket-target"
+          type="date"
+          value={targetDate}
+          onChange={(event) => setTargetDate(event.target.value)}
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="bucket-notes">Notes</Label>
+        <Textarea
+          id="bucket-notes"
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+          placeholder="Why this place? e.g., cherry blossom season, Anna's recommendation"
+          rows={3}
+        />
       </div>
 
       <DialogFooter>

@@ -9,7 +9,10 @@ import {
   getCountries,
 } from "@/lib/bucket-list";
 import { getTripOptions } from "@/lib/trips";
+import { getPhotosByIds } from "@/lib/photos-data";
+import { getPhotoUrl } from "@/lib/photos";
 import { BucketListBoard } from "@/components/bucket-list/bucket-list-board";
+import type { BucketTripCover } from "@/components/bucket-list/bucket-card";
 
 export const metadata = { title: "Bucket List" };
 
@@ -24,8 +27,30 @@ export default async function BucketListPage() {
     getTripOptions(),
   ]);
 
+  // Fulfilled cards prefer the fulfilling trip's cover photo (the memory)
+  // over the Wikimedia stock image. Resolve those covers in one query.
+  const coverPhotoIds = Array.from(
+    new Set(
+      items
+        .map((item) => item.fulfilled_trip_cover_photo_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  const coverPhotos = await getPhotosByIds(coverPhotoIds);
+  const photoById = new Map(coverPhotos.map((photo) => [photo.id, photo]));
+  const tripCovers: Record<string, BucketTripCover> = {};
+  for (const item of items) {
+    if (!item.fulfilled_trip_cover_photo_id) continue;
+    const photo = photoById.get(item.fulfilled_trip_cover_photo_id);
+    if (!photo) continue;
+    tripCovers[item.id] = {
+      url: getPhotoUrl(photo),
+      position: item.fulfilled_trip_cover_position,
+    };
+  }
+
   return (
-    <div className="mx-auto w-full max-w-4xl p-6 sm:p-8">
+    <div className="mx-auto w-full max-w-5xl p-6 sm:p-8">
       <Link
         href="/dashboard"
         className="mb-6 inline-flex items-center gap-1.5 text-sm text-foreground/60 transition-colors hover:text-foreground"
@@ -36,6 +61,7 @@ export default async function BucketListPage() {
 
       <BucketListBoard
         items={items}
+        tripCovers={tripCovers}
         countries={countries}
         trips={tripOptions}
         stats={stats}
