@@ -8,6 +8,7 @@ import {
   LandmarkIcon,
   PlaneIcon,
   PlusIcon,
+  SparklesIcon,
   TicketIcon,
   TreesIcon,
   WavesIcon,
@@ -21,7 +22,7 @@ import { startTripFromCityAction } from "@/lib/actions/trips";
 import { flagEmoji } from "@/lib/format";
 import { placeKey } from "@/lib/geo";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { SafeImage } from "@/components/photos/safe-image";
 import type {
   DiscoverCity,
@@ -61,6 +62,12 @@ interface DiscoveryPanelProps {
   bucketPlaceKeys?: string[];
   /** When set, the panel opens directly on this city's view. */
   initialCity?: DiscoveryCityTarget | null;
+  /**
+   * Anon and demo surfaces: replaces the mutation actions (bucket add, start
+   * trip) with a single request-access conversion link. The truthful "On your
+   * bucket list" state still shows; no server action is reachable.
+   */
+  readOnly?: boolean;
   onClose: () => void;
   /** Called after a successful bucket add so the parent can refresh map data. */
   onBucketAdded?: () => void;
@@ -91,6 +98,24 @@ function formatPopulation(population: number | null): string | null {
     return `${Math.round(population / 1_000)}K people`;
   }
   return `${population} people`;
+}
+
+// The one conversion treatment for read-only surfaces: styled like the primary
+// action it replaces, but linking out to the request-access site instead of
+// performing any write. Used identically for the country and city actions.
+function ConversionCta() {
+  return (
+    <a
+      href="https://www.batch-apps.com"
+      className={cn(
+        buttonVariants(),
+        "w-full bg-brand text-brand-foreground hover:bg-brand/90",
+      )}
+    >
+      <SparklesIcon />
+      Request access to save places
+    </a>
+  );
 }
 
 // Wikipedia extract with a ~4 line clamp and a Read more toggle.
@@ -222,6 +247,7 @@ function CountryBody({
   code,
   name,
   isOnBucketList,
+  readOnly,
   country,
   countryLoading,
   cities,
@@ -231,6 +257,7 @@ function CountryBody({
   code: string;
   name: string;
   isOnBucketList: boolean;
+  readOnly: boolean;
   country: DiscoverCountry | null;
   countryLoading: boolean;
   cities: DiscoverCity[] | null;
@@ -267,12 +294,14 @@ function CountryBody({
     <>
       <SummaryBlock summary={country?.summary ?? null} loading={countryLoading} />
 
-      <div className="mt-4">
+      <div className="mt-4 flex flex-col gap-2">
         {onList ? (
           <Button variant="secondary" className="w-full" disabled>
             <CheckIcon className="text-brand" />
             On your bucket list
           </Button>
+        ) : readOnly ? (
+          <ConversionCta />
         ) : (
           <Button
             onClick={handleAdd}
@@ -325,6 +354,7 @@ function CityBody({
   city,
   countryCode,
   isOnBucketList,
+  readOnly,
   onHeroLoaded,
   onBucketAdded,
 }: {
@@ -332,6 +362,7 @@ function CityBody({
   countryCode: string;
   /** Whether this city already matches a place-type bucket item. */
   isOnBucketList: boolean;
+  readOnly: boolean;
   /** Reports the city hero URL up so the shared shell hero can show it. */
   onHeroLoaded: (cityName: string, url: string | null) => void;
   onBucketAdded?: () => void;
@@ -412,34 +443,48 @@ function CityBody({
     <>
       <SummaryBlock summary={detail?.summary ?? null} loading={loading} />
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        {onList ? (
-          <Button variant="secondary" disabled>
-            <CheckIcon className="text-brand" />
-            On your list
-          </Button>
-        ) : (
+      {readOnly ? (
+        // Both mutation actions collapse into the one conversion treatment;
+        // the truthful bucket state keeps showing for the profile's own items.
+        <div className="mt-4 flex flex-col gap-2">
+          {onList ? (
+            <Button variant="secondary" className="w-full" disabled>
+              <CheckIcon className="text-brand" />
+              On your list
+            </Button>
+          ) : null}
+          <ConversionCta />
+        </div>
+      ) : (
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          {onList ? (
+            <Button variant="secondary" disabled>
+              <CheckIcon className="text-brand" />
+              On your list
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              onClick={handleAddPlace}
+              disabled={adding}
+            >
+              <PlusIcon />
+              {adding ? "Adding..." : "Bucket list"}
+            </Button>
+          )}
           <Button
-            variant="secondary"
-            onClick={handleAddPlace}
-            disabled={adding}
+            onClick={handleStartTrip}
+            disabled={starting || !hasCoords}
+            title={
+              hasCoords ? undefined : "This place was saved without coordinates"
+            }
+            className="bg-brand text-brand-foreground hover:bg-brand/90"
           >
-            <PlusIcon />
-            {adding ? "Adding..." : "Bucket list"}
+            <PlaneIcon />
+            {starting ? "Creating..." : "Start a trip"}
           </Button>
-        )}
-        <Button
-          onClick={handleStartTrip}
-          disabled={starting || !hasCoords}
-          title={
-            hasCoords ? undefined : "This place was saved without coordinates"
-          }
-          className="bg-brand text-brand-foreground hover:bg-brand/90"
-        >
-          <PlaneIcon />
-          {starting ? "Creating..." : "Start a trip"}
-        </Button>
-      </div>
+        </div>
+      )}
 
       <div className="mt-6">
         <h3 className="text-xs font-medium uppercase tracking-wide text-foreground/45">
@@ -486,6 +531,7 @@ export function DiscoveryPanel({
   isOnBucketList,
   bucketPlaceKeys = [],
   initialCity = null,
+  readOnly = false,
   onClose,
   onBucketAdded,
 }: DiscoveryPanelProps) {
@@ -633,6 +679,7 @@ export function DiscoveryPanel({
               isOnBucketList={bucketPlaceKeys.includes(
                 placeKey(cityView.name, code),
               )}
+              readOnly={readOnly}
               onHeroLoaded={(cityName, url) =>
                 setCityHeroes((current) =>
                   url ? { ...current, [cityName]: url } : current,
@@ -645,6 +692,7 @@ export function DiscoveryPanel({
               code={code}
               name={name}
               isOnBucketList={isOnBucketList}
+              readOnly={readOnly}
               country={country}
               countryLoading={countryLoading}
               cities={cities}

@@ -1,14 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { Globe, type GlobeDestination } from "@/components/map/globe";
+import {
+  Globe,
+  type GlobeDestination,
+  type GlobeCountrySelection,
+} from "@/components/map/globe";
+import {
+  CountryDrilldown,
+  groupByTrip,
+  type TripGroup,
+} from "@/components/map/country-drilldown";
+import { useDiscovery } from "@/components/discover/discovery-host";
+import {
+  GlobeSearch,
+  type GlobeSearchSelection,
+} from "@/components/discover/globe-search";
 import type { MapData } from "@/lib/map-data";
 
-// Read-only globe for the public share and demo surfaces. It reuses the existing
-// Globe with the user's data, minus any links into the protected app. Country
-// clicks fly the camera in but open nothing (the side panel and detail links
-// live only in the authenticated dashboard).
+// Globe for the public share and demo surfaces. Exploration works like the
+// dashboard (discovery on unvisited countries, drill-down with Explore on
+// visited ones, search), but strictly read-only: the page-level discovery host
+// runs in readOnly mode and the drill-down never links into protected routes.
 export function ShareGlobe({ data }: { data: MapData }) {
   const {
     destinations,
@@ -19,6 +33,15 @@ export function ShareGlobe({ data }: { data: MapData }) {
     arcs,
     stats,
   } = data;
+
+  const [selected, setSelected] = useState<GlobeCountrySelection | null>(null);
+  const { target: discoverTarget, open: openDiscover, close: closeDiscover } =
+    useDiscovery();
+  const [focus, setFocus] = useState<{
+    lat: number;
+    lng: number;
+    zoom?: number;
+  } | null>(null);
 
   const globeDestinations = useMemo<GlobeDestination[]>(
     () =>
@@ -41,8 +64,8 @@ export function ShareGlobe({ data }: { data: MapData }) {
     [destinations],
   );
 
-  // Bucket place pins are part of the profile story; without onExplorePlace
-  // their popups show the name only (no explore action on public surfaces).
+  // Bucket place pins are part of the profile story; their popup Explore
+  // opens the read-only discovery city view.
   const globeBucketPlaces = useMemo(
     () =>
       bucketPlaces
@@ -57,10 +80,36 @@ export function ShareGlobe({ data }: { data: MapData }) {
     [bucketPlaces],
   );
 
+  const selectedGroups = useMemo<TripGroup[]>(() => {
+    if (!selected) return [];
+    return groupByTrip(
+      destinations.filter((d) => d.countryCode === selected.code),
+    );
+  }, [selected, destinations]);
+
   const isEmpty = destinations.length === 0;
   const canReplay = destinations.some((d) => !d.planned);
   // The stats pill yields to the replay's own date and counter readout.
   const [replayActive, setReplayActive] = useState(false);
+
+  // Only one panel at a time: discovery opened from a bucket card below the
+  // globe also dismisses the drill-down. Render-time state reset (the React
+  // pattern for deriving state from props without an effect).
+  const [prevTarget, setPrevTarget] = useState(discoverTarget);
+  if (prevTarget !== discoverTarget) {
+    setPrevTarget(discoverTarget);
+    if (discoverTarget) setSelected(null);
+  }
+
+  // Escape dismisses the drill-down.
+  useEffect(() => {
+    if (!selected) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelected(null);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selected]);
 
   return (
     <div className="relative h-[45vh] min-h-[300px] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d] sm:h-[60vh] sm:min-h-[380px]">
@@ -71,12 +120,44 @@ export function ShareGlobe({ data }: { data: MapData }) {
         destinations={globeDestinations}
         arcs={arcs}
         bucketPlaces={globeBucketPlaces}
+        onExplorePlace={(place) => {
+          if (!place.countryCode) return;
+          setSelected(null);
+          openDiscover({
+            code: place.countryCode,
+            name: place.countryCode,
+            city: { name: place.name, lat: place.lat, lng: place.lng },
+          });
+        }}
+        focus={focus}
         autoRotate={false}
         fitToData={!isEmpty}
         enableCountryDrilldown
-        onCountrySelect={() => {}}
+        onCountrySelect={(selection) => {
+          setSelected(selection);
+          if (selection) closeDiscover();
+        }}
+        enableDiscovery
+        onDiscoverCountry={(selection) => {
+          if (selection) {
+            setSelected(null);
+            openDiscover({
+              code: selection.code,
+              name: selection.name,
+              city: null,
+            });
+          } else {
+            closeDiscover();
+          }
+        }}
         enableReplay={canReplay}
-        onReplayActiveChange={setReplayActive}
+        onReplayActiveChange={(active) => {
+          setReplayActive(active);
+          if (active) {
+            setSelected(null);
+            closeDiscover();
+          }
+        }}
       />
 
       {!isEmpty && !replayActive ? (
@@ -87,6 +168,42 @@ export function ShareGlobe({ data }: { data: MapData }) {
           {stats.destinations === 1 ? "destination" : "destinations"}
         </div>
       ) : null}
+
+      {/* Read-only drill-down: destination names without app links. */}
+      {selected ? (
+        <CountryDrilldown
+          selection={selected}
+          groups={selectedGroups}
+          linkDestinations={false}
+          onClose={() => setSelected(null)}
+          onExplore={() => {
+            const target = selected;
+            setSelected(null);
+            openDiscover({ code: target.code, name: target.name, city: null });
+          }}
+        />
+      ) : null}
+
+      {/* Search: explore any city or country by name. Hidden during replay. */}
+      {replayActive ? null : (
+        <div className="absolute right-4 top-4 z-30 flex justify-end">
+          <GlobeSearch
+            onSelect={(selection: GlobeSearchSelection) => {
+              setSelected(null);
+              openDiscover({
+                code: selection.code,
+                name: selection.countryName,
+                city: selection.city,
+              });
+              setFocus({
+                lat: selection.lat,
+                lng: selection.lng,
+                zoom: selection.city ? 5.5 : 3,
+              });
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

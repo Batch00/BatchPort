@@ -4,6 +4,10 @@ import { useMemo, useState } from "react";
 import { ChevronDownIcon } from "lucide-react";
 
 import { BucketCard } from "@/components/bucket-list/bucket-card";
+import {
+  bucketItemDiscoveryTarget,
+  useDiscovery,
+} from "@/components/discover/discovery-host";
 import { cn } from "@/lib/utils";
 import type { BucketItem } from "@/lib/bucket-list";
 import type { BucketCompletion } from "@/lib/stats-data";
@@ -12,7 +16,8 @@ import type { SharedBucketCover } from "@/lib/share-data";
 // The read-only bucket list on the share and demo surfaces: the same visual
 // card grid as the authenticated bucket page (BucketCard in readOnly mode),
 // with no mutations, no drag, no menus, and no links into protected routes.
-// Long lists start capped so the share page stays a tight story.
+// Clicking a card opens the page's read-only discovery host, so visitors can
+// explore the place. Long lists start capped so the share page stays tight.
 
 const PREVIEW_COUNT = 6;
 
@@ -32,20 +37,25 @@ function ExpandableGrid({
   ranked: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const { open } = useDiscovery();
   const visible = showAll ? items : items.slice(0, PREVIEW_COUNT);
 
   return (
     <>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {visible.map((item, index) => (
-          <BucketCard
-            key={item.id}
-            item={item}
-            rank={ranked ? index + 1 : null}
-            tripCover={tripCovers[item.id] ?? null}
-            readOnly
-          />
-        ))}
+        {visible.map((item, index) => {
+          const target = bucketItemDiscoveryTarget(item);
+          return (
+            <BucketCard
+              key={item.id}
+              item={item}
+              rank={ranked ? index + 1 : null}
+              tripCover={tripCovers[item.id] ?? null}
+              readOnly
+              onOpen={target ? () => open(target) : undefined}
+            />
+          );
+        })}
       </div>
       {items.length > PREVIEW_COUNT ? (
         <button

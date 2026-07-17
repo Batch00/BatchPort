@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ChevronDownIcon, PlusIcon } from "lucide-react";
@@ -33,24 +32,16 @@ import {
 } from "@/lib/actions/bucket-list";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { bucketItemName } from "@/lib/bucket-format";
-import { placeKey } from "@/lib/geo";
+import {
+  bucketItemDiscoveryTarget,
+  useDiscovery,
+} from "@/components/discover/discovery-host";
 import { cn } from "@/lib/utils";
 import type {
   BucketItem,
   BucketStats,
   CountryOption,
 } from "@/lib/bucket-list";
-import type { DiscoveryCityTarget } from "@/components/discover/discovery-panel";
-
-// Heavy panel (heroes, summaries, city grid), only mounted when a card is
-// opened; keep it out of the initial bucket page bundle.
-const DiscoveryPanel = dynamic(
-  () =>
-    import("@/components/discover/discovery-panel").then(
-      (module) => module.DiscoveryPanel,
-    ),
-  { ssr: false },
-);
 
 interface BucketListBoardProps {
   items: BucketItem[];
@@ -60,13 +51,6 @@ interface BucketListBoardProps {
   trips: TripOption[];
   stats: BucketStats | null;
   isDemo: boolean;
-}
-
-/** What the discovery panel is pointed at when a card is opened. */
-interface DiscoverTarget {
-  code: string;
-  name: string;
-  city: DiscoveryCityTarget | null;
 }
 
 const COMPLETED_PREVIEW_COUNT = 6;
@@ -92,7 +76,8 @@ export function BucketListBoard({
   const [busy, setBusy] = useState(false);
 
   const [showAllCompleted, setShowAllCompleted] = useState(false);
-  const [discover, setDiscover] = useState<DiscoverTarget | null>(null);
+  // The page-level discovery host renders the panel; the board only opens it.
+  const { open: openDiscover } = useDiscovery();
 
   const toVisit = useMemo(
     () => items.filter((item) => !item.fulfilled_at),
@@ -108,25 +93,6 @@ export function BucketListBoard({
     [items],
   );
   const pct = stats?.completion_pct ?? 0;
-
-  // Identities for the discovery panel's "on your bucket list" states: place
-  // keys for city views, country codes for country views (a place item's
-  // country is not itself on the list unless added separately).
-  const bucketPlaceKeys = useMemo(
-    () =>
-      toVisit
-        .filter((item) => item.type === "place" && item.place_name)
-        .map((item) => placeKey(item.place_name as string, item.country_code)),
-    [toVisit],
-  );
-  const bucketCountryCodes = useMemo(
-    () =>
-      toVisit
-        .filter((item) => item.type === "country")
-        .map((item) => item.country_code)
-        .filter((code): code is string => Boolean(code)),
-    [toVisit],
-  );
 
   // --- Drag-to-rank (pointer events, mirroring the photo gallery reorder:
   // mouse drags start after a movement threshold so clicks still open
@@ -364,21 +330,8 @@ export function BucketListBoard({
   // Clicking a card opens discovery: country items on the country view, place
   // items straight on the city view (with stored coordinates when present).
   function openDiscovery(item: BucketItem) {
-    if (item.type === "country") {
-      if (!item.country_code) return;
-      setDiscover({
-        code: item.country_code,
-        name: item.country_name ?? item.country_code,
-        city: null,
-      });
-      return;
-    }
-    if (!item.place_name) return;
-    setDiscover({
-      code: item.country_code ?? "",
-      name: item.country_name ?? item.country_code ?? "",
-      city: { name: item.place_name, lat: item.lat, lng: item.lng },
-    });
+    const target = bucketItemDiscoveryTarget(item);
+    if (target) openDiscover(target);
   }
 
   const visibleCompleted = showAllCompleted
@@ -544,31 +497,6 @@ export function BucketListBoard({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Discovery panel, hosted outside the globe: the positioned wrapper
-          gives the panel's sm:absolute layout a viewport-sized container, and
-          clicking the empty area dismisses it. */}
-      {discover ? (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setDiscover(null)}
-        >
-          <div
-            className="contents"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <DiscoveryPanel
-              key={`${discover.code}:${discover.city?.name ?? ""}`}
-              code={discover.code}
-              name={discover.name}
-              isOnBucketList={bucketCountryCodes.includes(discover.code)}
-              bucketPlaceKeys={bucketPlaceKeys}
-              initialCity={discover.city}
-              onClose={() => setDiscover(null)}
-              onBucketAdded={() => router.refresh()}
-            />
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

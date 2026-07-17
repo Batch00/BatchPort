@@ -44,8 +44,9 @@ interface BucketCardProps {
   tripCover?: BucketTripCover | null;
   dragging?: boolean;
   /**
-   * Share/demo rendering: no click target, no corner menu, and the fulfilling
-   * trip renders as plain text instead of a link into the authenticated app.
+   * Share/demo rendering: no corner menu, and the fulfilling trip renders as
+   * plain text instead of a link into the authenticated app. The card is still
+   * clickable when onOpen is provided (read-only discovery).
    */
   readOnly?: boolean;
   onOpen?: () => void;
@@ -136,23 +137,23 @@ export function BucketCard({
 
   return (
     <div
-      role={readOnly ? undefined : "button"}
-      tabIndex={readOnly ? undefined : 0}
-      aria-label={readOnly ? undefined : `Explore ${name}`}
-      onClick={readOnly ? undefined : onOpen}
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      aria-label={onOpen ? `Explore ${name}` : undefined}
+      onClick={onOpen}
       onKeyDown={
-        readOnly
-          ? undefined
-          : (event) => {
+        onOpen
+          ? (event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                onOpen?.();
+                onOpen();
               }
             }
+          : undefined
       }
       className={cn(
         "group relative isolate aspect-video overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10",
-        !readOnly &&
+        onOpen &&
           "cursor-pointer transition-all hover:ring-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60",
         dragging && "opacity-60 ring-2 ring-brand",
       )}

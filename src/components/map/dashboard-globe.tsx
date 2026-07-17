@@ -3,77 +3,25 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  XIcon,
-  MapPinIcon,
-  PlusIcon,
-  BarChart3Icon,
-  CompassIcon,
-} from "lucide-react";
+import { PlusIcon, BarChart3Icon } from "lucide-react";
 
 import {
   Globe,
   type GlobeDestination,
   type GlobeCountrySelection,
 } from "./globe";
-import type { MapData, MapDestination } from "@/lib/map-data";
-import { flagEmoji, formatDateRange } from "@/lib/format";
-import { placeKey } from "@/lib/geo";
+import { CountryDrilldown, groupByTrip, type TripGroup } from "./country-drilldown";
+import type { MapData } from "@/lib/map-data";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import dynamic from "next/dynamic";
-
-import type { DiscoveryCityTarget } from "@/components/discover/discovery-panel";
+import { useDiscovery } from "@/components/discover/discovery-host";
 import {
   GlobeSearch,
   type GlobeSearchSelection,
 } from "@/components/discover/globe-search";
 
-// The discovery panel (hero, summaries, city grid) only mounts on demand, so
-// it stays out of the initial dashboard bundle.
-const DiscoveryPanel = dynamic(
-  () =>
-    import("@/components/discover/discovery-panel").then(
-      (module) => module.DiscoveryPanel,
-    ),
-  { ssr: false },
-);
-
 interface DashboardGlobeProps {
   data: MapData;
-}
-
-interface TripGroup {
-  tripId: string;
-  tripName: string;
-  destinations: MapDestination[];
-}
-
-// What the discovery panel is pointed at: a country, optionally opened straight
-// onto one of its cities (from a search result).
-interface DiscoverTarget {
-  code: string;
-  name: string;
-  city: DiscoveryCityTarget | null;
-}
-
-// Group the selected country's destinations by trip, preserving the order they
-// arrive in (already sorted by trip start date, then visit order).
-function groupByTrip(destinations: MapDestination[]): TripGroup[] {
-  const groups = new Map<string, TripGroup>();
-  for (const destination of destinations) {
-    const existing = groups.get(destination.tripId);
-    if (existing) {
-      existing.destinations.push(destination);
-    } else {
-      groups.set(destination.tripId, {
-        tripId: destination.tripId,
-        tripName: destination.tripName,
-        destinations: [destination],
-      });
-    }
-  }
-  return Array.from(groups.values());
 }
 
 export function DashboardGlobe({ data }: DashboardGlobeProps) {
@@ -87,10 +35,10 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
     stats,
   } = data;
   const [selected, setSelected] = useState<GlobeCountrySelection | null>(null);
-  // Discovery panel target: a country picked on the globe, from the drill-down's
-  // Explore button, or from search (optionally landing straight on a city view).
-  // Only one panel is open at a time, so opening either closes the other.
-  const [discover, setDiscover] = useState<DiscoverTarget | null>(null);
+  // The page-level discovery host: globe clicks, search, the drill-down's
+  // Explore button, and the dashboard bucket cards all open the same panel.
+  const { target: discoverTarget, open: openDiscover, close: closeDiscover } =
+    useDiscovery();
   // Camera fly-to target, set when a search result opens discovery so the map
   // travels to what the panel is showing.
   const [focus, setFocus] = useState<{
@@ -131,13 +79,6 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
     [destinations],
   );
 
-  // Stable identity so the discovery panel does not re-render on unrelated
-  // dashboard state changes.
-  const bucketPlaceKeys = useMemo(
-    () => bucketPlaces.map((place) => placeKey(place.name, place.countryCode)),
-    [bucketPlaces],
-  );
-
   // Amber pins need coordinates; items saved without them stay list-only.
   const globeBucketPlaces = useMemo(
     () =>
@@ -159,6 +100,15 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
       destinations.filter((d) => d.countryCode === selected.code),
     );
   }, [selected, destinations]);
+
+  // Only one panel at a time: discovery opened elsewhere on the page (a bucket
+  // card below the globe) also dismisses the drill-down. Render-time state
+  // reset (the React pattern for deriving state from props without an effect).
+  const [prevTarget, setPrevTarget] = useState(discoverTarget);
+  if (prevTarget !== discoverTarget) {
+    setPrevTarget(discoverTarget);
+    if (discoverTarget) setSelected(null);
+  }
 
   // Escape dismisses the drill-down.
   useEffect(() => {
@@ -182,7 +132,7 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
         onExplorePlace={(place) => {
           if (!place.countryCode) return;
           setSelected(null);
-          setDiscover({
+          openDiscover({
             code: place.countryCode,
             // Placeholder until the country fetch supplies the display name.
             name: place.countryCode,
@@ -196,16 +146,20 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
         enableCountryDrilldown
         onCountrySelect={(selection) => {
           setSelected(selection);
-          if (selection) setDiscover(null);
+          if (selection) closeDiscover();
         }}
         enableDiscovery
         onDiscoverCountry={(selection) => {
-          setDiscover(
-            selection
-              ? { code: selection.code, name: selection.name, city: null }
-              : null,
-          );
-          if (selection) setSelected(null);
+          if (selection) {
+            setSelected(null);
+            openDiscover({
+              code: selection.code,
+              name: selection.name,
+              city: null,
+            });
+          } else {
+            closeDiscover();
+          }
         }}
         onRefresh={() => startRefresh(() => router.refresh())}
         refreshing={refreshing}
@@ -214,7 +168,7 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
           setReplayActive(active);
           if (active) {
             setSelected(null);
-            setDiscover(null);
+            closeDiscover();
           }
         }}
       />
@@ -263,97 +217,17 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
 
       {/* Country drill-down panel */}
       {selected ? (
-        <div className="absolute inset-y-0 right-0 z-30 flex w-80 max-w-[85%] flex-col border-l border-white/10 bg-black/85 shadow-2xl backdrop-blur-md">
-          <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
-            <div className="min-w-0">
-              <h2 className="flex items-center gap-2 truncate text-base font-semibold tracking-tight">
-                <span>{flagEmoji(selected.code)}</span>
-                <span className="truncate">{selected.name}</span>
-              </h2>
-              <p className="mt-0.5 text-xs text-foreground/50">
-                {selectedGroups.reduce((sum, g) => sum + g.destinations.length, 0)}{" "}
-                {selectedGroups.reduce((sum, g) => sum + g.destinations.length, 0) ===
-                1
-                  ? "destination"
-                  : "destinations"}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSelected(null)}
-              aria-label="Close"
-              className="-m-2 rounded-md p-2.5 text-foreground/60 transition-colors hover:bg-white/5 hover:text-foreground"
-            >
-              <XIcon className="size-4" />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-5 py-4">
-            {selectedGroups.length === 0 ? (
-              <p className="text-sm text-foreground/50">
-                No destinations in this country.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-5">
-                {selectedGroups.map((group) => (
-                  <div key={group.tripId} className="flex flex-col gap-2">
-                    <h3 className="text-xs font-medium uppercase tracking-wide text-foreground/45">
-                      {group.tripName}
-                    </h3>
-                    <ul className="flex flex-col gap-1">
-                      {group.destinations.map((destination) => (
-                        <li key={destination.id}>
-                          <Link
-                            href={`/trips/${destination.tripId}/destinations/${destination.id}`}
-                            className="group flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5"
-                          >
-                            <MapPinIcon className="mt-0.5 size-3.5 shrink-0 text-brand" />
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm text-foreground/90 group-hover:text-foreground">
-                                {destination.name}
-                              </span>
-                              {formatDateRange(
-                                destination.arrivalDate,
-                                destination.departureDate,
-                              ) ? (
-                                <span className="block truncate text-xs text-foreground/45">
-                                  {formatDateRange(
-                                    destination.arrivalDate,
-                                    destination.departureDate,
-                                  )}
-                                </span>
-                              ) : null}
-                            </span>
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Switch to the discovery view for this country. */}
-          <div className="border-t border-white/10 px-4 py-3">
-            <button
-              type="button"
-              onClick={() => {
-                const target = selected;
-                setSelected(null);
-                setDiscover({
-                  code: target.code,
-                  name: target.name,
-                  city: null,
-                });
-              }}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-brand/30 bg-brand/15 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-brand/25"
-            >
-              <CompassIcon className="size-4 text-brand" />
-              Explore {selected.name}
-            </button>
-          </div>
-        </div>
+        <CountryDrilldown
+          selection={selected}
+          groups={selectedGroups}
+          linkDestinations
+          onClose={() => setSelected(null)}
+          onExplore={() => {
+            const target = selected;
+            setSelected(null);
+            openDiscover({ code: target.code, name: target.name, city: null });
+          }}
+        />
       ) : null}
 
       {/* Search: explore any city or country by name. z-30 keeps the expanded
@@ -363,7 +237,7 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
           <GlobeSearch
             onSelect={(selection: GlobeSearchSelection) => {
               setSelected(null);
-              setDiscover({
+              openDiscover({
                 code: selection.code,
                 name: selection.countryName,
                 city: selection.city,
@@ -378,20 +252,6 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
           />
         </div>
       )}
-
-      {/* Discovery panel */}
-      {discover ? (
-        <DiscoveryPanel
-          key={`${discover.code}:${discover.city?.name ?? ""}`}
-          code={discover.code}
-          name={discover.name}
-          isOnBucketList={bucketCountryCodes.includes(discover.code)}
-          bucketPlaceKeys={bucketPlaceKeys}
-          initialCity={discover.city}
-          onClose={() => setDiscover(null)}
-          onBucketAdded={() => startRefresh(() => router.refresh())}
-        />
-      ) : null}
     </div>
   );
 }
