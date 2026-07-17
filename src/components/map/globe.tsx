@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./map.css";
@@ -11,7 +11,6 @@ import type {
   Popup as MlPopup,
   StyleSpecification,
   RasterSourceSpecification,
-  FilterSpecification,
   LngLatBoundsLike,
   GeoJSONFeature,
   GeoJSONSource,
@@ -20,7 +19,19 @@ import type {
 import type { FeatureCollection, LineString, Point } from "geojson";
 
 import { flagEmoji, formatDateRange } from "@/lib/format";
+import { boundsOfPoints, greatCirclePoints } from "@/lib/geo";
+import { buildReplayTimeline } from "@/lib/replay";
 import { MapControls } from "./projection-toggle";
+import {
+  VISITED_BORDER,
+  boundsOfFeature,
+  hexToRgb,
+  matchFilter,
+  readBrandHex,
+  rgbToHex,
+} from "./map-utils";
+import { ReplayControls } from "./replay-controls";
+import { useReplay } from "./use-replay";
 
 type Projection = "globe" | "mercator";
 
@@ -42,6 +53,10 @@ export interface GlobeDestination {
   categoryColor: string | null;
   /** Planned-trip stops render hollow (dark core, no glow). Default false. */
   planned?: boolean;
+  /** Trip dates and visit order, used by the replay timeline when enabled. */
+  tripStartDate?: string | null;
+  tripEndDate?: string | null;
+  orderIndex?: number;
 }
 
 /** A great-circle leg between two consecutive stops on a trip. */
@@ -101,10 +116,12 @@ export interface GlobeProps {
   /** When provided, shows a refresh control that re-fetches the map data. */
   onRefresh?: () => void;
   refreshing?: boolean;
+  /** Show the Replay control and enable timeline playback. Default false. */
+  enableReplay?: boolean;
+  /** Fired when replay mode starts or ends, so hosts can hide their overlays. */
+  onReplayActiveChange?: (active: boolean) => void;
 }
 
-const BRAND_FALLBACK = "#2563eb";
-const VISITED_BORDER = "#4a8af5";
 // Dim amber for "want to visit" countries: distinct from visited (blue) and
 // unvisited (dark gray) without competing with the brand accent.
 const BUCKET_FILL = "#b45309";
@@ -120,112 +137,8 @@ const PIN_RADIUS_HOVER = 8.5;
 // Intermediate points per arc, so the line follows the great circle smoothly.
 const ARC_SEGMENTS = 48;
 
-// Match expression comparing ISO_A2_EH against a code list.
-function matchFilter(codes: string[]): FilterSpecification {
-  return [
-    "match",
-    ["get", "ISO_A2_EH"],
-    codes.length > 0 ? codes : [" "],
-    true,
-    false,
-  ] as unknown as FilterSpecification;
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  let value = hex.trim().replace("#", "");
-  if (value.length === 3) {
-    value = value
-      .split("")
-      .map((c) => c + c)
-      .join("");
-  }
-  const int = Number.parseInt(value, 16);
-  if (Number.isNaN(int) || value.length !== 6) return hexToRgb(BRAND_FALLBACK);
-  return [(int >> 16) & 255, (int >> 8) & 255, int & 255];
-}
-
-function rgbToHex([r, g, b]: [number, number, number]): string {
-  const channel = (c: number) =>
-    Math.max(0, Math.min(255, Math.round(c)))
-      .toString(16)
-      .padStart(2, "0");
-  return `#${channel(r)}${channel(g)}${channel(b)}`;
-}
-
-/** The brand colour as a hex string, read from CSS so it tracks the theme. */
-function readBrandHex(): string {
-  if (typeof window === "undefined") return BRAND_FALLBACK;
-  const fromCss = getComputedStyle(document.documentElement)
-    .getPropertyValue("--brand")
-    .trim();
-  if (!fromCss) return BRAND_FALLBACK;
-  if (fromCss.startsWith("#")) return rgbToHex(hexToRgb(fromCss));
-  return fromCss;
-}
-
 function wrapLng(lng: number): number {
   return ((((lng + 180) % 360) + 360) % 360) - 180;
-}
-
-function toRad(deg: number): number {
-  return (deg * Math.PI) / 180;
-}
-
-function toDeg(rad: number): number {
-  return (rad * 180) / Math.PI;
-}
-
-// Spherical interpolation of the great-circle path between two lng/lat points.
-// Longitudes are unwrapped so the line stays continuous across the antimeridian.
-function greatCirclePoints(
-  a: [number, number],
-  b: [number, number],
-  segments: number,
-): [number, number][] {
-  const lng1 = toRad(a[0]);
-  const lat1 = toRad(a[1]);
-  const lng2 = toRad(b[0]);
-  const lat2 = toRad(b[1]);
-
-  const d =
-    2 *
-    Math.asin(
-      Math.sqrt(
-        Math.sin((lat2 - lat1) / 2) ** 2 +
-          Math.cos(lat1) * Math.cos(lat2) * Math.sin((lng2 - lng1) / 2) ** 2,
-      ),
-    );
-
-  if (d === 0 || Number.isNaN(d)) {
-    return [
-      [a[0], a[1]],
-      [b[0], b[1]],
-    ];
-  }
-
-  const points: [number, number][] = [];
-  let prevLng: number | null = null;
-  for (let i = 0; i <= segments; i += 1) {
-    const f = i / segments;
-    const aCoef = Math.sin((1 - f) * d) / Math.sin(d);
-    const bCoef = Math.sin(f * d) / Math.sin(d);
-    const x =
-      aCoef * Math.cos(lat1) * Math.cos(lng1) +
-      bCoef * Math.cos(lat2) * Math.cos(lng2);
-    const y =
-      aCoef * Math.cos(lat1) * Math.sin(lng1) +
-      bCoef * Math.cos(lat2) * Math.sin(lng2);
-    const z = aCoef * Math.sin(lat1) + bCoef * Math.sin(lat2);
-    const lat = toDeg(Math.atan2(z, Math.sqrt(x * x + y * y)));
-    let lng = toDeg(Math.atan2(y, x));
-    if (prevLng !== null) {
-      while (lng - prevLng > 180) lng -= 360;
-      while (lng - prevLng < -180) lng += 360;
-    }
-    prevLng = lng;
-    points.push([lng, lat]);
-  }
-  return points;
 }
 
 function destinationsFC(
@@ -298,45 +211,6 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Bounding box [minLng, minLat, maxLng, maxLat] of a set of [lng, lat] pairs. */
-function boundsOfPoints(
-  points: [number, number][],
-): [number, number, number, number] | null {
-  if (points.length === 0) return null;
-  let minLng = Infinity;
-  let minLat = Infinity;
-  let maxLng = -Infinity;
-  let maxLat = -Infinity;
-  for (const [lng, lat] of points) {
-    if (lng < minLng) minLng = lng;
-    if (lat < minLat) minLat = lat;
-    if (lng > maxLng) maxLng = lng;
-    if (lat > maxLat) maxLat = lat;
-  }
-  return [minLng, minLat, maxLng, maxLat];
-}
-
-/** Bounding box of a clicked country feature's polygon geometry. */
-function boundsOfFeature(
-  feature: GeoJSONFeature,
-): [number, number, number, number] | null {
-  const geometry = feature.geometry;
-  const points: [number, number][] = [];
-  const collectRing = (ring: number[][]) => {
-    for (const position of ring) {
-      points.push([position[0], position[1]]);
-    }
-  };
-  if (geometry.type === "Polygon") {
-    for (const ring of geometry.coordinates) collectRing(ring as number[][]);
-  } else if (geometry.type === "MultiPolygon") {
-    for (const polygon of geometry.coordinates) {
-      for (const ring of polygon) collectRing(ring as number[][]);
-    }
-  }
-  return boundsOfPoints(points);
-}
-
 /**
  * Inject the PMTiles raster basemap into the dark style. Assumes a raster
  * PMTiles archive, which is schema agnostic and needs no key.
@@ -384,6 +258,8 @@ export function Globe({
   onDiscoverCountry,
   onRefresh,
   refreshing = false,
+  enableReplay = false,
+  onReplayActiveChange,
 }: GlobeProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -391,6 +267,30 @@ export function Globe({
   const mapRef = useRef<MlMap | null>(null);
   const loadedRef = useRef(false);
   const [projection, setProjection] = useState<Projection>("globe");
+  // Mirrors the projection state for the replay engine (restore on exit).
+  const projectionRef = useRef<Projection>("globe");
+  // Read by the map's hover/click handlers so interactions go inert in replay.
+  const replayActiveRef = useRef(false);
+
+  const replayTimeline = useMemo(
+    () => (enableReplay ? buildReplayTimeline(destinations) : null),
+    [enableReplay, destinations],
+  );
+
+  function applyProjection(next: Projection) {
+    mapRef.current?.setProjection({ type: next });
+    projectionRef.current = next;
+    setProjection(next);
+  }
+
+  const replay = useReplay({
+    mapRef,
+    timeline: replayTimeline,
+    projectionRef,
+    applyProjection,
+    activeRef: replayActiveRef,
+    onActiveChange: onReplayActiveChange,
+  });
 
   // Mirror the latest props so the one-time map effect always reads fresh
   // values without rebuilding the map.
@@ -481,11 +381,8 @@ export function Globe({
   }, [visitedCountryCodes, bucketCountryCodes, plannedCountryCodes]);
 
   function handleToggle() {
-    const map = mapRef.current;
-    if (!map) return;
-    const next: Projection = projection === "globe" ? "mercator" : "globe";
-    map.setProjection({ type: next });
-    setProjection(next);
+    if (!mapRef.current) return;
+    applyProjection(projection === "globe" ? "mercator" : "globe");
   }
 
   function fitToDestinations(duration: number) {
@@ -687,6 +584,15 @@ export function Globe({
     function onMouseMove(event: MapMouseEvent) {
       if (!map) return;
 
+      // Replay mode: the globe is a stage, not a control surface.
+      if (replayActiveRef.current) {
+        clearPinHover();
+        clearCountryHover();
+        hideTooltip();
+        map.getCanvas().style.cursor = "";
+        return;
+      }
+
       // Pins (destination and bucket place) win over country hover.
       const pinLayers = ["pins", "bucket-pins"].filter((layer) =>
         map?.getLayer(layer),
@@ -796,6 +702,9 @@ export function Globe({
     function onMapClick(event: MapMouseEvent) {
       if (!map) return;
 
+      // Country clicks and pin popups are inert during replay.
+      if (replayActiveRef.current) return;
+
       // A click on a pin opens its popup and never doubles as a country select.
       const pinLayers = ["pins", "bucket-pins"].filter((layer) =>
         map?.getLayer(layer),
@@ -872,6 +781,7 @@ export function Globe({
       if (!map) return;
       if (
         dataRef.current.autoRotate &&
+        !replayActiveRef.current &&
         lastFrame > 0 &&
         now - lastInteraction > IDLE_BEFORE_RESUME_MS
       ) {
@@ -1202,15 +1112,32 @@ export function Globe({
         ref={tooltipRef}
         className="pointer-events-none absolute left-0 top-0 z-20 hidden rounded-md border border-white/10 bg-black/80 px-2 py-1 text-xs font-medium text-foreground/90 shadow-md backdrop-blur-sm"
       />
-      <MapControls
-        projection={projection}
-        onToggle={handleToggle}
-        onRecenter={
-          destinations.length > 0 ? () => fitToDestinations(900) : undefined
-        }
-        onRefresh={onRefresh}
-        refreshing={refreshing}
-      />
+      {!replay.active ? (
+        <MapControls
+          projection={projection}
+          onToggle={handleToggle}
+          onRecenter={
+            destinations.length > 0 ? () => fitToDestinations(900) : undefined
+          }
+          onRefresh={onRefresh}
+          refreshing={refreshing}
+          onReplay={replayTimeline ? replay.enter : undefined}
+        />
+      ) : (
+        <ReplayControls
+          playing={replay.playing}
+          ended={replay.ended}
+          speed={replay.speed}
+          attach={replay.attach}
+          onTogglePlay={replay.togglePlay}
+          onToggleSpeed={replay.toggleSpeed}
+          onRestart={replay.restart}
+          onExit={replay.exit}
+          onScrubStart={replay.scrubStart}
+          onScrub={replay.scrubMove}
+          onScrubEnd={replay.scrubEnd}
+        />
+      )}
     </div>
   );
 }

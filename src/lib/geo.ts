@@ -43,6 +43,86 @@ export function placeKey(name: string, countryCode: string | null): string {
   return `${normalized}|${countryCode?.toUpperCase() ?? ""}`;
 }
 
+function toRad(deg: number): number {
+  return (deg * Math.PI) / 180;
+}
+
+function toDeg(rad: number): number {
+  return (rad * 180) / Math.PI;
+}
+
+// Spherical interpolation of the great-circle path between two lng/lat points.
+// Longitudes are unwrapped so the line stays continuous across the antimeridian.
+// Positions are [lng, lat] (GeoJSON order).
+export function greatCirclePoints(
+  a: [number, number],
+  b: [number, number],
+  segments: number,
+): [number, number][] {
+  const lng1 = toRad(a[0]);
+  const lat1 = toRad(a[1]);
+  const lng2 = toRad(b[0]);
+  const lat2 = toRad(b[1]);
+
+  const d =
+    2 *
+    Math.asin(
+      Math.sqrt(
+        Math.sin((lat2 - lat1) / 2) ** 2 +
+          Math.cos(lat1) * Math.cos(lat2) * Math.sin((lng2 - lng1) / 2) ** 2,
+      ),
+    );
+
+  if (d === 0 || Number.isNaN(d)) {
+    return [
+      [a[0], a[1]],
+      [b[0], b[1]],
+    ];
+  }
+
+  const points: [number, number][] = [];
+  let prevLng: number | null = null;
+  for (let i = 0; i <= segments; i += 1) {
+    const f = i / segments;
+    const aCoef = Math.sin((1 - f) * d) / Math.sin(d);
+    const bCoef = Math.sin(f * d) / Math.sin(d);
+    const x =
+      aCoef * Math.cos(lat1) * Math.cos(lng1) +
+      bCoef * Math.cos(lat2) * Math.cos(lng2);
+    const y =
+      aCoef * Math.cos(lat1) * Math.sin(lng1) +
+      bCoef * Math.cos(lat2) * Math.sin(lng2);
+    const z = aCoef * Math.sin(lat1) + bCoef * Math.sin(lat2);
+    const lat = toDeg(Math.atan2(z, Math.sqrt(x * x + y * y)));
+    let lng = toDeg(Math.atan2(y, x));
+    if (prevLng !== null) {
+      while (lng - prevLng > 180) lng -= 360;
+      while (lng - prevLng < -180) lng += 360;
+    }
+    prevLng = lng;
+    points.push([lng, lat]);
+  }
+  return points;
+}
+
+/** Bounding box [minLng, minLat, maxLng, maxLat] of a set of [lng, lat] pairs. */
+export function boundsOfPoints(
+  points: [number, number][],
+): [number, number, number, number] | null {
+  if (points.length === 0) return null;
+  let minLng = Infinity;
+  let minLat = Infinity;
+  let maxLng = -Infinity;
+  let maxLat = -Infinity;
+  for (const [lng, lat] of points) {
+    if (lng < minLng) minLng = lng;
+    if (lat < minLat) minLat = lat;
+    if (lng > maxLng) maxLng = lng;
+    if (lat > maxLat) maxLat = lat;
+  }
+  return [minLng, minLat, maxLng, maxLat];
+}
+
 const EARTH_RADIUS_KM = 6371;
 
 // Great-circle distance between two lat/lng points in kilometers.

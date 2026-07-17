@@ -4,6 +4,7 @@ import {
   Globe2,
   LocateFixedIcon,
   Map as MapIcon,
+  PlayIcon,
   RefreshCwIcon,
 } from "lucide-react";
 
@@ -17,6 +18,8 @@ interface MapControlsProps {
   // When provided, shows a refresh button that re-fetches the map data.
   onRefresh?: () => void;
   refreshing?: boolean;
+  // When provided, shows a replay button that starts the timeline playback.
+  onReplay?: () => void;
 }
 
 const BUTTON_CLASS =
@@ -31,12 +34,24 @@ export function MapControls({
   onRecenter,
   onRefresh,
   refreshing = false,
+  onReplay,
 }: MapControlsProps) {
   const isGlobe = projection === "globe";
   const toggleLabel = isGlobe ? "Switch to flat map" : "Switch to globe";
 
   return (
     <div className="absolute right-4 bottom-10 z-20 flex flex-col gap-2">
+      {onReplay ? (
+        <button
+          type="button"
+          onClick={onReplay}
+          aria-label="Replay your travel history"
+          title="Replay"
+          className={BUTTON_CLASS}
+        >
+          <PlayIcon className="size-5 translate-x-px" />
+        </button>
+      ) : null}
       {onRefresh ? (
         <button
           type="button"

@@ -103,8 +103,12 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
   // without a full page reload. The transition keeps the spinner going until
   // the refreshed payload has streamed in.
   const [refreshing, startRefresh] = useTransition();
+  // While the replay runs, the dashboard chrome (stats pills, search, panels)
+  // steps aside so the globe tells the story alone.
+  const [replayActive, setReplayActive] = useState(false);
 
   const isEmpty = destinations.length === 0;
+  const canReplay = destinations.some((d) => !d.planned);
 
   const globeDestinations = useMemo<GlobeDestination[]>(
     () =>
@@ -120,6 +124,9 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
         departureDate: d.departureDate,
         categoryColor: d.category?.color ?? null,
         planned: d.planned,
+        tripStartDate: d.tripStartDate,
+        tripEndDate: d.tripEndDate,
+        orderIndex: d.orderIndex,
       })),
     [destinations],
   );
@@ -202,11 +209,20 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
         }}
         onRefresh={() => startRefresh(() => router.refresh())}
         refreshing={refreshing}
+        enableReplay={canReplay}
+        onReplayActiveChange={(active) => {
+          setReplayActive(active);
+          if (active) {
+            setSelected(null);
+            setDiscover(null);
+          }
+        }}
       />
 
       {/* Stats overlay. Wraps within the card on narrow screens so the pills
-          never push past the globe's edge. */}
-      {!isEmpty ? (
+          never push past the globe's edge. Hidden during replay, which brings
+          its own readout. */}
+      {!isEmpty && !replayActive ? (
         <div className="absolute left-4 right-4 top-4 z-20 flex flex-wrap items-center gap-2 pr-14">
           <div className="pointer-events-none rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md">
             {stats.countries} {stats.countries === 1 ? "country" : "countries"},{" "}
@@ -341,25 +357,27 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
       ) : null}
 
       {/* Search: explore any city or country by name. z-30 keeps the expanded
-          dropdown above the stats pills. */}
-      <div className="absolute right-4 top-4 z-30 flex justify-end">
-        <GlobeSearch
-          onSelect={(selection: GlobeSearchSelection) => {
-            setSelected(null);
-            setDiscover({
-              code: selection.code,
-              name: selection.countryName,
-              city: selection.city,
-            });
-            // Fly the camera to the result so the globe matches the panel.
-            setFocus({
-              lat: selection.lat,
-              lng: selection.lng,
-              zoom: selection.city ? 5.5 : 3,
-            });
-          }}
-        />
-      </div>
+          dropdown above the stats pills. Hidden during replay. */}
+      {replayActive ? null : (
+        <div className="absolute right-4 top-4 z-30 flex justify-end">
+          <GlobeSearch
+            onSelect={(selection: GlobeSearchSelection) => {
+              setSelected(null);
+              setDiscover({
+                code: selection.code,
+                name: selection.countryName,
+                city: selection.city,
+              });
+              // Fly the camera to the result so the globe matches the panel.
+              setFocus({
+                lat: selection.lat,
+                lng: selection.lng,
+                zoom: selection.city ? 5.5 : 3,
+              });
+            }}
+          />
+        </div>
+      )}
 
       {/* Discovery panel */}
       {discover ? (

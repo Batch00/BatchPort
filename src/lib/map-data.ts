@@ -19,6 +19,7 @@ export interface MapDestination {
   tripId: string;
   tripName: string;
   tripStartDate: string | null;
+  tripEndDate: string | null;
   /** True when the owning trip is still in the planned state. */
   planned: boolean;
   name: string;
@@ -89,7 +90,12 @@ interface DestinationRow {
   order_index: number;
   arrival_date: string | null;
   departure_date: string | null;
-  trips: { name: string; start_date: string | null; status: string } | null;
+  trips: {
+    name: string;
+    start_date: string | null;
+    end_date: string | null;
+    status: string;
+  } | null;
   experiences: {
     rating: number | null;
     categories: { slug: string; label: string; color: string | null } | null;
@@ -99,7 +105,7 @@ interface DestinationRow {
 const DESTINATION_SELECT = `
   id, trip_id, name, country_code, latitude, longitude, order_index,
   arrival_date, departure_date,
-  trips ( name, start_date, status ),
+  trips ( name, start_date, end_date, status ),
   experiences ( rating, categories ( slug, label, color ) )
 `;
 
@@ -198,6 +204,7 @@ export async function getMapData(userId?: string): Promise<MapData> {
       tripId: row.trip_id,
       tripName: row.trips?.name ?? "Trip",
       tripStartDate: row.trips?.start_date ?? null,
+      tripEndDate: row.trips?.end_date ?? null,
       planned: row.trips?.status === "planned",
       name: row.name,
       countryCode: row.country_code,

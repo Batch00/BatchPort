@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { Globe, type GlobeDestination } from "@/components/map/globe";
 import type { MapData } from "@/lib/map-data";
@@ -34,6 +34,9 @@ export function ShareGlobe({ data }: { data: MapData }) {
         departureDate: d.departureDate,
         categoryColor: d.category?.color ?? null,
         planned: d.planned,
+        tripStartDate: d.tripStartDate,
+        tripEndDate: d.tripEndDate,
+        orderIndex: d.orderIndex,
       })),
     [destinations],
   );
@@ -55,6 +58,9 @@ export function ShareGlobe({ data }: { data: MapData }) {
   );
 
   const isEmpty = destinations.length === 0;
+  const canReplay = destinations.some((d) => !d.planned);
+  // The stats pill yields to the replay's own date and counter readout.
+  const [replayActive, setReplayActive] = useState(false);
 
   return (
     <div className="relative h-[45vh] min-h-[300px] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d] sm:h-[60vh] sm:min-h-[380px]">
@@ -69,9 +75,11 @@ export function ShareGlobe({ data }: { data: MapData }) {
         fitToData={!isEmpty}
         enableCountryDrilldown
         onCountrySelect={() => {}}
+        enableReplay={canReplay}
+        onReplayActiveChange={setReplayActive}
       />
 
-      {!isEmpty ? (
+      {!isEmpty && !replayActive ? (
         <div className="pointer-events-none absolute left-4 top-4 z-20 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md">
           {stats.countries} {stats.countries === 1 ? "country" : "countries"},{" "}
           {stats.trips} {stats.trips === 1 ? "trip" : "trips"},{" "}
