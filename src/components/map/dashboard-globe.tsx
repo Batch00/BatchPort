@@ -21,14 +21,23 @@ import { flagEmoji, formatDateRange } from "@/lib/format";
 import { placeKey } from "@/lib/geo";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  DiscoveryPanel,
-  type DiscoveryCityTarget,
-} from "@/components/discover/discovery-panel";
+import dynamic from "next/dynamic";
+
+import type { DiscoveryCityTarget } from "@/components/discover/discovery-panel";
 import {
   GlobeSearch,
   type GlobeSearchSelection,
 } from "@/components/discover/globe-search";
+
+// The discovery panel (hero, summaries, city grid) only mounts on demand, so
+// it stays out of the initial dashboard bundle.
+const DiscoveryPanel = dynamic(
+  () =>
+    import("@/components/discover/discovery-panel").then(
+      (module) => module.DiscoveryPanel,
+    ),
+  { ssr: false },
+);
 
 interface DashboardGlobeProps {
   data: MapData;
@@ -82,6 +91,13 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
   // Explore button, or from search (optionally landing straight on a city view).
   // Only one panel is open at a time, so opening either closes the other.
   const [discover, setDiscover] = useState<DiscoverTarget | null>(null);
+  // Camera fly-to target, set when a search result opens discovery so the map
+  // travels to what the panel is showing.
+  const [focus, setFocus] = useState<{
+    lat: number;
+    lng: number;
+    zoom?: number;
+  } | null>(null);
   const router = useRouter();
   // Manual refresh: re-fetches the dashboard's server data (map + stats)
   // without a full page reload. The transition keeps the spinner going until
@@ -106,6 +122,13 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
         planned: d.planned,
       })),
     [destinations],
+  );
+
+  // Stable identity so the discovery panel does not re-render on unrelated
+  // dashboard state changes.
+  const bucketPlaceKeys = useMemo(
+    () => bucketPlaces.map((place) => placeKey(place.name, place.countryCode)),
+    [bucketPlaces],
   );
 
   // Amber pins need coordinates; items saved without them stay list-only.
@@ -159,6 +182,7 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
             city: { name: place.name, lat: place.lat, lng: place.lng },
           });
         }}
+        focus={focus}
         autoRotate={false}
         fitToData={!isEmpty}
         enableDestinationLinks
@@ -327,6 +351,12 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
               name: selection.countryName,
               city: selection.city,
             });
+            // Fly the camera to the result so the globe matches the panel.
+            setFocus({
+              lat: selection.lat,
+              lng: selection.lng,
+              zoom: selection.city ? 5.5 : 3,
+            });
           }}
         />
       </div>
@@ -338,9 +368,7 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
           code={discover.code}
           name={discover.name}
           isOnBucketList={bucketCountryCodes.includes(discover.code)}
-          bucketPlaceKeys={bucketPlaces.map((place) =>
-            placeKey(place.name, place.countryCode),
-          )}
+          bucketPlaceKeys={bucketPlaceKeys}
           initialCity={discover.city}
           onClose={() => setDiscover(null)}
           onBucketAdded={() => startRefresh(() => router.refresh())}

@@ -38,6 +38,7 @@ import { TripCoverEditor } from "@/components/trips/trip-cover-editor";
 import { deleteTripAction } from "@/lib/actions/trips";
 import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
 import {
+  daysUntil,
   durationDays,
   flagEmoji,
   formatDateRange,
@@ -59,6 +60,9 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
   const [coverEditorOpen, setCoverEditorOpen] = useState(false);
   const destinationCount = trip.destinations.length;
   const days = durationDays(trip.start_date, trip.end_date);
+  // Small anticipation cue on upcoming planned trips.
+  const countdown =
+    trip.status === "planned" ? daysUntil(trip.start_date) : null;
 
   async function handleDelete() {
     setDeleting(true);
@@ -110,6 +114,12 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
               {formatDateRange(trip.start_date, trip.end_date)}
               {days ? (
                 <span className="text-white/50"> · {formatDuration(days)}</span>
+              ) : null}
+              {countdown ? (
+                <span className="font-medium text-brand">
+                  {" "}
+                  · in {formatDuration(countdown)}
+                </span>
               ) : null}
             </p>
             <button

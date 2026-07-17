@@ -4,6 +4,7 @@ import { ArrowLeftIcon } from "lucide-react";
 import { DestinationForm } from "@/components/destinations/destination-form";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
+import { parseEwkbPoint } from "@/lib/geo";
 
 export default async function NewDestinationPage({
   params,
@@ -11,7 +12,81 @@ export default async function NewDestinationPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { user } = await requireUser();
+  const { supabase, user } = await requireUser();
+
+  // Context for the map picker (existing stops center the map, bucket place
+  // pins are pickable) and for the smart arrival default. Narrow columns; RLS
+  // scopes everything to the current user.
+  const [tripResult, destResult, bucketResult] = await Promise.all([
+    supabase
+      .from("trips")
+      .select("start_date")
+      .eq("id", id)
+      .maybeSingle<{ start_date: string | null }>(),
+    supabase
+      .from("destinations")
+      .select("id, name, country_code, latitude, longitude, arrival_date, departure_date, order_index")
+      .eq("trip_id", id)
+      .order("order_index", { ascending: true }),
+    supabase
+      .from("bucket_list")
+      .select("id, place_name, country_code, geom")
+      .eq("user_id", user.id)
+      .eq("type", "place")
+      .is("fulfilled_at", null),
+  ]);
+
+  const stops = (destResult.data ?? []) as {
+    id: string;
+    name: string;
+    country_code: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    arrival_date: string | null;
+    departure_date: string | null;
+    order_index: number;
+  }[];
+
+  const pickerDestinations = stops
+    .filter((stop) => stop.latitude !== null && stop.longitude !== null)
+    .map((stop) => ({
+      id: stop.id,
+      name: stop.name,
+      countryCode: stop.country_code,
+      lat: stop.latitude as number,
+      lng: stop.longitude as number,
+    }));
+
+  const pickerBucketPlaces = ((bucketResult.data ?? []) as {
+    id: string;
+    place_name: string | null;
+    country_code: string | null;
+    geom: string | null;
+  }[])
+    .flatMap((row) => {
+      if (!row.place_name || !row.geom) return [];
+      const point = parseEwkbPoint(row.geom);
+      if (!point) return [];
+      return [
+        {
+          id: row.id,
+          name: row.place_name,
+          countryCode: row.country_code,
+          lat: point.lat,
+          lng: point.lng,
+        },
+      ];
+    });
+
+  // Smart default: the next stop usually starts where the previous one ended,
+  // so prefill arrival with the last stop's departure (falling back to its
+  // arrival, then the trip start). Just a default; freely editable.
+  const lastStop = stops[stops.length - 1];
+  const defaultArrival =
+    lastStop?.departure_date ??
+    lastStop?.arrival_date ??
+    tripResult.data?.start_date ??
+    "";
 
   return (
     <div className="mx-auto w-full max-w-xl p-6 sm:p-8">
@@ -30,6 +105,9 @@ export default async function NewDestinationPage({
         tripId={id}
         userId={user.id}
         isDemo={isDemoUser(user.id)}
+        defaultArrival={defaultArrival}
+        pickerDestinations={pickerDestinations}
+        pickerBucketPlaces={pickerBucketPlaces}
       />
     </div>
   );

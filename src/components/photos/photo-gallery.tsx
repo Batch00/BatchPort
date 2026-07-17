@@ -10,6 +10,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   FolderInputIcon,
+  GripVerticalIcon,
   MoreVerticalIcon,
   Square,
   StarIcon,
@@ -122,9 +123,9 @@ export function PhotoGallery({
   // Photos deleted this session, hidden immediately while the server
   // revalidation catches up.
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-  // Sort mode. null = automatic: by date taken when any photo has one,
-  // otherwise the manual order. The user can override with the toggle.
-  const [sortChoice, setSortChoice] = useState<"date" | "custom" | null>(null);
+  // Explicit reorder mode: the only place manual ordering is exposed. While
+  // active the grid shows the stored manual order and tiles become draggable.
+  const [isReordering, setIsReordering] = useState(false);
   const photoIdsKey = photos
     .map((photo) => photo.id)
     .sort()
@@ -148,17 +149,18 @@ export function PhotoGallery({
   }
 
   const visible = photos.filter((photo) => !hiddenIds.has(photo.id));
-  const hasDates = visible.some((photo) => photo.date_taken);
-  const dateSorted = (sortChoice ?? (hasDates ? "date" : "custom")) === "date";
 
+  // Default display: date taken, with undated photos following in their
+  // stored manual order (compareByDateTaken falls back to order_index).
+  // Reorder mode shows the raw manual order so drags are WYSIWYG.
   const photosById = new Map(visible.map((photo) => [photo.id, photo]));
-  const base = dateSorted
-    ? [...visible].sort(compareByDateTaken)
-    : viewOrder
+  const base = isReordering
+    ? viewOrder
       ? viewOrder
           .map((id) => photosById.get(id))
           .filter((photo): photo is Photo => Boolean(photo))
-      : visible;
+      : visible
+    : [...visible].sort(compareByDateTaken);
   const cover = pickCover(base, coverPhotoId);
   const ordered = cover
     ? [cover, ...base.filter((photo) => photo.id !== cover.id)]
@@ -167,19 +169,20 @@ export function PhotoGallery({
     coverPhotoId && cover && cover.id === coverPhotoId,
   );
 
-  // Reordering only makes sense when every photo belongs to the same owner:
-  // the trip gallery can mix destination and experience photos, where a shared
-  // order_index sequence has no meaning. Date sort also disables it: dragging
-  // would be immediately re-sorted away.
-  const reorderable =
+  // Reorder mode is offered only where a manual order is observable and
+  // writable: every photo shares one owner (a shared order_index sequence has
+  // no meaning across owners), and at least one photo has no date (dated
+  // photos always display by date, so arranging them would not stick).
+  const canReorder =
     editable &&
-    !dateSorted &&
     visible.length > 1 &&
+    visible.some((photo) => !photo.date_taken) &&
     visible.every(
       (photo) =>
         photo.owner_type === visible[0].owner_type &&
         photo.owner_id === visible[0].owner_id,
     );
+  const reorderable = canReorder && isReordering;
   // With an explicit cover pinned to the lead slot, photos shuffle behind it.
   const minIndex = isExplicitCover ? 1 : 0;
 
@@ -259,18 +262,19 @@ export function PhotoGallery({
   );
 
   useEffect(() => {
-    if (lightboxIndex === null && !isSelecting) return;
+    if (lightboxIndex === null && !isSelecting && !isReordering) return;
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         if (lightboxIndex !== null) close();
-        else exitSelect();
+        else if (isSelecting) exitSelect();
+        else setIsReordering(false);
       }
       if (event.key === "ArrowRight" && lightboxIndex !== null) step(1);
       if (event.key === "ArrowLeft" && lightboxIndex !== null) step(-1);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightboxIndex, isSelecting, close, step]);
+  }, [lightboxIndex, isSelecting, isReordering, close, step]);
 
   if (ordered.length === 0) return null;
 
@@ -363,8 +367,10 @@ export function PhotoGallery({
       setViewOrder(previous);
       return;
     }
-    router.refresh();
-    onChanged?.();
+    // One refresh only: onChanged already refreshes the route in every host,
+    // so calling router.refresh() as well double-fetched the page.
+    if (onChanged) onChanged();
+    else router.refresh();
   }
 
   async function handleReorder(index: number, direction: "left" | "right") {
@@ -593,14 +599,20 @@ export function PhotoGallery({
 
   function tileMenu(photo: Photo, index: number) {
     if (!editable || isSelecting) return null;
-    const showCover = canSetCover;
-    const secondary = allowSetCover ? (secondaryCoverTarget?.(photo) ?? null) : null;
-    const showRetag = canRetag;
+    // Reorder mode strips the menu down to the arrange actions (a keyboard
+    // and no-drag fallback for the drag gesture).
+    const showCover = canSetCover && !isReordering;
+    const secondary =
+      allowSetCover && !isReordering
+        ? (secondaryCoverTarget?.(photo) ?? null)
+        : null;
+    const showRetag = canRetag && !isReordering;
+    const showDelete = allowDelete && !isReordering;
     // The pinned lead slot is not reorderable, so its tile hides the move items.
     const showReorder = reorderable && !(isExplicitCover && index === 0);
     const isFirst = index <= minIndex;
     const isLast = index === ordered.length - 1;
-    if (!showCover && !secondary && !allowDelete && !showRetag && !showReorder) {
+    if (!showCover && !secondary && !showDelete && !showRetag && !showReorder) {
       return null;
     }
     return (
@@ -644,7 +656,7 @@ export function PhotoGallery({
               {coverTargetLabel(secondary)}
             </DropdownMenuItem>
           ) : null}
-          {(showCover || secondary) && (showRetag || allowDelete) ? (
+          {(showCover || secondary) && (showRetag || showDelete) ? (
             <DropdownMenuSeparator />
           ) : null}
           {showRetag ? (
@@ -655,7 +667,7 @@ export function PhotoGallery({
               Move to...
             </DropdownMenuItem>
           ) : null}
-          {allowDelete ? (
+          {showDelete ? (
             <DropdownMenuItem
               variant="destructive"
               onSelect={() => setDeleteTarget(photo)}
@@ -666,7 +678,7 @@ export function PhotoGallery({
           ) : null}
           {showReorder ? (
             <>
-              {showCover || showRetag || allowDelete ? (
+              {showCover || showRetag || showDelete ? (
                 <DropdownMenuSeparator />
               ) : null}
               <DropdownMenuItem
@@ -720,81 +732,93 @@ export function PhotoGallery({
     );
   }
 
+  // Grip badge on draggable tiles while reorder mode is active; the pinned
+  // cover tile keeps its Cover badge instead (it cannot move).
+  function reorderBadge(photo: Photo) {
+    if (!isReordering) return null;
+    if (isExplicitCover && cover && photo.id === cover.id) return null;
+    return (
+      <span className="pointer-events-none absolute left-2 top-2 flex size-6 items-center justify-center rounded-md bg-black/55 text-white/85 backdrop-blur">
+        <GripVerticalIcon className="size-4" />
+      </span>
+    );
+  }
+
   // Cover position only applies to the explicitly-set cover photo.
   const activeCoverPosition =
     isExplicitCover && cover ? coverPosition : null;
 
-  const showSortToggle = hasDates && visible.length > 1 && !isSelecting;
-  const sortToggle = showSortToggle ? (
-    <div className="flex items-center gap-1 text-xs">
-      <span className="text-foreground/40">Sort:</span>
-      {(["date", "custom"] as const).map((mode) => (
-        <button
-          key={mode}
-          type="button"
-          onClick={() => setSortChoice(mode)}
-          aria-pressed={dateSorted === (mode === "date")}
-          className={cn(
-            "rounded-md px-2 py-1.5 transition-colors sm:py-0.5",
-            dateSorted === (mode === "date")
-              ? "bg-white/10 font-medium text-foreground"
-              : "text-foreground/50 hover:text-foreground/80",
-          )}
-        >
-          {mode === "date" ? "By date" : "Manual order"}
-        </button>
-      ))}
-    </div>
-  ) : null;
-
-  const toolbar =
-    editable || showSortToggle ? (
-      <div className="flex items-center justify-between gap-2">
-        {sortToggle ?? <span />}
-        <div className="flex items-center gap-2">
-          {editable ? (
-            isSelecting ? (
-              <>
-                <span className="text-xs text-foreground/50">
-                  {selectedIds.size} selected
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSelectedIds(new Set(ordered.map((p) => p.id)))
-                  }
-                  className="-my-1 px-1 py-2 text-xs text-foreground/70 hover:text-foreground"
-                >
-                  Select all
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedIds(new Set())}
-                  className="-my-1 px-1 py-2 text-xs text-foreground/70 hover:text-foreground"
-                >
-                  Deselect all
-                </button>
-                <button
-                  type="button"
-                  onClick={exitSelect}
-                  className="-my-1 px-1 py-2 text-xs font-medium text-foreground/70 hover:text-foreground"
-                >
-                  Done
-                </button>
-              </>
-            ) : (
+  const toolbar = editable ? (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      {isReordering ? (
+        <span className="text-xs text-foreground/50">
+          Drag photos to arrange them.
+        </span>
+      ) : (
+        <span />
+      )}
+      <div className="flex items-center gap-2">
+        {isSelecting ? (
+          <>
+            <span className="text-xs text-foreground/50">
+              {selectedIds.size} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set(ordered.map((p) => p.id)))}
+              className="-my-1 px-1 py-2 text-xs text-foreground/70 hover:text-foreground"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds(new Set())}
+              className="-my-1 px-1 py-2 text-xs text-foreground/70 hover:text-foreground"
+            >
+              Deselect all
+            </button>
+            <button
+              type="button"
+              onClick={exitSelect}
+              className="-my-1 px-1 py-2 text-xs font-medium text-foreground/70 hover:text-foreground"
+            >
+              Done
+            </button>
+          </>
+        ) : isReordering ? (
+          <button
+            type="button"
+            onClick={() => setIsReordering(false)}
+            className="-my-1 px-1 py-2 text-xs font-medium text-brand hover:text-brand/80"
+          >
+            Done
+          </button>
+        ) : (
+          <>
+            {canReorder ? (
               <button
                 type="button"
-                onClick={() => setIsSelecting(true)}
+                onClick={() => {
+                  exitSelect();
+                  setIsReordering(true);
+                }}
                 className="-my-1 px-1 py-2 text-xs text-foreground/50 hover:text-foreground/80"
               >
-                Select
+                Reorder
               </button>
-            )
-          ) : null}
-        </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setIsSelecting(true)}
+              className="-my-1 px-1 py-2 text-xs text-foreground/50 hover:text-foreground/80"
+            >
+              Select
+            </button>
+          </>
+        )}
       </div>
-    ) : null;
+    </div>
+  ) : null;
 
   return (
     <>
@@ -812,14 +836,15 @@ export function PhotoGallery({
                   onPointerDown={(event) => beginDrag(event, photo.id)}
                   onDragStart={(event) => event.preventDefault()}
                   className={cn(
-                    "group/tile relative aspect-square cursor-pointer overflow-hidden rounded-lg ring-1",
+                    "group/tile relative aspect-square overflow-hidden rounded-lg ring-1",
+                    isReordering ? "cursor-grab" : "cursor-pointer",
                     selected
                       ? "ring-2 ring-brand"
                       : "ring-foreground/10",
                     draggingId === photo.id && "opacity-60 ring-2 ring-brand",
                   )}
                   onClick={() => {
-                    if (suppressClickRef.current) return;
+                    if (suppressClickRef.current || isReordering) return;
                     if (isSelecting) {
                       toggleSelect(photo.id);
                     } else {
@@ -836,6 +861,7 @@ export function PhotoGallery({
                   />
                   <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover/tile:bg-black/15" />
                   {selectionCheckbox(photo)}
+                  {reorderBadge(photo)}
                   {!isSelecting ? tileMenu(photo, i) : null}
                 </div>
               );
@@ -852,14 +878,17 @@ export function PhotoGallery({
                   onPointerDown={(event) => beginDrag(event, photo.id)}
                   onDragStart={(event) => event.preventDefault()}
                   className={cn(
-                    "group/tile relative isolate aspect-[16/9] w-full cursor-pointer overflow-hidden rounded-xl ring-1",
+                    "group/tile relative isolate aspect-[16/9] w-full overflow-hidden rounded-xl ring-1",
+                    isReordering && !(isExplicitCover && cover?.id === photo.id)
+                      ? "cursor-grab"
+                      : "cursor-pointer",
                     selected
                       ? "ring-2 ring-brand"
                       : "ring-foreground/10",
                     draggingId === photo.id && "opacity-60 ring-2 ring-brand",
                   )}
                   onClick={() => {
-                    if (suppressClickRef.current) return;
+                    if (suppressClickRef.current || isReordering) return;
                     if (isSelecting) {
                       toggleSelect(photo.id);
                     } else {
@@ -874,7 +903,9 @@ export function PhotoGallery({
                     style={coverImageStyle(activeCoverPosition)}
                     className="size-full object-cover transition-transform duration-300 group-hover/tile:scale-[1.02]"
                   />
-                  {isSelecting ? selectionCheckbox(photo) : coverBadge(photo)}
+                  {isSelecting
+                    ? selectionCheckbox(photo)
+                    : (reorderBadge(photo) ?? coverBadge(photo))}
                   {!isSelecting ? tileMenu(photo, 0) : null}
                 </div>
               ) : null;
@@ -891,14 +922,15 @@ export function PhotoGallery({
                       onPointerDown={(event) => beginDrag(event, photo.id)}
                       onDragStart={(event) => event.preventDefault()}
                       className={cn(
-                        "group/tile relative aspect-square cursor-pointer overflow-hidden rounded-lg ring-1",
+                        "group/tile relative aspect-square overflow-hidden rounded-lg ring-1",
+                        isReordering ? "cursor-grab" : "cursor-pointer",
                         selected
                           ? "ring-2 ring-brand"
                           : "ring-foreground/10",
                         draggingId === photo.id && "opacity-60 ring-2 ring-brand",
                       )}
                       onClick={() => {
-                        if (suppressClickRef.current) return;
+                        if (suppressClickRef.current || isReordering) return;
                         if (isSelecting) {
                           toggleSelect(photo.id);
                         } else {
@@ -915,6 +947,7 @@ export function PhotoGallery({
                       />
                       <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover/tile:bg-black/15" />
                       {selectionCheckbox(photo)}
+                      {reorderBadge(photo)}
                       {!isSelecting ? tileMenu(photo, i + 1) : null}
                     </div>
                   );

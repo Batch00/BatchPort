@@ -80,8 +80,12 @@ export interface GlobeProps {
   arcs: GlobeArc[];
   /** Place-type bucket items, shown as amber pins. */
   bucketPlaces?: GlobeBucketPlace[];
-  /** Clicking a bucket place pin's Explore button reports the place. */
+  /** Clicking a bucket place pin's action button reports the place. */
   onExplorePlace?: (place: GlobeBucketPlace) => void;
+  /** Label of the bucket pin popup action. Default "Explore". */
+  explorePlaceLabel?: string;
+  /** Camera target: each new value flies the map to it (e.g. search results). */
+  focus?: { lat: number; lng: number; zoom?: number } | null;
   /** Slowly spin the globe while idle. Default true (landing hero). */
   autoRotate?: boolean;
   /** Fit the camera to the destinations on load. Default false (full globe). */
@@ -369,6 +373,8 @@ export function Globe({
   arcs,
   bucketPlaces = [],
   onExplorePlace,
+  explorePlaceLabel = "Explore",
+  focus = null,
   autoRotate = true,
   fitToData = false,
   enableDestinationLinks = false,
@@ -403,6 +409,7 @@ export function Globe({
     onCountrySelect,
     enableDiscovery,
     onDiscoverCountry,
+    explorePlaceLabel,
   });
   useEffect(() => {
     dataRef.current = {
@@ -420,6 +427,7 @@ export function Globe({
       onCountrySelect,
       enableDiscovery,
       onDiscoverCountry,
+      explorePlaceLabel,
     };
   });
 
@@ -439,6 +447,18 @@ export function Globe({
     arcSource?.setData(arcsFC(arcs));
     bucketSource?.setData(bucketPlacesFC(bucketPlaces));
   }, [destinations, arcs, bucketPlaces]);
+
+  // Fly to a requested focus target (search results, explored places) so the
+  // camera lands where the panel's content is.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current || !focus) return;
+    map.flyTo({
+      center: [focus.lng, focus.lat],
+      zoom: focus.zoom ?? 4,
+      duration: 1400,
+    });
+  }, [focus]);
 
   // Keep the country fill filters in sync so a new bucket list country turns
   // amber (and a newly visited one turns blue) without rebuilding the map.
@@ -596,7 +616,7 @@ export function Globe({
       if (explore && countryCode) {
         const button = document.createElement("button");
         button.type = "button";
-        button.textContent = "Explore";
+        button.textContent = dataRef.current.explorePlaceLabel;
         button.style.cssText =
           "display:inline-block;margin-top:8px;color:var(--brand,#3b82f6);font-weight:600;font-size:0.75rem;background:none;border:none;padding:0;cursor:pointer";
         button.addEventListener("click", () => {
@@ -738,12 +758,14 @@ export function Globe({
         count > 0
           ? `${name} · ${count} ${count === 1 ? "destination" : "destinations"}`
           : name;
-      // Unvisited countries are explorable when discovery is on: hint at the
-      // click affordance and show the pointer cursor.
+      // Countries whose click would open discovery get a hint and a pointer:
+      // unvisited ones always, and visited ones too on discovery-only hosts
+      // (the map picker) where no drill-down competes for the click.
       const discoverable =
         dataRef.current.enableDiscovery &&
         Boolean(code) &&
-        !dataRef.current.visitedCountryCodes.includes(code as string);
+        (!dataRef.current.visitedCountryCodes.includes(code as string) ||
+          !dataRef.current.enableCountryDrilldown);
       showTooltip(
         event.point.x,
         event.point.y,
@@ -822,6 +844,11 @@ export function Globe({
         if (enableCountryDrilldown) {
           flyToFeature(feature);
           select?.({ code, name });
+        } else if (enableDiscovery) {
+          // Discovery-only hosts (the map destination picker) treat every
+          // country alike: visited ones surface their cities too.
+          flyToFeature(feature);
+          discover?.({ code, name });
         } else {
           select?.(null);
           discover?.(null);

@@ -57,6 +57,19 @@ export function formatDuration(days: number): string {
   return `${days} ${days === 1 ? "day" : "days"}`;
 }
 
+// Whole days from today (local) until a future YYYY-MM-DD date. Returns null
+// for past dates, today, or missing/malformed input. Used for the "in N days"
+// hint on upcoming planned trips.
+export function daysUntil(date?: string | null): number | null {
+  if (!date) return null;
+  const target = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((target.getTime() - today.getTime()) / 86400000);
+  return days > 0 ? days : null;
+}
+
 const STATUS_LABELS: Record<TripStatus, string> = {
   completed: "Completed",
   ongoing: "Ongoing",

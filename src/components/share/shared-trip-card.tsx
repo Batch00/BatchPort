@@ -8,6 +8,7 @@ import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
 import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
 import {
+  daysUntil,
   durationDays,
   flagEmoji,
   formatDateRange,
@@ -24,6 +25,9 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
   const [expanded, setExpanded] = useState(false);
   const destinationCount = trip.destinations.length;
   const days = durationDays(trip.start_date, trip.end_date);
+  // Small anticipation cue on upcoming planned trips.
+  const countdown =
+    trip.status === "planned" ? daysUntil(trip.start_date) : null;
 
   return (
     <div className="isolate overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
@@ -63,6 +67,12 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
               {formatDateRange(trip.start_date, trip.end_date)}
               {days ? (
                 <span className="text-white/50"> · {formatDuration(days)}</span>
+              ) : null}
+              {countdown ? (
+                <span className="font-medium text-brand">
+                  {" "}
+                  · in {formatDuration(countdown)}
+                </span>
               ) : null}
             </p>
             <span className="flex items-center gap-1 text-xs text-white/60">

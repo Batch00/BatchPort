@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2Icon, MapPinIcon } from "lucide-react";
+import { Loader2Icon, MapIcon, MapPinIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,18 @@ import {
 import { flagEmoji } from "@/lib/format";
 import type { DestinationInput } from "@/lib/destinations";
 import type { CoverPosition, GeoLocation, Photo } from "@/lib/types";
+import type { GlobeBucketPlace } from "@/components/map/globe";
+import type { PickerDestination } from "@/components/destinations/map-destination-picker";
+
+// The map picker pulls in the whole globe stack, so it stays out of the form
+// bundle until the user actually opens it.
+const MapDestinationPicker = dynamic(
+  () =>
+    import("@/components/destinations/map-destination-picker").then(
+      (module) => module.MapDestinationPicker,
+    ),
+  { ssr: false },
+);
 
 interface DestinationFormProps {
   mode: "create" | "edit";
@@ -33,6 +46,9 @@ interface DestinationFormProps {
   coverPhotos?: Photo[];
   coverPhotoId?: string | null;
   coverPosition?: CoverPosition | null;
+  // Context for the "Pick on map" flow; the button only shows when provided.
+  pickerDestinations?: PickerDestination[];
+  pickerBucketPlaces?: GlobeBucketPlace[];
 }
 
 export function DestinationForm({
@@ -49,9 +65,12 @@ export function DestinationForm({
   coverPhotos = [],
   coverPhotoId = null,
   coverPosition = null,
+  pickerDestinations,
+  pickerBucketPlaces = [],
 }: DestinationFormProps) {
   const router = useRouter();
   const [location, setLocation] = useState<GeoLocation | null>(defaultLocation);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [arrival, setArrival] = useState(defaultArrival);
   const [departure, setDeparture] = useState(defaultDeparture);
   const [notes, setNotes] = useState(defaultNotes);
@@ -93,11 +112,28 @@ export function DestinationForm({
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       <div className="grid gap-2">
         <Label htmlFor="location">Location</Label>
-        <LocationSearch
-          id="location"
-          defaultQuery={defaultLocationQuery}
-          onChange={setLocation}
-        />
+        <div className="flex gap-2">
+          <LocationSearch
+            id="location"
+            // Remount after a map pick so the input shows the picked name.
+            key={location ? `${location.name}:${location.lat}` : "empty"}
+            defaultQuery={location?.name ?? defaultLocationQuery}
+            onChange={setLocation}
+            className="flex-1"
+          />
+          {pickerDestinations ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPickerOpen(true)}
+              disabled={submitting}
+              title="Pick on map"
+            >
+              <MapIcon />
+              <span className="hidden sm:inline">Pick on map</span>
+            </Button>
+          ) : null}
+        </div>
         {location ? (
           <p className="flex items-center gap-1.5 text-sm text-foreground/70">
             <MapPinIcon className="size-3.5 text-brand" />
@@ -191,6 +227,18 @@ export function DestinationForm({
           Cancel
         </Button>
       </div>
+
+      {pickerOpen && pickerDestinations ? (
+        <MapDestinationPicker
+          destinations={pickerDestinations}
+          bucketPlaces={pickerBucketPlaces}
+          onPick={(picked) => {
+            setLocation(picked);
+            setPickerOpen(false);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
     </form>
   );
 }

@@ -17,6 +17,9 @@ export interface GlobeSearchSelection {
   code: string;
   countryName: string;
   city: DiscoveryCityTarget | null;
+  /** The result's coordinates (country centroid or city), for a camera fly-to. */
+  lat: number;
+  lng: number;
 }
 
 interface GlobeSearchProps {
@@ -119,6 +122,8 @@ export function GlobeSearch({ onSelect, className }: GlobeSearchProps) {
       city: isCountry
         ? null
         : { name: result.name, lat: result.lat, lng: result.lng },
+      lat: result.lat,
+      lng: result.lng,
     });
     collapse();
   }

@@ -226,7 +226,12 @@ export function formatWikimediaAttribution(
 // min-height here: WebKit transfers the min-height through the ratio into a
 // minimum WIDTH and overflows the viewport.
 export const COVER_CARD_ASPECT = "aspect-video";
-export const COVER_BANNER_SHAPE = "aspect-video sm:aspect-auto sm:h-56 lg:h-64";
+// Banner heights are sized so the box stays close to the 16:9 crop shape at
+// the max-w-3xl content width (roughly 2.2:1 at lg instead of the old 2.9:1).
+// The old shorter heights letterboxed the cover into a thin slice that showed
+// visibly less of the photo than the destination card on the trip page.
+export const COVER_BANNER_SHAPE =
+  "aspect-video sm:aspect-auto sm:h-64 md:h-72 lg:h-80";
 
 // Default gallery order: date taken ascending when known; photos without a
 // date sort after dated ones, falling back to manual order then upload time.

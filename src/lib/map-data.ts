@@ -158,36 +158,36 @@ export async function getMapData(userId?: string): Promise<MapData> {
 
   // Parallel queries: the destination payload (which also yields the visited
   // countries, arcs, and most counts), an exact trip count so the overlay
-  // reflects every trip, and the unfulfilled bucket items (countries + places).
-  const [destResult, tripCountResult, bucketResult, bucketPlaceResult] =
-    await Promise.all([
-      supabase
-        .from("destinations")
-        .select(DESTINATION_SELECT)
-        .eq("user_id", resolvedUserId)
-        .order("order_index", { ascending: true }),
-      supabase
-        .from("trips")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", resolvedUserId),
-      supabase
-        .from("bucket_list")
-        .select("country_code")
-        .eq("user_id", resolvedUserId)
-        .eq("type", "country")
-        .is("fulfilled_at", null),
-      supabase
-        .from("bucket_list")
-        .select("id, place_name, country_code, geom")
-        .eq("user_id", resolvedUserId)
-        .eq("type", "place")
-        .is("fulfilled_at", null),
-    ]);
+  // reflects every trip, and one query for all unfulfilled bucket items
+  // (countries and places split in memory rather than in two round trips).
+  const [destResult, tripCountResult, bucketResult] = await Promise.all([
+    supabase
+      .from("destinations")
+      .select(DESTINATION_SELECT)
+      .eq("user_id", resolvedUserId)
+      .order("order_index", { ascending: true }),
+    supabase
+      .from("trips")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", resolvedUserId),
+    supabase
+      .from("bucket_list")
+      .select("id, type, place_name, country_code, geom")
+      .eq("user_id", resolvedUserId)
+      .is("fulfilled_at", null),
+  ]);
 
   if (destResult.error) throw destResult.error;
   if (tripCountResult.error) throw tripCountResult.error;
   if (bucketResult.error) throw bucketResult.error;
-  if (bucketPlaceResult.error) throw bucketPlaceResult.error;
+
+  const bucketRows = (bucketResult.data ?? []) as {
+    id: string;
+    type: string;
+    place_name: string | null;
+    country_code: string | null;
+    geom: string | null;
+  }[];
 
   const rows = (destResult.data ?? []) as unknown as DestinationRow[];
 
@@ -259,7 +259,8 @@ export async function getMapData(userId?: string): Promise<MapData> {
 
   const bucketCountryCodes = Array.from(
     new Set(
-      ((bucketResult.data ?? []) as { country_code: string | null }[])
+      bucketRows
+        .filter((row) => row.type === "country")
         .map((row) => row.country_code)
         .filter((code): code is string => code !== null),
     ),
@@ -270,13 +271,8 @@ export async function getMapData(userId?: string): Promise<MapData> {
   // Deduplicate by name + country so double-saved rows render one pin.
   const seenPlaces = new Set<string>();
   const bucketPlaces: MapBucketPlace[] = [];
-  for (const row of (bucketPlaceResult.data ?? []) as {
-    id: string;
-    place_name: string | null;
-    country_code: string | null;
-    geom: string | null;
-  }[]) {
-    if (!row.place_name) continue;
+  for (const row of bucketRows) {
+    if (row.type !== "place" || !row.place_name) continue;
     const key = placeKey(row.place_name, row.country_code);
     if (seenPlaces.has(key)) continue;
     seenPlaces.add(key);
