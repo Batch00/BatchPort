@@ -118,9 +118,12 @@ export function ShareSettingsForm({ initial, isDemo }: ShareSettingsFormProps) {
       </div>
 
       {shareUrl ? (
-        <div className="grid gap-2">
+        // min-w-0 down the chain: without it the nowrap URL's intrinsic width
+        // makes the grid and flex parents wider than the viewport on phones,
+        // and the code block's truncate never engages.
+        <div className="grid min-w-0 gap-2">
           <Label>Your shareable link</Label>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <code className="min-w-0 flex-1 truncate rounded-lg bg-white/5 px-3 py-2 text-sm text-foreground/80">
               {shareUrl}
             </code>
