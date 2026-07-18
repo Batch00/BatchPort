@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   ArrowLeftIcon,
   CheckIcon,
   ChurchIcon,
   LandmarkIcon,
+  MapPinIcon,
   PlaneIcon,
   PlusIcon,
   SparklesIcon,
@@ -19,16 +20,19 @@ import { toast } from "sonner";
 
 import { createBucketItem } from "@/lib/actions/bucket-list";
 import { startTripFromCityAction } from "@/lib/actions/trips";
+import { addPoiExperienceAction } from "@/lib/actions/experiences";
 import { CountryFlag } from "@/components/country-flag";
 import { placeKey } from "@/lib/geo";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { SafeImage } from "@/components/photos/safe-image";
+import type { TripDestinationOption } from "@/lib/trips";
 import type {
   DiscoverCity,
   DiscoverCityDetail,
   DiscoverCountry,
   DiscoverPoi,
+  DiscoverPoiDetail,
   PoiCategory,
 } from "@/lib/discover";
 
@@ -47,6 +51,18 @@ export interface DiscoveryCityTarget {
   lat?: number | null;
   lng?: number | null;
   population?: number | null;
+}
+
+/** A POI the panel can drill into from a city's highlight row or from a POI
+ * detail's nearby list. Category is null for nearby items, which come from
+ * Wikipedia geosearch and carry no OSM tag. */
+interface DiscoveryPoiTarget {
+  name: string;
+  lat: number;
+  lng: number;
+  category: PoiCategory | null;
+  /** The highlight row's thumbnail, shown as the hero until detail loads. */
+  imageUrl?: string | null;
 }
 
 interface DiscoveryPanelProps {
@@ -68,6 +84,11 @@ interface DiscoveryPanelProps {
    * bucket list" state still shows; no server action is reachable.
    */
   readOnly?: boolean;
+  /**
+   * The user's trips with destinations, for the POI detail's "Add to a trip"
+   * picker. Empty or absent (read-only surfaces) hides the picker.
+   */
+  tripOptions?: TripDestinationOption[];
   onClose: () => void;
   /** Called after a successful bucket add so the parent can refresh map data. */
   onBucketAdded?: () => void;
@@ -212,31 +233,43 @@ function CityCardSkeleton() {
   );
 }
 
-function PoiRow({ poi }: { poi: DiscoverPoi }) {
+function PoiRow({
+  poi,
+  onClick,
+}: {
+  poi: DiscoverPoi;
+  onClick: (poi: DiscoverPoi) => void;
+}) {
   const Icon = POI_ICONS[poi.category];
   return (
-    <li className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5">
-      <div className="relative size-12 shrink-0 overflow-hidden rounded-md border border-white/10 bg-white/5">
-        {poi.imageUrl ? (
-          <SafeImage
-            src={poi.imageUrl}
-            alt={poi.name}
-            loading="lazy"
-            className="size-full object-cover"
-          />
-        ) : (
-          <div className="flex size-full items-center justify-center text-foreground/30">
-            <Icon className="size-5" />
-          </div>
-        )}
-      </div>
-      <div className="min-w-0">
-        <p className="truncate text-sm text-foreground/90">{poi.name}</p>
-        <p className="flex items-center gap-1 text-xs text-foreground/45">
-          <Icon className="size-3" />
-          {POI_LABELS[poi.category]}
-        </p>
-      </div>
+    <li>
+      <button
+        type="button"
+        onClick={() => onClick(poi)}
+        className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/5"
+      >
+        <div className="relative size-12 shrink-0 overflow-hidden rounded-md border border-white/10 bg-white/5">
+          {poi.imageUrl ? (
+            <SafeImage
+              src={poi.imageUrl}
+              alt={poi.name}
+              loading="lazy"
+              className="size-full object-cover"
+            />
+          ) : (
+            <div className="flex size-full items-center justify-center text-foreground/30">
+              <Icon className="size-5" />
+            </div>
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm text-foreground/90">{poi.name}</p>
+          <p className="flex items-center gap-1 text-xs text-foreground/45">
+            <Icon className="size-3" />
+            {POI_LABELS[poi.category]}
+          </p>
+        </div>
+      </button>
     </li>
   );
 }
@@ -356,6 +389,7 @@ function CityBody({
   isOnBucketList,
   readOnly,
   onHeroLoaded,
+  onOpenPoi,
   onBucketAdded,
 }: {
   city: DiscoveryCityTarget;
@@ -365,6 +399,8 @@ function CityBody({
   readOnly: boolean;
   /** Reports the city hero URL up so the shared shell hero can show it. */
   onHeroLoaded: (cityName: string, url: string | null) => void;
+  /** Clicking a highlight row drills into that POI's detail view. */
+  onOpenPoi: (poi: DiscoveryPoiTarget) => void;
   onBucketAdded?: () => void;
 }) {
   const [detail, setDetail] = useState<DiscoverCityDetail | null>(null);
@@ -502,7 +538,19 @@ function CityBody({
         ) : detail && detail.pois.length > 0 ? (
           <ul className="mt-2 flex flex-col gap-1">
             {detail.pois.map((poi) => (
-              <PoiRow key={`${poi.name}:${poi.lat}`} poi={poi} />
+              <PoiRow
+                key={`${poi.name}:${poi.lat}`}
+                poi={poi}
+                onClick={(clicked) =>
+                  onOpenPoi({
+                    name: clicked.name,
+                    lat: clicked.lat,
+                    lng: clicked.lng,
+                    category: clicked.category,
+                    imageUrl: clicked.imageUrl,
+                  })
+                }
+              />
             ))}
           </ul>
         ) : (
@@ -523,6 +571,267 @@ function CityBody({
   );
 }
 
+// --- POI detail view body ----------------------------------------------------
+
+// Two-step inline picker: choose a trip, then one of its destinations, and the
+// POI is logged as an experience there. Destinations in the POI's country sort
+// first; the rest stay available since city-to-destination matching from a
+// name alone is fuzzy.
+function AddToTripPicker({
+  poi,
+  countryCode,
+  trips,
+}: {
+  poi: DiscoveryPoiTarget;
+  countryCode: string;
+  trips: TripDestinationOption[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [trip, setTrip] = useState<TripDestinationOption | null>(null);
+  const [savedTo, setSavedTo] = useState<string | null>(null);
+  const [saving, startSaving] = useTransition();
+
+  function handlePick(destinationId: string, destinationName: string) {
+    startSaving(async () => {
+      const result = await addPoiExperienceAction({
+        destinationId,
+        name: poi.name,
+        categorySlug: poi.category,
+        lat: poi.lat,
+        lng: poi.lng,
+      });
+      if ("error" in result) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${poi.name} added to ${destinationName}.`);
+      setSavedTo(destinationName);
+      setOpen(false);
+      setTrip(null);
+    });
+  }
+
+  if (savedTo) {
+    return (
+      <Button variant="secondary" className="w-full" disabled>
+        <CheckIcon className="text-brand" />
+        Added to {savedTo}
+      </Button>
+    );
+  }
+
+  if (trips.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed border-white/10 px-3 py-2.5 text-center text-xs text-foreground/45">
+        Create a trip with a destination to save this place.
+      </p>
+    );
+  }
+
+  if (!open) {
+    return (
+      <Button
+        onClick={() => setOpen(true)}
+        className="w-full bg-brand text-brand-foreground hover:bg-brand/90"
+      >
+        <PlusIcon />
+        Add to a trip
+      </Button>
+    );
+  }
+
+  // Destinations in the POI's country first, keeping trip order within groups.
+  const orderedDestinations = trip
+    ? [
+        ...trip.destinations.filter((d) => d.country_code === countryCode),
+        ...trip.destinations.filter((d) => d.country_code !== countryCode),
+      ]
+    : [];
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/5 p-2">
+      <div className="mb-1.5 flex items-center justify-between px-1">
+        <p className="text-xs font-medium text-foreground/60">
+          {trip ? `Destination in ${trip.name}` : "Choose a trip"}
+        </p>
+        <button
+          type="button"
+          onClick={() => (trip ? setTrip(null) : setOpen(false))}
+          className="text-xs text-foreground/45 transition-colors hover:text-foreground"
+        >
+          {trip ? "Back" : "Cancel"}
+        </button>
+      </div>
+      <ul className="flex max-h-44 flex-col gap-0.5 overflow-y-auto">
+        {trip
+          ? orderedDestinations.map((destination) => (
+              <li key={destination.id}>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => handlePick(destination.id, destination.name)}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/85 transition-colors hover:bg-white/10 disabled:opacity-50"
+                >
+                  <span className="truncate">{destination.name}</span>
+                  {destination.country_code ? (
+                    <CountryFlag
+                      code={destination.country_code}
+                      className="h-3 shrink-0"
+                    />
+                  ) : null}
+                </button>
+              </li>
+            ))
+          : trips.map((option) => (
+              <li key={option.id}>
+                <button
+                  type="button"
+                  onClick={() => setTrip(option)}
+                  className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/85 transition-colors hover:bg-white/10"
+                >
+                  <span className="truncate">{option.name}</span>
+                  <span className="shrink-0 text-xs text-foreground/40">
+                    {option.destinations.length}{" "}
+                    {option.destinations.length === 1 ? "stop" : "stops"}
+                  </span>
+                </button>
+              </li>
+            ))}
+      </ul>
+    </div>
+  );
+}
+
+function PoiBody({
+  poi,
+  countryCode,
+  readOnly,
+  tripOptions,
+  onHeroLoaded,
+  onOpenNearby,
+}: {
+  poi: DiscoveryPoiTarget;
+  countryCode: string;
+  readOnly: boolean;
+  tripOptions: TripDestinationOption[];
+  /** Reports the POI hero URL up so the shared shell hero can show it. */
+  onHeroLoaded: (poiName: string, url: string | null) => void;
+  /** A nearby item opens as its own POI detail (replacing this one). */
+  onOpenNearby: (target: DiscoveryPoiTarget) => void;
+}) {
+  const [detail, setDetail] = useState<DiscoverPoiDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const query = new URLSearchParams({
+      name: poi.name,
+      lat: String(poi.lat),
+      lng: String(poi.lng),
+    });
+    fetch(`/api/discover/poi?${query.toString()}`, {
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: DiscoverPoiDetail | null) => {
+        setDetail(data);
+        setLoading(false);
+        if (data?.heroImageUrl) onHeroLoaded(poi.name, data.heroImageUrl);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+    // onHeroLoaded is a stable setState wrapper from the parent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poi.name, poi.lat, poi.lng]);
+
+  const CategoryIcon = poi.category ? POI_ICONS[poi.category] : MapPinIcon;
+  const categoryLabel = poi.category ? POI_LABELS[poi.category] : null;
+  const noInfo = !loading && !detail?.summary;
+
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {categoryLabel ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-foreground/70">
+            <CategoryIcon className="size-3" />
+            {categoryLabel}
+          </span>
+        ) : null}
+        {detail?.description ? (
+          <span className="text-xs text-foreground/50">
+            {detail.description}
+          </span>
+        ) : null}
+      </div>
+
+      {noInfo ? (
+        <p className="text-sm text-foreground/40">
+          No further info available for this place.{" "}
+          <span className="whitespace-nowrap">
+            {poi.lat.toFixed(4)}, {poi.lng.toFixed(4)}
+          </span>
+        </p>
+      ) : (
+        <SummaryBlock summary={detail?.summary ?? null} loading={loading} />
+      )}
+
+      <div className="mt-4 flex flex-col gap-2">
+        {readOnly ? (
+          <ConversionCta />
+        ) : (
+          <AddToTripPicker
+            poi={poi}
+            countryCode={countryCode}
+            trips={tripOptions}
+          />
+        )}
+      </div>
+
+      {detail && detail.nearby.length > 0 ? (
+        <div className="mt-6">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-foreground/45">
+            Nearby
+          </h3>
+          <ul className="mt-2 flex flex-col gap-0.5">
+            {detail.nearby.map((item) => (
+              <li key={`${item.name}:${item.lat}`}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onOpenNearby({
+                      name: item.name,
+                      lat: item.lat,
+                      lng: item.lng,
+                      category: null,
+                    })
+                  }
+                  className="flex w-full flex-col rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/5"
+                >
+                  <span className="truncate text-sm text-foreground/90">
+                    {item.name}
+                  </span>
+                  {item.description ? (
+                    <span className="truncate text-xs text-foreground/45">
+                      {item.description}
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="mt-6 flex flex-col gap-0.5 border-t border-white/10 pt-3 text-[10px] leading-relaxed text-foreground/35">
+        {detail?.attribution ? <p>Photo: {detail.attribution}</p> : null}
+        {detail?.summary ? <p>Summary via Wikipedia (CC BY-SA 4.0)</p> : null}
+      </div>
+    </>
+  );
+}
+
 // --- Panel shell ---------------------------------------------------------------
 
 export function DiscoveryPanel({
@@ -532,13 +841,16 @@ export function DiscoveryPanel({
   bucketPlaceKeys = [],
   initialCity = null,
   readOnly = false,
+  tripOptions = [],
   onClose,
   onBucketAdded,
 }: DiscoveryPanelProps) {
-  // null renders the country view; a city target renders that city's view.
+  // Navigation depth: country (both null), city (cityView set), or POI detail
+  // (both set; a POI is always reached through a city).
   const [cityView, setCityView] = useState<DiscoveryCityTarget | null>(
     initialCity,
   );
+  const [poiView, setPoiView] = useState<DiscoveryPoiTarget | null>(null);
   const [country, setCountry] = useState<DiscoverCountry | null>(null);
   // Items saved without a country code have nothing country-level to fetch;
   // the panel then only ever shows the city view, non-loading.
@@ -547,6 +859,7 @@ export function DiscoveryPanel({
     code ? null : [],
   );
   const [cityHeroes, setCityHeroes] = useState<Record<string, string>>({});
+  const [poiHeroes, setPoiHeroes] = useState<Record<string, string>>({});
 
   // The country payload always loads (it is the back target and supplies the
   // region line); the cities grid loads alongside it.
@@ -574,15 +887,24 @@ export function DiscoveryPanel({
     return () => controller.abort();
   }, [code]);
 
-  // Escape: back out of the city view first, then dismiss the panel.
+  // Escape walks up one level: POI to city, city to country, then dismisses
+  // the panel. Refs keep the listener stable across navigation.
+  const poiViewRef = useRef(poiView);
+  const cityViewRef = useRef(cityView);
+  useEffect(() => {
+    poiViewRef.current = poiView;
+    cityViewRef.current = cityView;
+  });
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
-      setCityView((current) => {
-        if (current) return null;
+      if (poiViewRef.current) {
+        setPoiView(null);
+      } else if (cityViewRef.current) {
+        setCityView(null);
+      } else {
         onClose();
-        return current;
-      });
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -600,9 +922,18 @@ export function DiscoveryPanel({
   const cityHero = cityView
     ? cityHeroes[cityView.name] ?? cityCardImage
     : null;
+  // POI hero: the detail's resolved image, falling back to the highlight
+  // row's thumbnail until it loads.
+  const poiHero = poiView
+    ? poiHeroes[poiView.name] ?? poiView.imageUrl ?? null
+    : null;
 
-  const heroImage = cityView ? cityHero : country?.heroImageUrl ?? null;
-  const heroAlt = cityView ? cityView.name : name;
+  const heroImage = poiView
+    ? poiHero
+    : cityView
+      ? cityHero
+      : country?.heroImageUrl ?? null;
+  const heroAlt = poiView ? poiView.name : cityView ? cityView.name : name;
 
   return (
     <>
@@ -614,7 +945,9 @@ export function DiscoveryPanel({
       />
       <div
         role="dialog"
-        aria-label={cityView ? `Discover ${cityView.name}` : `Discover ${name}`}
+        aria-label={`Discover ${
+          poiView?.name ?? cityView?.name ?? name
+        }`}
         className="fixed inset-x-0 bottom-0 z-50 flex max-h-[80dvh] flex-col overflow-hidden rounded-t-2xl border-t border-white/10 bg-black/90 shadow-2xl backdrop-blur-md sm:absolute sm:inset-x-auto sm:inset-y-0 sm:right-0 sm:z-30 sm:max-h-none sm:w-96 sm:max-w-[85%] sm:rounded-none sm:border-l sm:border-t-0 sm:bg-black/85"
       >
         {/* Hero */}
@@ -638,10 +971,18 @@ export function DiscoveryPanel({
             <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
               <CountryFlag code={code} className="h-4" />
               <span className="truncate">
-                {cityView ? cityView.name : country?.name ?? name}
+                {poiView
+                  ? poiView.name
+                  : cityView
+                    ? cityView.name
+                    : country?.name ?? name}
               </span>
             </h2>
-            {cityView ? (
+            {poiView && cityView ? (
+              <p className="mt-0.5 text-xs text-foreground/60">
+                {cityView.name}
+              </p>
+            ) : cityView ? (
               <p className="mt-0.5 text-xs text-foreground/60">
                 {country?.name ?? name}
               </p>
@@ -649,7 +990,16 @@ export function DiscoveryPanel({
               <p className="mt-0.5 text-xs text-foreground/60">{regionLine}</p>
             ) : null}
           </div>
-          {cityView ? (
+          {poiView && cityView ? (
+            <button
+              type="button"
+              onClick={() => setPoiView(null)}
+              aria-label={`Back to ${cityView.name}`}
+              className="absolute left-3 top-3 rounded-md bg-black/40 p-2 text-foreground/70 backdrop-blur-sm transition-colors hover:bg-black/60 hover:text-foreground"
+            >
+              <ArrowLeftIcon className="size-4" />
+            </button>
+          ) : cityView ? (
             <button
               type="button"
               onClick={() => setCityView(null)}
@@ -671,7 +1021,21 @@ export function DiscoveryPanel({
 
         {/* Scrollable body, with safe-area padding for the mobile sheet. */}
         <div className="flex-1 overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 sm:pb-5">
-          {cityView ? (
+          {poiView ? (
+            <PoiBody
+              key={`${poiView.name}:${poiView.lat}`}
+              poi={poiView}
+              countryCode={code}
+              readOnly={readOnly}
+              tripOptions={tripOptions}
+              onHeroLoaded={(poiName, url) =>
+                setPoiHeroes((current) =>
+                  url ? { ...current, [poiName]: url } : current,
+                )
+              }
+              onOpenNearby={(target) => setPoiView(target)}
+            />
+          ) : cityView ? (
             <CityBody
               key={cityView.name}
               city={cityView}
@@ -685,6 +1049,7 @@ export function DiscoveryPanel({
                   url ? { ...current, [cityName]: url } : current,
                 )
               }
+              onOpenPoi={(poi) => setPoiView(poi)}
               onBucketAdded={onBucketAdded}
             />
           ) : (

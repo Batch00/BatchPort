@@ -6,7 +6,7 @@ import { getProfileTrips } from "@/lib/share-data";
 import { getMapData } from "@/lib/map-data";
 import { getSummaryStats } from "@/lib/stats-data";
 import { getBucketList, getCountries } from "@/lib/bucket-list";
-import { getTripOptions } from "@/lib/trips";
+import { getTripDestinationOptions, getTripOptions } from "@/lib/trips";
 import { placeKey } from "@/lib/geo";
 import { DashboardGlobe } from "@/components/map/dashboard-globe";
 import { DashboardTrips } from "@/components/trips/dashboard-trips";
@@ -25,15 +25,23 @@ export default async function DashboardPage() {
   const { user } = await requireUser();
   // Passing the user id lets each fetch skip its own auth.getUser round-trip,
   // and the summary fetch loads only the stats this page renders.
-  const [trips, mapData, stats, bucketItems, countries, tripOptions] =
-    await Promise.all([
-      getProfileTrips(user.id),
-      getMapData(user.id),
-      getSummaryStats(user.id),
-      getBucketList(user.id),
-      getCountries(),
-      getTripOptions(),
-    ]);
+  const [
+    trips,
+    mapData,
+    stats,
+    bucketItems,
+    countries,
+    tripOptions,
+    tripDestinationOptions,
+  ] = await Promise.all([
+    getProfileTrips(user.id),
+    getMapData(user.id),
+    getSummaryStats(user.id),
+    getBucketList(user.id),
+    getCountries(),
+    getTripOptions(),
+    getTripDestinationOptions(),
+  ]);
 
   const toVisit = bucketItems.filter((item) => !item.fulfilled_at);
   const bucketPlaceKeys = mapData.bucketPlaces.map((place) =>
@@ -44,6 +52,7 @@ export default async function DashboardPage() {
     <DiscoveryProvider
       bucketCountryCodes={mapData.bucketCountryCodes}
       bucketPlaceKeys={bucketPlaceKeys}
+      tripOptions={tripDestinationOptions}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-8">
         <DashboardGlobe data={mapData} />

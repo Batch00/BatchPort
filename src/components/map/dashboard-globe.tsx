@@ -11,6 +11,7 @@ import {
   type GlobeCountrySelection,
 } from "./globe";
 import { CountryDrilldown, groupByTrip, type TripGroup } from "./country-drilldown";
+import { useGlobeFullscreen } from "./use-globe-fullscreen";
 import type { MapData } from "@/lib/map-data";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,12 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
   // While the replay runs, the dashboard chrome (stats pills, search, panels)
   // steps aside so the globe tells the story alone.
   const [replayActive, setReplayActive] = useState(false);
+  // Fullscreen: the card swaps to a fixed full-viewport container. Escape is
+  // panel-first: with a drill-down or discovery panel open it walks that up
+  // instead of collapsing the globe.
+  const { fullscreen, toggle: toggleFullscreen } = useGlobeFullscreen(
+    Boolean(selected || discoverTarget),
+  );
 
   const isEmpty = destinations.length === 0;
   const canReplay = destinations.some((d) => !d.planned);
@@ -121,7 +128,16 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
   }, [selected]);
 
   return (
-    <div className="relative h-[45vh] min-h-[300px] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d] sm:h-[60vh] sm:min-h-[380px]">
+    <div
+      className={cn(
+        "overflow-hidden bg-[#0d0d0d]",
+        // z-30 keeps the fullscreen globe below the discovery overlay host
+        // (z-40) so the panel still layers above it.
+        fullscreen
+          ? "fixed inset-0 z-30"
+          : "relative h-[45vh] min-h-[300px] w-full rounded-2xl border border-white/10 sm:h-[60vh] sm:min-h-[380px]",
+      )}
+    >
       <Globe
         visitedCountryCodes={visitedCountryCodes}
         bucketCountryCodes={bucketCountryCodes}
@@ -171,13 +187,20 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
             closeDiscover();
           }
         }}
+        onFullscreenToggle={toggleFullscreen}
+        fullscreen={fullscreen}
       />
 
       {/* Stats overlay. Wraps within the card on narrow screens so the pills
           never push past the globe's edge. Hidden during replay, which brings
           its own readout. */}
       {!isEmpty && !replayActive ? (
-        <div className="absolute left-4 right-4 top-4 z-20 flex flex-wrap items-center gap-2 pr-14">
+        <div
+          className={cn(
+            "absolute left-4 right-4 z-20 flex flex-wrap items-center gap-2 pr-14",
+            fullscreen ? "top-[max(1rem,env(safe-area-inset-top))]" : "top-4",
+          )}
+        >
           <div className="pointer-events-none rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md">
             {stats.countries} {stats.countries === 1 ? "country" : "countries"},{" "}
             {stats.trips} {stats.trips === 1 ? "trip" : "trips"},{" "}
@@ -233,7 +256,12 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
       {/* Search: explore any city or country by name. z-30 keeps the expanded
           dropdown above the stats pills. Hidden during replay. */}
       {replayActive ? null : (
-        <div className="absolute right-4 top-4 z-30 flex justify-end">
+        <div
+          className={cn(
+            "absolute right-4 z-30 flex justify-end",
+            fullscreen ? "top-[max(1rem,env(safe-area-inset-top))]" : "top-4",
+          )}
+        >
           <GlobeSearch
             onSelect={(selection: GlobeSearchSelection) => {
               setSelected(null);

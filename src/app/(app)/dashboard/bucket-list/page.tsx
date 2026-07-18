@@ -8,7 +8,7 @@ import {
   getBucketListStats,
   getCountries,
 } from "@/lib/bucket-list";
-import { getTripOptions } from "@/lib/trips";
+import { getTripDestinationOptions, getTripOptions } from "@/lib/trips";
 import { getPhotosByIds } from "@/lib/photos-data";
 import { getPhotoUrl } from "@/lib/photos";
 import { placeKey } from "@/lib/geo";
@@ -22,12 +22,14 @@ export const metadata = { title: "Bucket List" };
 // account when signed in as the demo) and hands the data to the client board.
 export default async function BucketListPage() {
   const { user } = await requireUser();
-  const [items, stats, countries, tripOptions] = await Promise.all([
-    getBucketList(user.id),
-    getBucketListStats(user.id),
-    getCountries(),
-    getTripOptions(),
-  ]);
+  const [items, stats, countries, tripOptions, tripDestinationOptions] =
+    await Promise.all([
+      getBucketList(user.id),
+      getBucketListStats(user.id),
+      getCountries(),
+      getTripOptions(),
+      getTripDestinationOptions(),
+    ]);
 
   // Fulfilled cards prefer the fulfilling trip's cover photo (the memory)
   // over the Wikimedia stock image. Resolve those covers in one query.
@@ -67,6 +69,7 @@ export default async function BucketListPage() {
     <DiscoveryProvider
       bucketCountryCodes={bucketCountryCodes}
       bucketPlaceKeys={bucketPlaceKeys}
+      tripOptions={tripDestinationOptions}
     >
       <div className="mx-auto w-full max-w-5xl p-6 sm:p-8">
         <Link

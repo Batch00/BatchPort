@@ -40,6 +40,47 @@ export async function getTripOptions(): Promise<TripOption[]> {
   return (data ?? []) as TripOption[];
 }
 
+// Trip and destination shapes for the discovery panel's "Add to a trip"
+// picker: enough to pick a destination and to sort ones in the POI's country
+// first. Trips without destinations are omitted (nothing to attach to).
+export interface DestinationOption {
+  id: string;
+  name: string;
+  country_code: string | null;
+}
+
+export interface TripDestinationOption {
+  id: string;
+  name: string;
+  destinations: DestinationOption[];
+}
+
+export async function getTripDestinationOptions(): Promise<
+  TripDestinationOption[]
+> {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase
+    .from("trips")
+    .select("id, name, destinations(id, name, country_code, order_index)")
+    .order("start_date", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  const rows = (data ?? []) as {
+    id: string;
+    name: string;
+    destinations: (DestinationOption & { order_index: number })[];
+  }[];
+  return rows
+    .filter((trip) => trip.destinations.length > 0)
+    .map((trip) => ({
+      id: trip.id,
+      name: trip.name,
+      destinations: [...trip.destinations]
+        .sort((a, b) => a.order_index - b.order_index)
+        .map(({ id, name, country_code }) => ({ id, name, country_code })),
+    }));
+}
+
 // A single trip with its destinations (ordered by order_index) and each
 // destination's experiences. Returns null when not found or not owned.
 export async function getTrip(id: string): Promise<TripWithDestinations | null> {

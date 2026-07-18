@@ -4,6 +4,8 @@ import {
   Globe2,
   LocateFixedIcon,
   Map as MapIcon,
+  Maximize2Icon,
+  Minimize2Icon,
   PlayIcon,
   RefreshCwIcon,
 } from "lucide-react";
@@ -20,6 +22,9 @@ interface MapControlsProps {
   refreshing?: boolean;
   // When provided, shows a replay button that starts the timeline playback.
   onReplay?: () => void;
+  // When provided, shows an expand/collapse button toggling fullscreen mode.
+  onFullscreenToggle?: () => void;
+  fullscreen?: boolean;
 }
 
 const BUTTON_CLASS =
@@ -35,12 +40,38 @@ export function MapControls({
   onRefresh,
   refreshing = false,
   onReplay,
+  onFullscreenToggle,
+  fullscreen = false,
 }: MapControlsProps) {
   const isGlobe = projection === "globe";
   const toggleLabel = isGlobe ? "Switch to flat map" : "Switch to globe";
 
   return (
-    <div className="absolute right-4 bottom-10 z-20 flex flex-col gap-2">
+    <div
+      className={cn(
+        "absolute z-20 flex flex-col gap-2",
+        // Fullscreen has no card inset, so the cluster respects device
+        // safe areas (notches, home indicators) instead.
+        fullscreen
+          ? "bottom-[max(2.5rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))]"
+          : "bottom-10 right-4",
+      )}
+    >
+      {onFullscreenToggle ? (
+        <button
+          type="button"
+          onClick={onFullscreenToggle}
+          aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          className={BUTTON_CLASS}
+        >
+          {fullscreen ? (
+            <Minimize2Icon className="size-5" />
+          ) : (
+            <Maximize2Icon className="size-5" />
+          )}
+        </button>
+      ) : null}
       {onReplay ? (
         <button
           type="button"

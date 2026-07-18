@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 
 import type { DiscoveryCityTarget } from "@/components/discover/discovery-panel";
 import type { BucketItem } from "@/lib/bucket-list";
+import type { TripDestinationOption } from "@/lib/trips";
 
 // The single discovery panel host for a page. Every surface that can open
 // discovery (globe clicks, search, drill-down Explore, bucket cards) renders
@@ -89,6 +90,9 @@ interface DiscoveryProviderProps {
    * request-access conversion treatment and skips the post-add refresh.
    */
   readOnly?: boolean;
+  /** The user's trips with destinations, for the POI detail's "Add to a
+   * trip" picker. Omit on read-only surfaces. */
+  tripOptions?: TripDestinationOption[];
   children: ReactNode;
 }
 
@@ -96,6 +100,7 @@ export function DiscoveryProvider({
   bucketCountryCodes,
   bucketPlaceKeys,
   readOnly = false,
+  tripOptions,
   children,
 }: DiscoveryProviderProps) {
   const [target, setTarget] = useState<DiscoveryTarget | null>(null);
@@ -127,6 +132,7 @@ export function DiscoveryProvider({
               bucketPlaceKeys={bucketPlaceKeys}
               initialCity={target.city}
               readOnly={readOnly}
+              tripOptions={tripOptions}
               onClose={close}
               onBucketAdded={readOnly ? undefined : () => router.refresh()}
             />

@@ -17,6 +17,8 @@ import {
   GlobeSearch,
   type GlobeSearchSelection,
 } from "@/components/discover/globe-search";
+import { useGlobeFullscreen } from "@/components/map/use-globe-fullscreen";
+import { cn } from "@/lib/utils";
 import type { MapData } from "@/lib/map-data";
 
 // Globe for the public share and demo surfaces. Exploration works like the
@@ -91,6 +93,11 @@ export function ShareGlobe({ data }: { data: MapData }) {
   const canReplay = destinations.some((d) => !d.planned);
   // The stats pill yields to the replay's own date and counter readout.
   const [replayActive, setReplayActive] = useState(false);
+  // Fullscreen mirrors the dashboard globe: fixed full-viewport CSS container,
+  // panel-first Escape handling.
+  const { fullscreen, toggle: toggleFullscreen } = useGlobeFullscreen(
+    Boolean(selected || discoverTarget),
+  );
 
   // Only one panel at a time: discovery opened from a bucket card below the
   // globe also dismisses the drill-down. Render-time state reset (the React
@@ -112,7 +119,15 @@ export function ShareGlobe({ data }: { data: MapData }) {
   }, [selected]);
 
   return (
-    <div className="relative h-[45vh] min-h-[300px] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0d0d0d] sm:h-[60vh] sm:min-h-[380px]">
+    <div
+      className={cn(
+        "overflow-hidden bg-[#0d0d0d]",
+        // z-30 stays below the discovery overlay host (z-40).
+        fullscreen
+          ? "fixed inset-0 z-30"
+          : "relative h-[45vh] min-h-[300px] w-full rounded-2xl border border-white/10 sm:h-[60vh] sm:min-h-[380px]",
+      )}
+    >
       <Globe
         visitedCountryCodes={visitedCountryCodes}
         bucketCountryCodes={bucketCountryCodes}
@@ -158,10 +173,17 @@ export function ShareGlobe({ data }: { data: MapData }) {
             closeDiscover();
           }
         }}
+        onFullscreenToggle={toggleFullscreen}
+        fullscreen={fullscreen}
       />
 
       {!isEmpty && !replayActive ? (
-        <div className="pointer-events-none absolute left-4 top-4 z-20 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md">
+        <div
+          className={cn(
+            "pointer-events-none absolute left-4 z-20 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md",
+            fullscreen ? "top-[max(1rem,env(safe-area-inset-top))]" : "top-4",
+          )}
+        >
           {stats.countries} {stats.countries === 1 ? "country" : "countries"},{" "}
           {stats.trips} {stats.trips === 1 ? "trip" : "trips"},{" "}
           {stats.destinations}{" "}
@@ -186,7 +208,12 @@ export function ShareGlobe({ data }: { data: MapData }) {
 
       {/* Search: explore any city or country by name. Hidden during replay. */}
       {replayActive ? null : (
-        <div className="absolute right-4 top-4 z-30 flex justify-end">
+        <div
+          className={cn(
+            "absolute right-4 z-30 flex justify-end",
+            fullscreen ? "top-[max(1rem,env(safe-area-inset-top))]" : "top-4",
+          )}
+        >
           <GlobeSearch
             onSelect={(selection: GlobeSearchSelection) => {
               setSelected(null);

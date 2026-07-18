@@ -342,10 +342,10 @@ scripts/
 
 The `geocode_cache.provider` check constraint must allow every provider the app
 writes: `photon`, `photon_poi`, `nominatim`, `wikimedia`, `discover_country`,
-`discover_cities`, and `discover_city`. If the constraint is stale, cache
-writes fail silently and every lookup hits the upstream API. Run
-`scripts/sql/2026-07-15-geocode-cache-providers.sql` in the Supabase SQL editor
-to widen it.
+`discover_cities`, `discover_city`, and `discover_poi`. If the constraint is
+stale, cache writes fail silently and every lookup hits the upstream API. Run
+`scripts/sql/2026-07-18-discover-poi-provider.sql` in the Supabase SQL editor
+to widen it (it supersedes `2026-07-15-geocode-cache-providers.sql`).
 
 Planned trips are excluded from visited countries and stats in the app data
 layer, but the SQL stats views also need the planned filter applied. See

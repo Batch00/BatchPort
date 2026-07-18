@@ -11,6 +11,7 @@ import { normalizeQuery } from "@/lib/geocode";
 const COUNTRY_PROVIDER = "discover_country";
 const CITIES_PROVIDER = "discover_cities";
 const CITY_PROVIDER = "discover_city";
+const POI_PROVIDER = "discover_poi";
 const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 const USER_AGENT =
@@ -100,6 +101,8 @@ interface WikipediaSummary {
   imageUrl: string | null;
   /** True when the page is a disambiguation page (useless as a summary). */
   disambiguation: boolean;
+  /** The article's own geotag, when present; used to reject wrong-place hits. */
+  coordinates: { lat: number; lng: number } | null;
 }
 
 // The REST summary endpoint needs no API key. Redirects (e.g. alternative
@@ -111,6 +114,7 @@ async function fetchWikipediaSummary(
     extract: null,
     imageUrl: null,
     disambiguation: false,
+    coordinates: null,
   };
   try {
     const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
@@ -126,12 +130,18 @@ async function fetchWikipediaSummary(
       extract?: string;
       originalimage?: { source?: string };
       thumbnail?: { source?: string };
+      coordinates?: { lat?: number; lon?: number };
     };
     return {
       extract: raw.extract?.trim() || null,
       imageUrl:
         raw.originalimage?.source ?? raw.thumbnail?.source ?? null,
       disambiguation: raw.type === "disambiguation",
+      coordinates:
+        typeof raw.coordinates?.lat === "number" &&
+        typeof raw.coordinates?.lon === "number"
+          ? { lat: raw.coordinates.lat, lng: raw.coordinates.lon }
+          : null,
     };
   } catch {
     return empty;
@@ -541,6 +551,220 @@ export async function getDiscoverCity(
     (result.summary || result.heroImageUrl || result.pois.length > 0)
   ) {
     await writeCache(CITY_PROVIDER, queryNorm, result);
+  }
+  return result;
+}
+
+// --- POI detail ---
+
+export interface DiscoverNearby {
+  name: string;
+  description: string | null;
+  lat: number;
+  lng: number;
+}
+
+export interface DiscoverPoiDetail {
+  /** Display name: the resolved Wikipedia title, or the input name on a miss. */
+  name: string;
+  /** Wikipedia's one-line description ("Wrought-iron tower in Paris"). */
+  description: string | null;
+  summary: string | null;
+  heroImageUrl: string | null;
+  attribution: string | null;
+  /** Other Wikipedia-documented places within the geosearch radius. */
+  nearby: DiscoverNearby[];
+}
+
+interface GeosearchPage {
+  title: string;
+  description: string | null;
+  lat: number;
+  lng: number;
+  thumbnailUrl: string | null;
+}
+
+// Wikipedia articles anchored to the coordinates, nearest first. This is the
+// disambiguation-proof lookup: a POI's name may be ambiguous ("Imperial
+// Palace") but its location is not, so the article physically at the spot is
+// the right one. ggsradius 250m keeps the results to the site itself and its
+// immediate surroundings.
+async function fetchGeosearch(
+  lat: number,
+  lng: number,
+): Promise<GeosearchPage[]> {
+  try {
+    const url = new URL("https://en.wikipedia.org/w/api.php");
+    url.searchParams.set("action", "query");
+    url.searchParams.set("format", "json");
+    url.searchParams.set("formatversion", "2");
+    url.searchParams.set("generator", "geosearch");
+    url.searchParams.set("ggscoord", `${lat}|${lng}`);
+    url.searchParams.set("ggsradius", "250");
+    url.searchParams.set("ggslimit", "8");
+    url.searchParams.set("prop", "description|coordinates|pageimages");
+    url.searchParams.set("piprop", "thumbnail");
+    url.searchParams.set("pithumbsize", "320");
+    const response = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!response.ok) return [];
+    const raw = (await response.json()) as {
+      query?: {
+        pages?: {
+          title?: string;
+          index?: number;
+          description?: string;
+          coordinates?: { lat?: number; lon?: number }[];
+          thumbnail?: { source?: string };
+        }[];
+      };
+    };
+    const pages: (GeosearchPage & { index: number })[] = [];
+    for (const page of raw.query?.pages ?? []) {
+      const coord = page.coordinates?.[0];
+      if (
+        !page.title ||
+        typeof coord?.lat !== "number" ||
+        typeof coord?.lon !== "number"
+      ) {
+        continue;
+      }
+      pages.push({
+        title: page.title,
+        description: page.description ?? null,
+        lat: coord.lat,
+        lng: coord.lon,
+        thumbnailUrl: page.thumbnail?.source ?? null,
+        index: page.index ?? Number.MAX_SAFE_INTEGER,
+      });
+    }
+    // The generator reports distance order via index; the pages array itself
+    // is not guaranteed to be sorted.
+    pages.sort((a, b) => a.index - b.index);
+    return pages;
+  } catch {
+    return [];
+  }
+}
+
+// Loose name identity for matching a POI name against Wikipedia titles:
+// "Louvre" should match "Louvre Museum" and vice versa.
+function titlesMatch(a: string, b: string): boolean {
+  const na = normalizeQuery(a);
+  const nb = normalizeQuery(b);
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+export async function getDiscoverPoi(
+  name: string,
+  lat: number,
+  lng: number,
+): Promise<DiscoverPoiDetail> {
+  // Rounded coordinates in the key so tiny geocoder jitter still hits the
+  // cache while distinct same-named places stay distinct.
+  const queryNorm = `${normalizeQuery(name)}|${lat.toFixed(3)},${lng.toFixed(3)}`;
+
+  const cached = await readCache(POI_PROVIDER, queryNorm);
+  if (cached) return cached as DiscoverPoiDetail;
+
+  // The geosearch always runs: it is both the fallback article resolver and
+  // the source of the nearby list.
+  const [direct, geoPages] = await Promise.all([
+    fetchWikipediaSummary(name),
+    fetchGeosearch(lat, lng),
+  ]);
+
+  // A direct hit can still be the wrong place: the bare name may resolve to a
+  // same-named article elsewhere in the world. When the article carries a
+  // geotag far from the POI, treat it as a miss and let the coordinate-
+  // anchored geosearch pick the right one.
+  const wrongPlace =
+    direct.coordinates !== null &&
+    haversineKm(lat, lng, direct.coordinates.lat, direct.coordinates.lng) > 50;
+
+  let wiki = wrongPlace ? { ...direct, extract: null } : direct;
+  let resolvedTitle = name;
+  if (wiki.disambiguation || !wiki.extract) {
+    // The direct title missed or landed on a disambiguation page. Use the
+    // article actually at these coordinates, but only when its title
+    // resembles the POI name: a POI with no article of its own (a
+    // restaurant next to a famous square) must degrade to "no info", not
+    // adopt its neighbor's article. Live probe: "Imperial Palace" at Kyoto
+    // coordinates resolves to "Kyoto Imperial Palace"; "Chez Janou" near
+    // Place des Vosges resolves to nothing.
+    const match = geoPages.find((page) => titlesMatch(page.title, name));
+    if (match) {
+      const bySite = await fetchWikipediaSummary(match.title);
+      if (bySite.extract && !bySite.disambiguation) {
+        wiki = bySite;
+        resolvedTitle = match.title;
+      }
+    }
+  }
+  const resolved = Boolean(wiki.extract) && !wiki.disambiguation;
+
+  // Hero: the resolved article's page image, else the P18 flow the rest of
+  // the photo pipeline uses (cached under the wikimedia provider).
+  let heroImageUrl: string | null = null;
+  let attribution: string | null = null;
+  if (resolved && wiki.imageUrl && !isEmblemImage(wiki.imageUrl)) {
+    heroImageUrl = wiki.imageUrl;
+    attribution = "Image via Wikipedia";
+  } else {
+    const p18 = await getWikimediaPhoto(name);
+    if (p18.url && !isEmblemImage(p18.url)) {
+      heroImageUrl = p18.url;
+      attribution = p18.attribution
+        ? p18.license
+          ? `${p18.attribution} (${p18.license})`
+          : p18.attribution
+        : p18.license;
+    }
+  }
+
+  // Wikipedia's short description line, from the geosearch page metadata when
+  // the resolved article appears there.
+  const resolvedPage = geoPages.find((page) =>
+    titlesMatch(page.title, resolvedTitle),
+  );
+
+  // Nearby: other documented places within the radius. Thumbnails are
+  // required (keeps the list to photographed places) and articles about
+  // events rather than sites are dropped by description.
+  const nonPlace =
+    /battle|revolt|rebellion|siege|incident|massacre|bombing|murder|assassination|riot|attack|conflict/i;
+  const nearby: DiscoverNearby[] = geoPages
+    .filter(
+      (page) =>
+        !titlesMatch(page.title, resolvedTitle) &&
+        !titlesMatch(page.title, name) &&
+        page.thumbnailUrl !== null &&
+        !(page.description && nonPlace.test(page.description)),
+    )
+    .slice(0, 3)
+    .map((page) => ({
+      name: page.title,
+      description: page.description,
+      lat: page.lat,
+      lng: page.lng,
+    }));
+
+  const result: DiscoverPoiDetail = {
+    name: resolved ? resolvedTitle : name,
+    description: resolvedPage?.description ?? null,
+    summary: resolved ? wiki.extract : null,
+    heroImageUrl,
+    attribution,
+    nearby,
+  };
+
+  // A fully empty payload is indistinguishable from a transient upstream
+  // failure, so it is not cached; legitimate misses with any resolved field
+  // (a hero, nearby items) are.
+  if (result.summary || result.heroImageUrl || result.nearby.length > 0) {
+    await writeCache(POI_PROVIDER, queryNorm, result);
   }
   return result;
 }

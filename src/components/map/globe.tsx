@@ -120,6 +120,10 @@ export interface GlobeProps {
   enableReplay?: boolean;
   /** Fired when replay mode starts or ends, so hosts can hide their overlays. */
   onReplayActiveChange?: (active: boolean) => void;
+  /** When provided, shows the fullscreen toggle in the control cluster. The
+   * host owns the fullscreen state and container styling. */
+  onFullscreenToggle?: () => void;
+  fullscreen?: boolean;
 }
 
 // Dim amber for "want to visit" countries: distinct from visited (blue) and
@@ -260,6 +264,8 @@ export function Globe({
   refreshing = false,
   enableReplay = false,
   onReplayActiveChange,
+  onFullscreenToggle,
+  fullscreen = false,
 }: GlobeProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1129,6 +1135,8 @@ export function Globe({
           onRefresh={onRefresh}
           refreshing={refreshing}
           onReplay={replayTimeline ? replay.enter : undefined}
+          onFullscreenToggle={onFullscreenToggle}
+          fullscreen={fullscreen}
         />
       ) : (
         <ReplayControls
