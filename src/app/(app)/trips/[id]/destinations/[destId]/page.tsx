@@ -13,9 +13,9 @@ import { DeleteDestinationButton } from "@/components/destinations/delete-destin
 import { ExperiencesSection } from "@/components/experiences/experiences-section";
 import { DestinationPhotos } from "@/components/photos/destination-photos";
 import { PhotoBanner } from "@/components/photos/photo-banner";
+import { CountryFlag } from "@/components/country-flag";
 import {
   durationDays,
-  flagEmoji,
   formatDateRange,
   formatDuration,
 } from "@/lib/format";
@@ -99,7 +99,7 @@ export default async function DestinationDetailPage({
           <span className="min-w-0 break-words">{destination.name}</span>
           {destination.country_code ? (
             <span className="text-base font-normal text-white/70">
-              {flagEmoji(destination.country_code)}{" "}
+              <CountryFlag code={destination.country_code} className="h-4" />{" "}
               {destination.admin_region ?? destination.country_code}
             </span>
           ) : null}

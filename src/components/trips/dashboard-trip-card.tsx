@@ -37,10 +37,10 @@ import { CategoryIcon } from "@/components/category-icon";
 import { TripCoverEditor } from "@/components/trips/trip-cover-editor";
 import { deleteTripAction } from "@/lib/actions/trips";
 import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
+import { CountryFlag } from "@/components/country-flag";
 import {
   daysUntil,
   durationDays,
-  flagEmoji,
   formatDateRange,
   formatDuration,
 } from "@/lib/format";
@@ -226,7 +226,10 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
                         </span>
                         {destination.country_code ? (
                           <span className="shrink-0 text-sm text-foreground/50">
-                            {flagEmoji(destination.country_code)}{" "}
+                            <CountryFlag
+                              code={destination.country_code}
+                              className="h-3"
+                            />{" "}
                             {destination.country_code}
                           </span>
                         ) : null}

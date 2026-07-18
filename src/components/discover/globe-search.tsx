@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2Icon, MapPinIcon, SearchIcon, XIcon } from "lucide-react";
 
-import { flagEmoji } from "@/lib/format";
+import { CountryFlag } from "@/components/country-flag";
 import { cn } from "@/lib/utils";
 import type { GeoLocation } from "@/lib/types";
 import type { DiscoveryCityTarget } from "./discovery-panel";
@@ -189,8 +189,10 @@ export function GlobeSearch({ onSelect, className }: GlobeSearchProps) {
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm outline-none transition-colors hover:bg-white/5 focus-visible:bg-white/5"
                     onClick={() => handleSelect(result)}
                   >
-                    <span className="text-base leading-none">
-                      {flagEmoji(result.country_code) || (
+                    <span className="flex items-center leading-none">
+                      {result.country_code ? (
+                        <CountryFlag code={result.country_code} />
+                      ) : (
                         <MapPinIcon className="size-4 text-foreground/40" />
                       )}
                     </span>

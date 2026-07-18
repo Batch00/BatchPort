@@ -5,7 +5,8 @@ import { CompassIcon, MapPinIcon, XIcon } from "lucide-react";
 
 import type { GlobeCountrySelection } from "./globe";
 import type { MapDestination } from "@/lib/map-data";
-import { flagEmoji, formatDateRange } from "@/lib/format";
+import { CountryFlag } from "@/components/country-flag";
+import { formatDateRange } from "@/lib/format";
 
 // The visited-country drill-down panel shared by the dashboard and the public
 // share/demo globes: destinations grouped by trip, plus the Explore button
@@ -86,7 +87,7 @@ export function CountryDrilldown({
       <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 truncate text-base font-semibold tracking-tight">
-            <span>{flagEmoji(selection.code)}</span>
+            <CountryFlag code={selection.code} className="h-4" />
             <span className="truncate">{selection.name}</span>
           </h2>
           <p className="mt-0.5 text-xs text-foreground/50">

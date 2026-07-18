@@ -13,9 +13,9 @@ import { StatusBadge } from "@/components/trips/status-badge";
 import { DeleteTripButton } from "@/components/trips/delete-trip-button";
 import { PhotoBanner } from "@/components/photos/photo-banner";
 import { TripPhotosSection } from "@/components/photos/trip-photos";
+import { CountryFlag } from "@/components/country-flag";
 import {
   durationDays,
-  flagEmoji,
   formatDateRange,
   formatDuration,
 } from "@/lib/format";
@@ -203,7 +203,9 @@ export default async function TripDetailPage({
                           <span>{destination.name}</span>
                           {destination.country_code ? (
                             <span className="text-sm text-foreground/50">
-                              {flagEmoji(destination.country_code)}{" "}
+                              <CountryFlag
+                                code={destination.country_code}
+                              />{" "}
                               {destination.country_code}
                             </span>
                           ) : null}

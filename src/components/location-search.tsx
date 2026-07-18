@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2Icon, MapPinIcon, SearchIcon } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
-import { flagEmoji } from "@/lib/format";
+import { CountryFlag } from "@/components/country-flag";
 import { cn } from "@/lib/utils";
 import type { GeoLocation } from "@/lib/types";
 
@@ -161,8 +161,10 @@ export function LocationSearch({
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent"
                     onClick={() => handleSelect(result)}
                   >
-                    <span className="text-base leading-none">
-                      {flagEmoji(result.country_code) || (
+                    <span className="flex items-center leading-none">
+                      {result.country_code ? (
+                        <CountryFlag code={result.country_code} />
+                      ) : (
                         <MapPinIcon className="size-4 text-muted-foreground" />
                       )}
                     </span>

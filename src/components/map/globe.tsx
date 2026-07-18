@@ -18,7 +18,7 @@ import type {
 } from "maplibre-gl";
 import type { FeatureCollection, LineString, Point } from "geojson";
 
-import { flagEmoji, formatDateRange } from "@/lib/format";
+import { formatDateRange } from "@/lib/format";
 import { boundsOfPoints, greatCirclePoints } from "@/lib/geo";
 import { buildReplayTimeline } from "@/lib/replay";
 import { MapControls } from "./projection-toggle";
@@ -433,6 +433,13 @@ export function Globe({
       );
     }
 
+    // Inline SVG flag for popup HTML (emoji flags render as bare letters on
+    // Windows). The code is validated before being interpolated.
+    function flagImgHtml(code: string): string {
+      if (!/^[A-Za-z]{2}$/.test(code)) return "";
+      return `<img src="https://flagcdn.com/${code.toLowerCase()}.svg" alt="" style="height:11px;width:auto;border-radius:2px;vertical-align:-1px;margin-right:4px" />`;
+    }
+
     function showPinPopupFromFeature(feature: MapGeoJSONFeature) {
       if (!maplibregl || !map) return;
       const props = feature.properties ?? {};
@@ -449,8 +456,8 @@ export function Globe({
       if (geometry.type !== "Point") return;
       const [lng, lat] = geometry.coordinates as [number, number];
 
-      const country = countryCode
-        ? `${flagEmoji(countryCode)} ${countryCode}`
+      const countryHtml = countryCode
+        ? `${flagImgHtml(countryCode)}${escapeHtml(countryCode)}`
         : "";
       const dates = formatDateRange(arrivalDate, departureDate);
       const linkHtml = dataRef.current.enableDestinationLinks
@@ -465,7 +472,7 @@ export function Globe({
       const html = `
         <div>
           <div style="font-weight:600;color:#f4f4f5">${escapeHtml(name)}</div>
-          <div style="color:#a1a1aa">${escapeHtml(country)}</div>
+          <div style="color:#a1a1aa">${countryHtml}</div>
           <div style="margin-top:4px;color:#8b8b94;font-size:0.75rem">${escapeHtml(
             tripName,
           )}</div>
@@ -504,8 +511,8 @@ export function Globe({
       container.appendChild(title);
       const subtitle = document.createElement("div");
       subtitle.style.cssText = "color:#a1a1aa";
-      subtitle.textContent = countryCode
-        ? `${flagEmoji(countryCode)} ${countryCode} · Bucket list`
+      subtitle.innerHTML = countryCode
+        ? `${flagImgHtml(countryCode)}${escapeHtml(countryCode)} · Bucket list`
         : "Bucket list";
       container.appendChild(subtitle);
 

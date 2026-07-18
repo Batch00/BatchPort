@@ -21,7 +21,8 @@ import { SafeImage } from "@/components/photos/safe-image";
 import { StatusBadge } from "@/components/trips/status-badge";
 import { bucketItemName } from "@/lib/bucket-format";
 import { coverImageStyle } from "@/lib/photos";
-import { flagEmoji, formatDate } from "@/lib/format";
+import { CountryFlag } from "@/components/country-flag";
+import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { BucketItem } from "@/lib/bucket-list";
 import type { CoverPosition } from "@/lib/types";
@@ -173,8 +174,15 @@ export function BucketCard({
             !heroSettled && "animate-pulse",
           )}
         >
-          <span className="text-5xl opacity-40">
-            {flagEmoji(item.country_code) || "🌍"}
+          <span className="flex items-center opacity-40">
+            {item.country_code ? (
+              <CountryFlag
+                code={item.country_code}
+                className="h-12 rounded-md"
+              />
+            ) : (
+              <span className="text-5xl">🌍</span>
+            )}
           </span>
         </div>
       )}
@@ -196,13 +204,13 @@ export function BucketCard({
       <div className="absolute inset-x-0 bottom-0 flex flex-col gap-0.5 p-4 pr-10">
         <h3 className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight text-white">
           {item.type === "country" ? (
-            <span className="shrink-0">{flagEmoji(item.country_code)}</span>
+            <CountryFlag code={item.country_code} className="h-4" />
           ) : null}
           <span className="truncate">{name}</span>
         </h3>
         {subtitle ? (
           <p className="truncate text-xs text-white/60">
-            {flagEmoji(item.country_code)} {subtitle}
+            <CountryFlag code={item.country_code} className="h-3" /> {subtitle}
           </p>
         ) : null}
 

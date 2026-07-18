@@ -16,7 +16,7 @@ import {
   createDestinationAction,
   updateDestinationAction,
 } from "@/lib/actions/destinations";
-import { flagEmoji } from "@/lib/format";
+import { CountryFlag } from "@/components/country-flag";
 import type { DestinationInput } from "@/lib/destinations";
 import type { CoverPosition, GeoLocation, Photo } from "@/lib/types";
 import type { GlobeBucketPlace } from "@/components/map/globe";
@@ -140,7 +140,7 @@ export function DestinationForm({
             <span className="font-medium text-foreground">{location.name}</span>
             {location.country_code ? (
               <span className="text-foreground/50">
-                {flagEmoji(location.country_code)}{" "}
+                <CountryFlag code={location.country_code} />{" "}
                 {[location.admin_region, location.country]
                   .filter(Boolean)
                   .join(", ") || location.country_code}

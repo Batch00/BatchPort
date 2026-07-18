@@ -25,10 +25,11 @@ export function CountryFlag({
   code,
   className,
 }: {
-  code: string;
+  code?: string | null;
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
+  if (!code || !/^[A-Za-z]{2}$/.test(code)) return null;
   const name = countryName(code);
 
   if (failed) {
@@ -47,7 +48,12 @@ export function CountryFlag({
       title={name}
       loading="lazy"
       onError={() => setFailed(true)}
-      className={cn("h-3.5 w-auto rounded-[3px] ring-1 ring-white/10", className)}
+      className={cn(
+        // inline-block with a slight downshift so the flag sits naturally in
+        // running text; flex parents simply ignore the vertical alignment.
+        "inline-block h-3.5 w-auto shrink-0 rounded-[3px] align-[-2px] ring-1 ring-white/10",
+        className,
+      )}
     />
   );
 }

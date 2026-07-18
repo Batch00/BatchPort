@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDownIcon, XIcon } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
-import { flagEmoji } from "@/lib/format";
+import { CountryFlag } from "@/components/country-flag";
 import { cn } from "@/lib/utils";
 import type { CountryOption } from "@/lib/bucket-list";
 
@@ -70,9 +70,7 @@ export function CountryCombobox({
           }}
           className="flex h-9 flex-1 items-center gap-2 rounded-lg border border-input bg-input/30 px-3 text-left text-sm"
         >
-          <span className="text-base leading-none">
-            {flagEmoji(selected.code)}
-          </span>
+          <CountryFlag code={selected.code} />
           <span className="flex-1 truncate">{selected.name}</span>
           <ChevronDownIcon className="size-4 text-muted-foreground" />
         </button>
@@ -124,9 +122,7 @@ export function CountryCombobox({
                   country.code === value && "bg-accent/50",
                 )}
               >
-                <span className="text-base leading-none">
-                  {flagEmoji(country.code)}
-                </span>
+                <CountryFlag code={country.code} />
                 <span className="flex-1 truncate">{country.name}</span>
                 <span className="text-xs text-muted-foreground">
                   {country.code}

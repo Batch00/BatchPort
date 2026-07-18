@@ -19,7 +19,7 @@ import { toast } from "sonner";
 
 import { createBucketItem } from "@/lib/actions/bucket-list";
 import { startTripFromCityAction } from "@/lib/actions/trips";
-import { flagEmoji } from "@/lib/format";
+import { CountryFlag } from "@/components/country-flag";
 import { placeKey } from "@/lib/geo";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -636,7 +636,7 @@ export function DiscoveryPanel({
           )}
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent px-5 pb-3 pt-10">
             <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-              <span>{flagEmoji(code)}</span>
+              <CountryFlag code={code} className="h-4" />
               <span className="truncate">
                 {cityView ? cityView.name : country?.name ?? name}
               </span>

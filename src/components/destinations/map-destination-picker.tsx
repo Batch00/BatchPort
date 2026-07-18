@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2Icon, MapPinIcon, XIcon } from "lucide-react";
 
 import { Globe, type GlobeBucketPlace } from "@/components/map/globe";
-import { flagEmoji } from "@/lib/format";
+import { CountryFlag } from "@/components/country-flag";
 import { cn } from "@/lib/utils";
 import type { GeoLocation } from "@/lib/types";
 import type { DiscoverCity } from "@/lib/discover";
@@ -159,7 +159,7 @@ export function MapDestinationPicker({
             <div className="flex items-start justify-between gap-2 border-b border-white/10 px-4 py-3">
               <div className="min-w-0">
                 <h3 className="flex items-center gap-1.5 truncate text-sm font-semibold">
-                  <span>{flagEmoji(country.code)}</span>
+                  <CountryFlag code={country.code} className="h-4" />
                   <span className="truncate">{country.name}</span>
                 </h3>
                 <p className="text-xs text-foreground/45">
