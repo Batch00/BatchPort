@@ -2,15 +2,20 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeftIcon, ImageIcon, PencilIcon, PlusIcon } from "lucide-react";
 
-import { getTrip } from "@/lib/trips";
+import { getTrip, getTripDestinationOptions } from "@/lib/trips";
 import { getPhotos, getPhotosForOwners } from "@/lib/photos-data";
+import { getCategories } from "@/lib/experiences";
+import { getBucketList, getCountries } from "@/lib/bucket-list";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
+import { placeKey } from "@/lib/geo";
 import { coverImageStyle, getPhotoUrl, resolveCoverPhoto } from "@/lib/photos";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { StatusBadge } from "@/components/trips/status-badge";
 import { DeleteTripButton } from "@/components/trips/delete-trip-button";
+import { DestinationPlan } from "@/components/trips/trip-planner";
+import { DiscoveryProvider } from "@/components/discover/discovery-host";
 import { PhotoBanner } from "@/components/photos/photo-banner";
 import { TripPhotosSection } from "@/components/photos/trip-photos";
 import { CountryFlag } from "@/components/country-flag";
@@ -31,14 +36,32 @@ export default async function TripDetailPage({
   // The trip-level photo list only depends on the URL id, so it joins the
   // first batch; only the destination and experience photo queries need the
   // ids that come back with the trip.
-  const [{ user }, trip, tripPhotos] = await Promise.all([
-    requireUser(),
-    getTrip(id),
-    getPhotos("trip", id),
-  ]);
+  // categories, countries, bucket items, and trip options feed the planning
+  // workspace (checklist, ideas strip, and the discovery panel host).
+  const [{ user }, trip, tripPhotos, categories, countries, bucketItems, tripOptions] =
+    await Promise.all([
+      requireUser(),
+      getTrip(id),
+      getPhotos("trip", id),
+      getCategories(),
+      getCountries(),
+      getBucketList(),
+      getTripDestinationOptions(),
+    ]);
   if (!trip) {
     notFound();
   }
+  const isDemo = isDemoUser(user.id);
+  const countryNameByCode = new Map(
+    countries.map((country) => [country.code, country.name]),
+  );
+  const unfulfilled = bucketItems.filter((item) => !item.fulfilled_at);
+  const bucketCountryCodes = unfulfilled
+    .filter((item) => item.type === "country" && item.country_code)
+    .map((item) => item.country_code as string);
+  const bucketPlaceKeys = unfulfilled
+    .filter((item) => item.type === "place" && item.place_name)
+    .map((item) => placeKey(item.place_name as string, item.country_code));
 
   const destIds = trip.destinations.map((destination) => destination.id);
   const experienceIds = trip.destinations.flatMap((destination) =>
@@ -97,6 +120,11 @@ export default async function TripDetailPage({
     : null;
 
   return (
+    <DiscoveryProvider
+      bucketCountryCodes={bucketCountryCodes}
+      bucketPlaceKeys={bucketPlaceKeys}
+      tripOptions={tripOptions}
+    >
     <div className="mx-auto w-full max-w-3xl p-6 sm:p-8">
       <Link
         href="/dashboard"
@@ -165,7 +193,10 @@ export default async function TripDetailPage({
       ) : (
         <ol className="flex flex-col gap-3">
           {trip.destinations.map((destination, index) => {
-            const experienceCount = destination.experiences.length;
+            const doneCount = destination.experiences.filter(
+              (experience) => experience.status !== "planned",
+            ).length;
+            const ideaCount = destination.experiences.length - doneCount;
             const cover = destinationCovers.get(destination.id) ?? null;
             // The crop position belongs to the explicitly set cover only.
             const coverStyle = cover?.explicit
@@ -219,9 +250,14 @@ export default async function TripDetailPage({
                       </div>
                       <span className="flex shrink-0 flex-col items-end gap-0.5 pr-4 text-xs text-foreground/50">
                         <span>
-                          {experienceCount}{" "}
-                          {experienceCount === 1 ? "experience" : "experiences"}
+                          {doneCount}{" "}
+                          {doneCount === 1 ? "experience" : "experiences"}
                         </span>
+                        {ideaCount > 0 ? (
+                          <span className="text-foreground/40">
+                            {ideaCount} {ideaCount === 1 ? "idea" : "ideas"}
+                          </span>
+                        ) : null}
                         {(() => {
                           const photoCount =
                             photosByDestination.get(destination.id)?.length ??
@@ -237,6 +273,25 @@ export default async function TripDetailPage({
                     </CardContent>
                   </Card>
                 </Link>
+                <DestinationPlan
+                  tripId={trip.id}
+                  tripStatus={trip.status}
+                  destination={{
+                    id: destination.id,
+                    name: destination.name,
+                    lat: destination.latitude,
+                    lng: destination.longitude,
+                    country_code: destination.country_code,
+                  }}
+                  countryName={
+                    destination.country_code
+                      ? countryNameByCode.get(destination.country_code) ?? null
+                      : null
+                  }
+                  experiences={destination.experiences}
+                  categories={categories}
+                  isDemo={isDemo}
+                />
               </li>
             );
           })}
@@ -246,7 +301,7 @@ export default async function TripDetailPage({
       <TripPhotosSection
         tripId={trip.id}
         userId={user.id}
-        isDemo={isDemoUser(user.id)}
+        isDemo={isDemo}
         coverPhotoId={trip.cover_photo_id}
         coverPosition={trip.cover_position ?? null}
         destinations={trip.destinations.map((destination) => ({
@@ -263,5 +318,6 @@ export default async function TripDetailPage({
         taggedPhotos={[...destPhotos, ...expPhotos]}
       />
     </div>
+    </DiscoveryProvider>
   );
 }

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon, PencilIcon } from "lucide-react";
 
 import { getDestination } from "@/lib/destinations";
+import { getTripStatus } from "@/lib/trips";
 import { getCategories } from "@/lib/experiences";
 import { getPhotos, getPhotosForOwners } from "@/lib/photos-data";
 import { resolveCoverPhoto } from "@/lib/photos";
@@ -31,12 +32,14 @@ export default async function DestinationDetailPage({
   // Everything that does not depend on the destination row runs in one
   // parallel batch; only the experience photos (which need the experience ids)
   // wait for the destination.
-  const [{ user }, destination, categories, photos] = await Promise.all([
-    requireUser(),
-    getDestination(destId),
-    getCategories(),
-    getPhotos("destination", destId),
-  ]);
+  const [{ user }, destination, categories, photos, tripStatus] =
+    await Promise.all([
+      requireUser(),
+      getDestination(destId),
+      getCategories(),
+      getPhotos("destination", destId),
+      getTripStatus(id),
+    ]);
 
   if (!destination || destination.trip_id !== id) {
     notFound();
@@ -126,6 +129,7 @@ export default async function DestinationDetailPage({
 
       <ExperiencesSection
         tripId={id}
+        tripStatus={tripStatus ?? "completed"}
         destinationId={destId}
         experiences={destination.experiences}
         categories={categories}

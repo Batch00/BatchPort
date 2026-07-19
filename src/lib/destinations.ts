@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/current-user";
-import { EXPERIENCE_COLUMNS, sortExperiences } from "@/lib/experiences";
+import { normalizeExperience, sortExperiences } from "@/lib/experiences";
 import { pointEwkt } from "@/lib/geo";
 import type { Destination, DestinationWithExperiences } from "@/lib/types";
 
@@ -27,7 +27,7 @@ export async function getDestination(
   const { supabase } = await requireUser();
   const { data, error } = await supabase
     .from("destinations")
-    .select(`${DESTINATION_COLUMNS}, experiences(${EXPERIENCE_COLUMNS})`)
+    .select(`${DESTINATION_COLUMNS}, experiences(*)`)
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -36,7 +36,9 @@ export async function getDestination(
   const destination = data as DestinationWithExperiences;
   return {
     ...destination,
-    experiences: [...(destination.experiences ?? [])].sort(sortExperiences),
+    experiences: (destination.experiences ?? [])
+      .map(normalizeExperience)
+      .sort(sortExperiences),
   };
 }
 

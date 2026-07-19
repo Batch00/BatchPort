@@ -34,6 +34,7 @@ import {
 import { StatusBadge } from "@/components/trips/status-badge";
 import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
+import { PlannedExperienceRowReadOnly } from "@/components/experiences/planned-checklist";
 import { TripCoverEditor } from "@/components/trips/trip-cover-editor";
 import { deleteTripAction } from "@/lib/actions/trips";
 import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
@@ -63,6 +64,18 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
   // Small anticipation cue on upcoming planned trips.
   const countdown =
     trip.status === "planned" ? daysUntil(trip.start_date) : null;
+  // Planned experiences saved while planning; the data is already on the card.
+  const ideaCount =
+    trip.status === "planned" || trip.status === "ongoing"
+      ? trip.destinations.reduce(
+          (count, destination) =>
+            count +
+            destination.experiences.filter(
+              (experience) => experience.status === "planned",
+            ).length,
+          0,
+        )
+      : 0;
 
   async function handleDelete() {
     setDeleting(true);
@@ -119,6 +132,12 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
                 <span className="font-medium text-brand">
                   {" "}
                   · in {formatDuration(countdown)}
+                </span>
+              ) : null}
+              {ideaCount > 0 ? (
+                <span className="text-white/50">
+                  {" "}
+                  · {ideaCount} {ideaCount === 1 ? "idea" : "ideas"} saved
                 </span>
               ) : null}
             </p>
@@ -243,35 +262,48 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
 
                       {destination.experiences.length > 0 ? (
                         <ul className="mt-2 flex flex-col gap-1.5">
-                          {destination.experiences.map((experience) => (
-                            <li
-                              key={experience.id}
-                              className="flex items-center gap-2 text-sm"
-                            >
-                              <span
-                                className="flex size-5 shrink-0 items-center justify-center rounded bg-white/5"
-                                style={
-                                  experience.category?.color
-                                    ? { color: experience.category.color }
-                                    : undefined
-                                }
+                          {destination.experiences
+                            .filter((e) => e.status !== "planned")
+                            .map((experience) => (
+                              <li
+                                key={experience.id}
+                                className="flex items-center gap-2 text-sm"
                               >
-                                <CategoryIcon
-                                  icon={experience.category?.icon}
-                                  className="size-3"
-                                />
-                              </span>
-                              <span className="min-w-0 flex-1 break-words text-foreground/85">
-                                {experience.name}
-                              </span>
-                              {experience.rating ? (
-                                <RatingDisplay
-                                  rating={experience.rating}
-                                  size={12}
-                                />
-                              ) : null}
-                            </li>
-                          ))}
+                                <span
+                                  className="flex size-5 shrink-0 items-center justify-center rounded bg-white/5"
+                                  style={
+                                    experience.category?.color
+                                      ? { color: experience.category.color }
+                                      : undefined
+                                  }
+                                >
+                                  <CategoryIcon
+                                    icon={experience.category?.icon}
+                                    className="size-3"
+                                  />
+                                </span>
+                                <span className="min-w-0 flex-1 break-words text-foreground/85">
+                                  {experience.name}
+                                </span>
+                                {experience.rating ? (
+                                  <RatingDisplay
+                                    rating={experience.rating}
+                                    size={12}
+                                  />
+                                ) : null}
+                              </li>
+                            ))}
+                          {destination.experiences
+                            .filter((e) => e.status === "planned")
+                            .map((experience) => (
+                              <PlannedExperienceRowReadOnly
+                                key={experience.id}
+                                name={experience.name}
+                                categoryLabel={experience.category?.label}
+                                categoryIcon={experience.category?.icon}
+                                categoryColor={experience.category?.color}
+                              />
+                            ))}
                         </ul>
                       ) : (
                         <p className="mt-2 flex items-center gap-1 text-xs text-foreground/40">

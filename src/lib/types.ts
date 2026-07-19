@@ -46,6 +46,11 @@ export interface Destination {
   updated_at: string;
 }
 
+// A planned experience is an idea saved while planning a trip; done is a
+// logged activity. Rows written before the status column existed read as
+// undefined and are normalized to "done" in the data layer.
+export type ExperienceStatus = "planned" | "done";
+
 export interface Experience {
   id: string;
   destination_id: string;
@@ -56,6 +61,7 @@ export interface Experience {
   rating: number | null;
   visited_date: string | null;
   notes: string | null;
+  status: ExperienceStatus;
   created_at: string;
   updated_at: string;
 }

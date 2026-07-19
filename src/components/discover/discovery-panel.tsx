@@ -387,6 +387,7 @@ function CityBody({
   city,
   countryCode,
   isOnBucketList,
+  planningTripName,
   readOnly,
   onHeroLoaded,
   onOpenPoi,
@@ -396,6 +397,8 @@ function CityBody({
   countryCode: string;
   /** Whether this city already matches a place-type bucket item. */
   isOnBucketList: boolean;
+  /** A planned or ongoing trip with a destination named like this city. */
+  planningTripName: string | null;
   readOnly: boolean;
   /** Reports the city hero URL up so the shared shell hero can show it. */
   onHeroLoaded: (cityName: string, url: string | null) => void;
@@ -477,6 +480,12 @@ function CityBody({
 
   return (
     <>
+      {planningTripName ? (
+        <p className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand/10 px-2.5 py-1 text-xs text-brand">
+          <PlaneIcon className="size-3" />
+          Planning a trip here · {planningTripName}
+        </p>
+      ) : null}
       <SummaryBlock summary={detail?.summary ?? null} loading={loading} />
 
       {readOnly ? (
@@ -591,7 +600,14 @@ function AddToTripPicker({
   const [savedTo, setSavedTo] = useState<string | null>(null);
   const [saving, startSaving] = useTransition();
 
-  function handlePick(destinationId: string, destinationName: string) {
+  function handlePick(
+    destinationId: string,
+    destinationName: string,
+    tripStatus: string,
+  ) {
+    // On a planned or ongoing trip the POI is saved as an idea (a planned
+    // experience); on a completed trip it is logged as done, as before.
+    const planned = tripStatus === "planned" || tripStatus === "ongoing";
     startSaving(async () => {
       const result = await addPoiExperienceAction({
         destinationId,
@@ -599,12 +615,17 @@ function AddToTripPicker({
         categorySlug: poi.category,
         lat: poi.lat,
         lng: poi.lng,
+        status: planned ? "planned" : "done",
       });
       if ("error" in result) {
         toast.error(result.error);
         return;
       }
-      toast.success(`${poi.name} added to ${destinationName}.`);
+      toast.success(
+        planned
+          ? `Added to ${destinationName} plans.`
+          : `${poi.name} added to ${destinationName}.`,
+      );
       setSavedTo(destinationName);
       setOpen(false);
       setTrip(null);
@@ -669,7 +690,9 @@ function AddToTripPicker({
                 <button
                   type="button"
                   disabled={saving}
-                  onClick={() => handlePick(destination.id, destination.name)}
+                  onClick={() =>
+                    handlePick(destination.id, destination.name, trip.status)
+                  }
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground/85 transition-colors hover:bg-white/10 disabled:opacity-50"
                 >
                   <span className="truncate">{destination.name}</span>
@@ -1043,6 +1066,17 @@ export function DiscoveryPanel({
               isOnBucketList={bucketPlaceKeys.includes(
                 placeKey(cityView.name, code),
               )}
+              planningTripName={
+                tripOptions.find(
+                  (trip) =>
+                    (trip.status === "planned" || trip.status === "ongoing") &&
+                    trip.destinations.some(
+                      (destination) =>
+                        destination.name.trim().toLowerCase() ===
+                        cityView.name.trim().toLowerCase(),
+                    ),
+                )?.name ?? null
+              }
               readOnly={readOnly}
               onHeroLoaded={(cityName, url) =>
                 setCityHeroes((current) =>

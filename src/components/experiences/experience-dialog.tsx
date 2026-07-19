@@ -29,7 +29,13 @@ import {
   createExperienceAction,
   updateExperienceAction,
 } from "@/lib/actions/experiences";
-import type { Category, Experience, PoiResult } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import type {
+  Category,
+  Experience,
+  ExperienceStatus,
+  PoiResult,
+} from "@/lib/types";
 
 interface ExperienceDialogProps {
   tripId: string;
@@ -42,6 +48,9 @@ interface ExperienceDialogProps {
   // The destination center, used to bias POI search results.
   destLat?: number | null;
   destLng?: number | null;
+  // What a new experience starts as: "planned" on planned and ongoing trips
+  // (an idea), "done" on completed ones (a log). Edits use the row's status.
+  defaultStatus?: ExperienceStatus;
 }
 
 // The dialog owns the open state; the form lives in a child so it mounts fresh
@@ -57,6 +66,7 @@ export function ExperienceDialog({
   onSaved,
   destLat = null,
   destLng = null,
+  defaultStatus = "done",
 }: ExperienceDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -71,6 +81,7 @@ export function ExperienceDialog({
           destinationId={destinationId}
           categories={categories}
           experience={experience}
+          defaultStatus={defaultStatus}
           destLat={destLat}
           destLng={destLng}
           onCancel={() => onOpenChange(false)}
@@ -89,6 +100,7 @@ function ExperienceForm({
   destinationId,
   categories,
   experience,
+  defaultStatus,
   destLat,
   destLng,
   onCancel,
@@ -98,6 +110,7 @@ function ExperienceForm({
   destinationId: string;
   categories: Category[];
   experience: Experience | null;
+  defaultStatus: ExperienceStatus;
   destLat: number | null;
   destLng: number | null;
   onCancel: () => void;
@@ -106,6 +119,9 @@ function ExperienceForm({
   const [name, setName] = useState(experience?.name ?? "");
   const [categoryId, setCategoryId] = useState<string>(
     experience?.category_id ?? "",
+  );
+  const [status, setStatus] = useState<ExperienceStatus>(
+    experience?.status ?? defaultStatus,
   );
   const [rating, setRating] = useState(experience?.rating ?? 0);
   const [visitedDate, setVisitedDate] = useState(
@@ -134,12 +150,16 @@ function ExperienceForm({
       return;
     }
     setSubmitting(true);
+    // Rating and visited date make no sense on an idea; they get set when the
+    // experience is checked off as done.
+    const planned = status === "planned";
     const input = {
       name: name.trim(),
       category_id: categoryId || null,
-      rating: rating > 0 ? rating : null,
-      visited_date: visitedDate || null,
+      rating: !planned && rating > 0 ? rating : null,
+      visited_date: !planned && visitedDate ? visitedDate : null,
       notes: notes.trim() || null,
+      status,
       lat: coords?.lat ?? null,
       lng: coords?.lng ?? null,
     };
@@ -209,31 +229,68 @@ function ExperienceForm({
       </div>
 
       <div className="grid gap-2">
-        <Label>Rating</Label>
-        <div className="flex items-center gap-3">
-          <RatingInput value={rating} onChange={setRating} size={26} />
-          {rating > 0 ? (
+        <Label>Status</Label>
+        <div
+          role="radiogroup"
+          aria-label="Experience status"
+          className="grid grid-cols-2 gap-1 rounded-lg bg-white/5 p-1"
+        >
+          {(
+            [
+              ["planned", "Planned"],
+              ["done", "Done"],
+            ] as const
+          ).map(([value, label]) => (
             <button
+              key={value}
               type="button"
-              className="text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => setRating(0)}
+              role="radio"
+              aria-checked={status === value}
+              disabled={submitting}
+              onClick={() => setStatus(value)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-sm transition-colors",
+                status === value
+                  ? "bg-brand text-brand-foreground"
+                  : "text-foreground/60 hover:text-foreground",
+              )}
             >
-              Clear
+              {label}
             </button>
-          ) : null}
+          ))}
         </div>
       </div>
 
-      <div className="grid gap-2">
-        <Label htmlFor="exp-date">Visited date</Label>
-        <Input
-          id="exp-date"
-          type="date"
-          value={visitedDate}
-          onChange={(e) => setVisitedDate(e.target.value)}
-          disabled={submitting}
-        />
-      </div>
+      {status === "done" ? (
+        <>
+          <div className="grid gap-2">
+            <Label>Rating</Label>
+            <div className="flex items-center gap-3">
+              <RatingInput value={rating} onChange={setRating} size={26} />
+              {rating > 0 ? (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setRating(0)}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="exp-date">Visited date</Label>
+            <Input
+              id="exp-date"
+              type="date"
+              value={visitedDate}
+              onChange={(e) => setVisitedDate(e.target.value)}
+              disabled={submitting}
+            />
+          </div>
+        </>
+      ) : null}
 
       <div className="grid gap-2">
         <Label htmlFor="exp-notes">Notes</Label>

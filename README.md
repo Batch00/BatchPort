@@ -352,6 +352,13 @@ layer, but the SQL stats views also need the planned filter applied. See
 `scripts/sql/2026-07-16-stats-exclude-planned-trips.sql` for the per-view
 change to run in the Supabase SQL editor.
 
+The trip planner needs the `experiences.status` column ('planned' | 'done')
+and the matching stats-view filters. Run
+`scripts/sql/2026-07-18-experience-status.sql` in the Supabase SQL editor.
+Until it runs, the app degrades: experience writes retry without the status
+key, reads treat a missing status as 'done', and the stats layer subtracts
+planned experiences app-side.
+
 ## Development Setup
 
 1. Clone the repository and install dependencies:

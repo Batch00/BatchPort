@@ -15,6 +15,9 @@ export interface ProfileExperience {
   id: string;
   name: string;
   rating: number | null;
+  // "planned" ideas render as a read-only checklist row; "done" as a normal
+  // logged experience. Rows predating the status column read as "done".
+  status: "planned" | "done";
   category: { label: string; icon: string | null; color: string | null } | null;
 }
 
@@ -107,6 +110,8 @@ interface ExperienceRow {
   rating: number | null;
   visited_date: string | null;
   created_at: string;
+  // Absent until the status column migration runs; missing means "done".
+  status?: string | null;
   categories: {
     label: string;
     icon: string | null;
@@ -174,7 +179,9 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
     supabase
       .from("destinations")
       .select(
-        "id, trip_id, name, country_code, arrival_date, departure_date, order_index, cover_photo_id, cover_position, experiences ( id, name, rating, visited_date, created_at, categories ( label, icon, color ) )",
+        // The experiences embed selects * so a missing status column (before
+        // the migration) degrades to undefined instead of erroring.
+        "id, trip_id, name, country_code, arrival_date, departure_date, order_index, cover_photo_id, cover_position, experiences ( *, categories ( label, icon, color ) )",
       )
       .eq("user_id", userId)
       .order("order_index", { ascending: true }),
@@ -244,6 +251,9 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
         id: exp.id,
         name: exp.name,
         rating: exp.rating,
+        status: (exp.status === "planned" ? "planned" : "done") as
+          | "planned"
+          | "done",
         category: exp.categories
           ? {
               label: exp.categories.label,

@@ -1,6 +1,6 @@
 import { requireUser } from "@/lib/current-user";
 import { DESTINATION_COLUMNS } from "@/lib/destinations";
-import { EXPERIENCE_COLUMNS, sortExperiences } from "@/lib/experiences";
+import { normalizeExperience, sortExperiences } from "@/lib/experiences";
 import type {
   Trip,
   TripStatus,
@@ -52,6 +52,9 @@ export interface DestinationOption {
 export interface TripDestinationOption {
   id: string;
   name: string;
+  // Lets the POI "Add to a trip" flow save ideas (planned experiences) onto
+  // planned and ongoing trips instead of done ones.
+  status: TripStatus;
   destinations: DestinationOption[];
 }
 
@@ -61,13 +64,14 @@ export async function getTripDestinationOptions(): Promise<
   const { supabase } = await requireUser();
   const { data, error } = await supabase
     .from("trips")
-    .select("id, name, destinations(id, name, country_code, order_index)")
+    .select("id, name, status, destinations(id, name, country_code, order_index)")
     .order("start_date", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
   if (error) throw error;
   const rows = (data ?? []) as {
     id: string;
     name: string;
+    status: TripStatus;
     destinations: (DestinationOption & { order_index: number })[];
   }[];
   return rows
@@ -75,10 +79,24 @@ export async function getTripDestinationOptions(): Promise<
     .map((trip) => ({
       id: trip.id,
       name: trip.name,
+      status: trip.status,
       destinations: [...trip.destinations]
         .sort((a, b) => a.order_index - b.order_index)
         .map(({ id, name, country_code }) => ({ id, name, country_code })),
     }));
+}
+
+// The one column the destination page needs from the owning trip: its status
+// decides whether new experiences default to planned ideas or done logs.
+export async function getTripStatus(id: string): Promise<TripStatus | null> {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase
+    .from("trips")
+    .select("status")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.status as TripStatus | undefined) ?? null;
 }
 
 // A single trip with its destinations (ordered by order_index) and each
@@ -92,7 +110,7 @@ export async function getTrip(id: string): Promise<TripWithDestinations | null> 
     supabase.from("trips").select("*").eq("id", id).maybeSingle(),
     supabase
       .from("destinations")
-      .select(`${DESTINATION_COLUMNS}, experiences(${EXPERIENCE_COLUMNS})`)
+      .select(`${DESTINATION_COLUMNS}, experiences(*)`)
       .eq("trip_id", id)
       .order("order_index", { ascending: true }),
   ]);
@@ -106,7 +124,9 @@ export async function getTrip(id: string): Promise<TripWithDestinations | null> 
   const withExperiences = ((destinations ?? []) as DestinationWithExperiences[]).map(
     (destination) => ({
       ...destination,
-      experiences: [...(destination.experiences ?? [])].sort(sortExperiences),
+      experiences: (destination.experiences ?? [])
+        .map(normalizeExperience)
+        .sort(sortExperiences),
     }),
   );
 

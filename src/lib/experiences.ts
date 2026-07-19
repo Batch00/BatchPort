@@ -3,7 +3,7 @@ import { cache } from "react";
 import { createClient } from "@/utils/supabase/server";
 import { requireUser } from "@/lib/current-user";
 import { pointEwkt } from "@/lib/geo";
-import type { Category, Experience } from "@/lib/types";
+import type { Category, Experience, ExperienceStatus } from "@/lib/types";
 
 // Server-side data access for experiences and the static category list.
 
@@ -13,19 +13,47 @@ export interface ExperienceInput {
   rating: number | null;
   visited_date: string | null;
   notes: string | null;
+  status: ExperienceStatus;
   // Specific coordinates from a POI search, or null to leave the geom untouched.
   lat: number | null;
   lng: number | null;
 }
 
-// Explicit column list so reads never pull the experiences geom column (WKB
-// bytes the UI does not render).
-export const EXPERIENCE_COLUMNS =
-  "id,destination_id,user_id,name,category_id,rating,visited_date,notes,created_at,updated_at";
+// Experience reads select * so a missing status column (migration not yet run)
+// degrades to undefined instead of erroring; normalizeExperience fills it in.
+// The geom column rides along as a short WKB hex string the UI ignores.
+
+// Rows written before the status column existed carry no status; they are all
+// logged activities, so missing reads as "done".
+export function normalizeExperience(
+  row: Omit<Experience, "status"> & { status?: string | null },
+): Experience {
+  return {
+    ...row,
+    status: row.status === "planned" ? "planned" : "done",
+  } as Experience;
+}
+
+// PostgREST reports a payload column that does not exist as PGRST204. Until
+// the status column migration has run, writes retry without it so the rest of
+// the experience still saves.
+function isMissingColumn(error: { code?: string } | null): boolean {
+  return error?.code === "PGRST204";
+}
+
+function withoutStatus<T extends { status: unknown }>(
+  row: T,
+): Omit<T, "status"> {
+  const clone: Record<string, unknown> = { ...row };
+  delete clone.status;
+  return clone as Omit<T, "status">;
+}
 
 // Display order for a destination's experiences: visited date ascending with
 // undated ones last, then creation time. Shared by the trip and destination
-// data layers so both surfaces list experiences identically.
+// data layers so both surfaces list experiences identically. Planned items
+// have no visited date, so they naturally group after dated done ones; the
+// UI splits the two statuses before rendering anyway.
 export function sortExperiences(a: Experience, b: Experience): number {
   const aDate = a.visited_date ?? "";
   const bDate = b.visited_date ?? "";
@@ -43,24 +71,33 @@ export async function createExperience(
 ): Promise<Experience> {
   const { supabase, user } = await requireUser();
   const hasCoords = input.lat !== null && input.lng !== null;
-  const { data, error } = await supabase
+  const row = {
+    destination_id: destinationId,
+    user_id: user.id,
+    name: input.name,
+    category_id: input.category_id,
+    rating: input.rating,
+    visited_date: input.visited_date,
+    notes: input.notes,
+    status: input.status,
+    geom: hasCoords
+      ? pointEwkt(input.lng as number, input.lat as number)
+      : null,
+  };
+  let { data, error } = await supabase
     .from("experiences")
-    .insert({
-      destination_id: destinationId,
-      user_id: user.id,
-      name: input.name,
-      category_id: input.category_id,
-      rating: input.rating,
-      visited_date: input.visited_date,
-      notes: input.notes,
-      geom: hasCoords
-        ? pointEwkt(input.lng as number, input.lat as number)
-        : null,
-    })
-    .select(EXPERIENCE_COLUMNS)
+    .insert(row)
+    .select("*")
     .single();
+  if (isMissingColumn(error)) {
+    ({ data, error } = await supabase
+      .from("experiences")
+      .insert(withoutStatus(row))
+      .select("*")
+      .single());
+  }
   if (error) throw error;
-  return data as Experience;
+  return normalizeExperience(data as Experience);
 }
 
 export async function updateExperience(
@@ -74,20 +111,66 @@ export async function updateExperience(
     rating: input.rating,
     visited_date: input.visited_date,
     notes: input.notes,
+    status: input.status,
   };
   // Only write the geom when new coordinates were chosen, so a plain edit does
   // not erase a previously stored location.
   if (input.lat !== null && input.lng !== null) {
     update.geom = pointEwkt(input.lng, input.lat);
   }
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("experiences")
     .update(update)
     .eq("id", id)
-    .select(EXPERIENCE_COLUMNS)
+    .select("*")
     .single();
+  if (isMissingColumn(error)) {
+    ({ data, error } = await supabase
+      .from("experiences")
+      .update(withoutStatus(update as { status: unknown }))
+      .eq("id", id)
+      .select("*")
+      .single());
+  }
   if (error) throw error;
-  return data as Experience;
+  return normalizeExperience(data as Experience);
+}
+
+/** Check a planned experience off as done, optionally recording the rating
+ * and visited date the follow-up collects. Idempotent: calling it on an
+ * already-done experience just applies the provided fields. */
+export async function markExperienceDone(
+  id: string,
+  extras: { rating: number | null; visited_date: string | null },
+): Promise<void> {
+  const { supabase } = await requireUser();
+  const update: Record<string, unknown> = { status: "done" };
+  if (extras.rating !== null) update.rating = extras.rating;
+  if (extras.visited_date !== null) update.visited_date = extras.visited_date;
+  let { error } = await supabase
+    .from("experiences")
+    .update(update)
+    .eq("id", id);
+  if (isMissingColumn(error)) {
+    // Pre-migration every experience already reads as done; still apply the
+    // rating and date when the follow-up provided them.
+    const rest = withoutStatus(update as { status: unknown });
+    if (Object.keys(rest).length === 0) return;
+    ({ error } = await supabase.from("experiences").update(rest).eq("id", id));
+  }
+  if (error) throw error;
+}
+
+/** Undo a checkoff: back to planned, clearing the rating and visited date
+ * (they only make sense on done experiences). Requires the status column;
+ * pre-migration this fails rather than silently wiping the rating. */
+export async function markExperiencePlanned(id: string): Promise<void> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase
+    .from("experiences")
+    .update({ status: "planned", rating: null, visited_date: null })
+    .eq("id", id);
+  if (error) throw error;
 }
 
 export async function deleteExperience(id: string): Promise<void> {

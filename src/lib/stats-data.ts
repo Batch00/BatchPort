@@ -244,6 +244,80 @@ export async function getDistanceTraveled(
   return num(data);
 }
 
+// Planned experiences (trip planner ideas) must not count as things the user
+// has done. The SQL views apply this filter once
+// scripts/sql/2026-07-18-experience-status.sql has run; this app-side
+// subtraction keeps the numbers correct before that. Two counts are needed
+// because the views differ: v_user_travel_summary already excludes whole
+// planned trips (so only planned experiences on non-planned trips would leak
+// into it), while v_experiences_by_category counts every experience.
+interface PlannedAdjustments {
+  /** Planned experiences on non-planned trips (leaks into the summary). */
+  summaryTotal: number;
+  /** All planned experiences per category slug (leaks into the chart). */
+  byCategorySlug: Record<string, number>;
+}
+
+async function getPlannedAdjustments(
+  supabase: StatsClient,
+  userId: string,
+): Promise<PlannedAdjustments> {
+  const none: PlannedAdjustments = { summaryTotal: 0, byCategorySlug: {} };
+  try {
+    const { data, error } = await supabase
+      .from("experiences")
+      .select(
+        "id, categories(slug), destinations!inner(trips!inner(status))",
+      )
+      .eq("user_id", userId)
+      .eq("status", "planned");
+    // A missing status column (migration not yet run) errors here; that also
+    // means no planned experiences can exist, so zero is correct.
+    if (error || !data) return none;
+    const rows = data as unknown as {
+      categories: { slug: string } | null;
+      destinations: { trips: { status: string } | null } | null;
+    }[];
+    const byCategorySlug: Record<string, number> = {};
+    let summaryTotal = 0;
+    for (const row of rows) {
+      if (row.destinations?.trips?.status !== "planned") summaryTotal += 1;
+      const slug = row.categories?.slug;
+      if (slug) byCategorySlug[slug] = (byCategorySlug[slug] ?? 0) + 1;
+    }
+    return { summaryTotal, byCategorySlug };
+  } catch {
+    return none;
+  }
+}
+
+function applySummaryAdjustment(
+  summary: TravelSummary | null,
+  adjustments: PlannedAdjustments,
+): TravelSummary | null {
+  if (!summary || adjustments.summaryTotal === 0) return summary;
+  return {
+    ...summary,
+    total_experiences: Math.max(
+      0,
+      summary.total_experiences - adjustments.summaryTotal,
+    ),
+  };
+}
+
+function applyCategoryAdjustment(
+  categories: CategoryStat[],
+  adjustments: PlannedAdjustments,
+): CategoryStat[] {
+  return categories
+    .map((stat) => ({
+      ...stat,
+      experience_count:
+        stat.experience_count - (adjustments.byCategorySlug[stat.slug] ?? 0),
+    }))
+    .filter((stat) => stat.experience_count > 0);
+}
+
 // Resolve the destination name at each compass extreme. The names live in the
 // destinations table, so this selects the single destination furthest in each
 // direction (the same rows the v_travel_extremes min/max are taken from).
@@ -288,12 +362,17 @@ async function getExtremeNames(
 // dedicated stats page with its charts and extremes.
 export async function getSummaryStats(userId: string): Promise<SummaryStats> {
   const supabase = await createClient();
-  const [summary, distanceKm, bucket] = await Promise.all([
+  const [summary, distanceKm, bucket, adjustments] = await Promise.all([
     getTravelSummary(supabase, userId),
     getDistanceTraveled(supabase, userId),
     getBucketCompletion(supabase, userId),
+    getPlannedAdjustments(supabase, userId),
   ]);
-  return { summary, distanceKm, bucket };
+  return {
+    summary: applySummaryAdjustment(summary, adjustments),
+    distanceKm,
+    bucket,
+  };
 }
 
 export async function getAllStats(userId?: string): Promise<StatsData> {
@@ -308,17 +387,27 @@ export async function getAllStats(userId?: string): Promise<StatsData> {
     uid = user.id;
   }
 
-  const [summary, categories, countries, yearly, bucket, extremesRow, distanceKm, names] =
-    await Promise.all([
-      getTravelSummary(supabase, uid),
-      getExperiencesByCategory(supabase, uid),
-      getCountryFrequency(supabase, uid),
-      getYearlyBreakdown(supabase, uid),
-      getBucketCompletion(supabase, uid),
-      getTravelExtremes(supabase, uid),
-      getDistanceTraveled(supabase, uid),
-      getExtremeNames(supabase, uid),
-    ]);
+  const [
+    summary,
+    categories,
+    countries,
+    yearly,
+    bucket,
+    extremesRow,
+    distanceKm,
+    names,
+    adjustments,
+  ] = await Promise.all([
+    getTravelSummary(supabase, uid),
+    getExperiencesByCategory(supabase, uid),
+    getCountryFrequency(supabase, uid),
+    getYearlyBreakdown(supabase, uid),
+    getBucketCompletion(supabase, uid),
+    getTravelExtremes(supabase, uid),
+    getDistanceTraveled(supabase, uid),
+    getExtremeNames(supabase, uid),
+    getPlannedAdjustments(supabase, uid),
+  ]);
 
   const extremes: TravelExtremes = {
     north: { name: names.north, value: extremesRow?.northernmost_lat ?? null },
@@ -328,8 +417,8 @@ export async function getAllStats(userId?: string): Promise<StatsData> {
   };
 
   return {
-    summary,
-    categories,
+    summary: applySummaryAdjustment(summary, adjustments),
+    categories: applyCategoryAdjustment(categories, adjustments),
     countries,
     yearly,
     bucket,
