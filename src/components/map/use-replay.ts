@@ -16,25 +16,18 @@ import {
   type ReplayFrameState,
   type ReplayTimeline,
 } from "@/lib/replay";
-import { matchFilter, readBrandHex, VISITED_BORDER } from "./map-utils";
+import {
+  matchFilter,
+  readBrandHex,
+  TRAVEL_LAYERS,
+  VISITED_BORDER,
+} from "./map-utils";
 
 type Projection = "globe" | "mercator";
 export type ReplaySpeed = 1 | 2;
 
 // Normal globe layers that step aside while the replay tells its story.
-const HIDDEN_LAYERS = [
-  "country-bucket",
-  "country-visited",
-  "country-visited-outline",
-  "country-planned-outline",
-  "trip-arcs-glow",
-  "trip-arcs",
-  "trip-arcs-planned",
-  "bucket-pins-glow",
-  "bucket-pins",
-  "pins-glow",
-  "pins",
-];
+const HIDDEN_LAYERS = TRAVEL_LAYERS;
 
 const REPLAY_LAYERS = [
   "replay-country-fill",

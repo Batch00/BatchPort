@@ -1,5 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { getMapData, type MapData } from "@/lib/map-data";
+import { getPhotoMapData, type PhotoMapData } from "@/lib/photo-map-data";
 import { getSummaryStats, type SummaryStats } from "@/lib/stats-data";
 import { getSharedBucketList, type BucketItem } from "@/lib/bucket-list";
 import { getPhotoUrl, resolveCoverPhoto } from "@/lib/photos";
@@ -56,6 +57,8 @@ export interface SharedBucketCover {
 export interface SharedProfile {
   stats: SummaryStats;
   mapData: MapData;
+  /** Photos for the globe's photo map mode, anon-readable via is_shared(). */
+  photoMapData: PhotoMapData;
   trips: ProfileTrip[];
   bucketItems: BucketItem[];
   /** Fulfilling-trip covers for completed bucket items, keyed by item id. */
@@ -350,12 +353,13 @@ async function getBucketTripCovers(
 // Everything the public/demo surface needs, in parallel. The share view only
 // renders summary stats, so it skips the chart and extremes queries entirely.
 export async function getSharedProfile(userId: string): Promise<SharedProfile> {
-  const [stats, mapData, trips, bucketItems] = await Promise.all([
+  const [stats, mapData, photoMapData, trips, bucketItems] = await Promise.all([
     getSummaryStats(userId),
     getMapData(userId),
+    getPhotoMapData(userId),
     getProfileTrips(userId),
     getSharedBucketList(userId),
   ]);
   const bucketTripCovers = await getBucketTripCovers(userId, bucketItems);
-  return { stats, mapData, trips, bucketItems, bucketTripCovers };
+  return { stats, mapData, photoMapData, trips, bucketItems, bucketTripCovers };
 }

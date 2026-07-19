@@ -21,6 +21,8 @@ import type { FeatureCollection, LineString, Point } from "geojson";
 import { formatDateRange } from "@/lib/format";
 import { boundsOfPoints, greatCirclePoints } from "@/lib/geo";
 import { buildReplayTimeline } from "@/lib/replay";
+import { cn } from "@/lib/utils";
+import { Lightbox } from "@/components/photos/lightbox";
 import { MapControls } from "./projection-toggle";
 import {
   VISITED_BORDER,
@@ -32,6 +34,7 @@ import {
 } from "./map-utils";
 import { ReplayControls } from "./replay-controls";
 import { useReplay } from "./use-replay";
+import { usePhotoMode, type GlobePhoto } from "./use-photo-mode";
 
 type Projection = "globe" | "mercator";
 
@@ -120,6 +123,13 @@ export interface GlobeProps {
   enableReplay?: boolean;
   /** Fired when replay mode starts or ends, so hosts can hide their overlays. */
   onReplayActiveChange?: (active: boolean) => void;
+  /** Mappable photos. When non-empty, the Photos toggle enters photo map
+   * mode: travel layers hide and clustered photo thumbnails take the stage. */
+  photos?: GlobePhoto[];
+  /** Photos with no resolvable location, surfaced in the mode header. */
+  photoUnlocatedCount?: number;
+  /** Fired when photo mode starts or ends, so hosts can hide their overlays. */
+  onPhotoModeActiveChange?: (active: boolean) => void;
   /** When provided, shows the fullscreen toggle in the control cluster. The
    * host owns the fullscreen state and container styling. */
   onFullscreenToggle?: () => void;
@@ -264,6 +274,9 @@ export function Globe({
   refreshing = false,
   enableReplay = false,
   onReplayActiveChange,
+  photos = [],
+  photoUnlocatedCount = 0,
+  onPhotoModeActiveChange,
   onFullscreenToggle,
   fullscreen = false,
 }: GlobeProps) {
@@ -277,6 +290,13 @@ export function Globe({
   const projectionRef = useRef<Projection>("globe");
   // Read by the map's hover/click handlers so interactions go inert in replay.
   const replayActiveRef = useRef(false);
+  // Same for photo map mode: country hover/click stand down while it is on.
+  const photoActiveRef = useRef(false);
+  // The photo stack open in the lightbox: indices into photos, plus a cursor.
+  const [photoLightbox, setPhotoLightbox] = useState<{
+    indices: number[];
+    index: number;
+  } | null>(null);
 
   const replayTimeline = useMemo(
     () => (enableReplay ? buildReplayTimeline(destinations) : null),
@@ -297,6 +317,40 @@ export function Globe({
     activeRef: replayActiveRef,
     onActiveChange: onReplayActiveChange,
   });
+
+  const photoMode = usePhotoMode({
+    mapRef,
+    photos,
+    activeRef: photoActiveRef,
+    onActiveChange: (active) => {
+      onPhotoModeActiveChange?.(active);
+      if (!active) setPhotoLightbox(null);
+    },
+    onOpenGroup: (indices) => setPhotoLightbox({ indices, index: 0 }),
+  });
+
+  // Lightbox keyboard handling lives with the host (the Lightbox component is
+  // presentation-only): Escape closes, arrows step through the stack.
+  useEffect(() => {
+    if (!photoLightbox) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setPhotoLightbox(null);
+      if (event.key === "ArrowRight") stepPhotoLightbox(1);
+      if (event.key === "ArrowLeft") stepPhotoLightbox(-1);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // stepPhotoLightbox is stable in behaviour (pure setState updater).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photoLightbox !== null]);
+
+  function stepPhotoLightbox(delta: number) {
+    setPhotoLightbox((current) => {
+      if (!current) return current;
+      const total = current.indices.length;
+      return { ...current, index: (current.index + delta + total) % total };
+    });
+  }
 
   // Mirror the latest props so the one-time map effect always reads fresh
   // values without rebuilding the map.
@@ -597,8 +651,8 @@ export function Globe({
     function onMouseMove(event: MapMouseEvent) {
       if (!map) return;
 
-      // Replay mode: the globe is a stage, not a control surface.
-      if (replayActiveRef.current) {
+      // Replay and photo modes: the globe is a stage, not a control surface.
+      if (replayActiveRef.current || photoActiveRef.current) {
         clearPinHover();
         clearCountryHover();
         hideTooltip();
@@ -715,8 +769,9 @@ export function Globe({
     function onMapClick(event: MapMouseEvent) {
       if (!map) return;
 
-      // Country clicks and pin popups are inert during replay.
-      if (replayActiveRef.current) return;
+      // Country clicks and pin popups are inert during replay and photo mode
+      // (photo layers register their own click handlers).
+      if (replayActiveRef.current || photoActiveRef.current) return;
 
       // A click on a pin opens its popup and never doubles as a country select.
       const pinLayers = ["pins", "bucket-pins"].filter((layer) =>
@@ -795,6 +850,7 @@ export function Globe({
       if (
         dataRef.current.autoRotate &&
         !replayActiveRef.current &&
+        !photoActiveRef.current &&
         lastFrame > 0 &&
         now - lastInteraction > IDLE_BEFORE_RESUME_MS
       ) {
@@ -1125,6 +1181,24 @@ export function Globe({
         ref={tooltipRef}
         className="pointer-events-none absolute left-0 top-0 z-20 hidden rounded-md border border-white/10 bg-black/80 px-2 py-1 text-xs font-medium text-foreground/90 shadow-md backdrop-blur-sm"
       />
+      {photoMode.active ? (
+        <div
+          className={cn(
+            "pointer-events-none absolute left-4 z-20 flex flex-wrap items-center gap-x-2 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md",
+            fullscreen ? "top-[max(1rem,env(safe-area-inset-top))]" : "top-4",
+          )}
+        >
+          <span>
+            {photos.length} {photos.length === 1 ? "photo" : "photos"} on the
+            map
+          </span>
+          {photoUnlocatedCount > 0 ? (
+            <span className="text-foreground/40">
+              {photoUnlocatedCount} without location
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {!replay.active ? (
         <MapControls
           projection={projection}
@@ -1134,7 +1208,17 @@ export function Globe({
           }
           onRefresh={onRefresh}
           refreshing={refreshing}
-          onReplay={replayTimeline ? replay.enter : undefined}
+          onReplay={
+            replayTimeline
+              ? () => {
+                  // Only one mode owns the globe at a time.
+                  photoMode.exit();
+                  replay.enter();
+                }
+              : undefined
+          }
+          onPhotoToggle={photos.length > 0 ? photoMode.toggle : undefined}
+          photoModeActive={photoMode.active}
           onFullscreenToggle={onFullscreenToggle}
           fullscreen={fullscreen}
         />
@@ -1153,6 +1237,32 @@ export function Globe({
           onScrubEnd={replay.scrubEnd}
         />
       )}
+
+      {photoLightbox
+        ? (() => {
+            const photo = photos[photoLightbox.indices[photoLightbox.index]];
+            if (!photo) return null;
+            const caption =
+              [photo.destinationName, photo.tripName]
+                .filter(Boolean)
+                .join(" · ") || null;
+            return (
+              <Lightbox
+                item={{
+                  src: photo.fullUrl,
+                  dateTaken: photo.dateTaken,
+                  attribution: photo.attribution,
+                  caption,
+                }}
+                index={photoLightbox.index}
+                total={photoLightbox.indices.length}
+                onPrev={() => stepPhotoLightbox(-1)}
+                onNext={() => stepPhotoLightbox(1)}
+                onClose={() => setPhotoLightbox(null)}
+              />
+            );
+          })()
+        : null}
     </div>
   );
 }

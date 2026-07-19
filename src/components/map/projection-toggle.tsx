@@ -2,6 +2,7 @@
 
 import {
   Globe2,
+  ImageIcon,
   LocateFixedIcon,
   Map as MapIcon,
   Maximize2Icon,
@@ -22,6 +23,9 @@ interface MapControlsProps {
   refreshing?: boolean;
   // When provided, shows a replay button that starts the timeline playback.
   onReplay?: () => void;
+  // When provided, shows a photos toggle that enters/exits photo map mode.
+  onPhotoToggle?: () => void;
+  photoModeActive?: boolean;
   // When provided, shows an expand/collapse button toggling fullscreen mode.
   onFullscreenToggle?: () => void;
   fullscreen?: boolean;
@@ -40,6 +44,8 @@ export function MapControls({
   onRefresh,
   refreshing = false,
   onReplay,
+  onPhotoToggle,
+  photoModeActive = false,
   onFullscreenToggle,
   fullscreen = false,
 }: MapControlsProps) {
@@ -70,6 +76,24 @@ export function MapControls({
           ) : (
             <Maximize2Icon className="size-5" />
           )}
+        </button>
+      ) : null}
+      {onPhotoToggle ? (
+        <button
+          type="button"
+          onClick={onPhotoToggle}
+          aria-label={
+            photoModeActive ? "Exit photo map" : "Show photos on the map"
+          }
+          title={photoModeActive ? "Exit photos" : "Photos"}
+          aria-pressed={photoModeActive}
+          className={cn(
+            BUTTON_CLASS,
+            photoModeActive &&
+              "border-brand/60 bg-brand/20 text-foreground hover:bg-brand/30",
+          )}
+        >
+          <ImageIcon className="size-5" />
         </button>
       ) : null}
       {onReplay ? (

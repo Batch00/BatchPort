@@ -11,7 +11,8 @@ import type { SharedProfile } from "@/lib/share-data";
 // A single read-only discovery host serves the globe, search, and bucket
 // cards; no write affordance exists anywhere in this tree.
 export function SharedProfileView({ profile }: { profile: SharedProfile }) {
-  const { stats, mapData, trips, bucketItems, bucketTripCovers } = profile;
+  const { stats, mapData, photoMapData, trips, bucketItems, bucketTripCovers } =
+    profile;
 
   const bucketPlaceKeys = mapData.bucketPlaces.map((place) =>
     placeKey(place.name, place.countryCode),
@@ -24,7 +25,7 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
       bucketPlaceKeys={bucketPlaceKeys}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-8">
-        <ShareGlobe data={mapData} />
+        <ShareGlobe data={mapData} photoData={photoMapData} />
 
         <StatsOverview
           summary={stats.summary}

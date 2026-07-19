@@ -20,12 +20,19 @@ import {
 import { useGlobeFullscreen } from "@/components/map/use-globe-fullscreen";
 import { cn } from "@/lib/utils";
 import type { MapData } from "@/lib/map-data";
+import type { PhotoMapData } from "@/lib/photo-map-data";
 
 // Globe for the public share and demo surfaces. Exploration works like the
 // dashboard (discovery on unvisited countries, drill-down with Explore on
 // visited ones, search), but strictly read-only: the page-level discovery host
 // runs in readOnly mode and the drill-down never links into protected routes.
-export function ShareGlobe({ data }: { data: MapData }) {
+export function ShareGlobe({
+  data,
+  photoData,
+}: {
+  data: MapData;
+  photoData?: PhotoMapData;
+}) {
   const {
     destinations,
     visitedCountryCodes,
@@ -93,6 +100,8 @@ export function ShareGlobe({ data }: { data: MapData }) {
   const canReplay = destinations.some((d) => !d.planned);
   // The stats pill yields to the replay's own date and counter readout.
   const [replayActive, setReplayActive] = useState(false);
+  // Photo map mode likewise brings its own header pill.
+  const [photoActive, setPhotoActive] = useState(false);
   // Fullscreen mirrors the dashboard globe: fixed full-viewport CSS container,
   // panel-first Escape handling.
   const { fullscreen, toggle: toggleFullscreen } = useGlobeFullscreen(
@@ -173,11 +182,20 @@ export function ShareGlobe({ data }: { data: MapData }) {
             closeDiscover();
           }
         }}
+        photos={photoData?.photos}
+        photoUnlocatedCount={photoData?.unlocatedCount}
+        onPhotoModeActiveChange={(active) => {
+          setPhotoActive(active);
+          if (active) {
+            setSelected(null);
+            closeDiscover();
+          }
+        }}
         onFullscreenToggle={toggleFullscreen}
         fullscreen={fullscreen}
       />
 
-      {!isEmpty && !replayActive ? (
+      {!isEmpty && !replayActive && !photoActive ? (
         <div
           className={cn(
             "pointer-events-none absolute left-4 z-20 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md",
@@ -206,8 +224,9 @@ export function ShareGlobe({ data }: { data: MapData }) {
         />
       ) : null}
 
-      {/* Search: explore any city or country by name. Hidden during replay. */}
-      {replayActive ? null : (
+      {/* Search: explore any city or country by name. Hidden during replay
+          and photo mode. */}
+      {replayActive || photoActive ? null : (
         <div
           className={cn(
             "absolute right-4 z-30 flex justify-end",

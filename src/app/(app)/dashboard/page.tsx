@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
 import { getProfileTrips } from "@/lib/share-data";
 import { getMapData } from "@/lib/map-data";
+import { getPhotoMapData } from "@/lib/photo-map-data";
 import { getSummaryStats } from "@/lib/stats-data";
 import { getBucketList, getCountries } from "@/lib/bucket-list";
 import { getTripDestinationOptions, getTripOptions } from "@/lib/trips";
@@ -28,6 +29,7 @@ export default async function DashboardPage() {
   const [
     trips,
     mapData,
+    photoMapData,
     stats,
     bucketItems,
     countries,
@@ -36,6 +38,7 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     getProfileTrips(user.id),
     getMapData(user.id),
+    getPhotoMapData(user.id),
     getSummaryStats(user.id),
     getBucketList(user.id),
     getCountries(),
@@ -55,7 +58,7 @@ export default async function DashboardPage() {
       tripOptions={tripDestinationOptions}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-8">
-        <DashboardGlobe data={mapData} />
+        <DashboardGlobe data={mapData} photoData={photoMapData} />
 
         <section>
           <div className="mb-4 flex items-center justify-between gap-4">

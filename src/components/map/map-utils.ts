@@ -8,6 +8,25 @@ import { boundsOfPoints } from "@/lib/geo";
 export const BRAND_FALLBACK = "#2563eb";
 export const VISITED_BORDER = "#4a8af5";
 
+/**
+ * The normal travel layers (fills, arcs, pins) that step aside while an
+ * alternate globe mode (replay, photo map) owns the stage. Modes hide these
+ * on enter and restore them on exit.
+ */
+export const TRAVEL_LAYERS = [
+  "country-bucket",
+  "country-visited",
+  "country-visited-outline",
+  "country-planned-outline",
+  "trip-arcs-glow",
+  "trip-arcs",
+  "trip-arcs-planned",
+  "bucket-pins-glow",
+  "bucket-pins",
+  "pins-glow",
+  "pins",
+];
+
 // Match expression comparing ISO_A2_EH against a code list.
 export function matchFilter(codes: string[]): FilterSpecification {
   return [

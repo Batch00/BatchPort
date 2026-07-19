@@ -13,6 +13,7 @@ import {
 import { CountryDrilldown, groupByTrip, type TripGroup } from "./country-drilldown";
 import { useGlobeFullscreen } from "./use-globe-fullscreen";
 import type { MapData } from "@/lib/map-data";
+import type { PhotoMapData } from "@/lib/photo-map-data";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDiscovery } from "@/components/discover/discovery-host";
@@ -23,9 +24,10 @@ import {
 
 interface DashboardGlobeProps {
   data: MapData;
+  photoData?: PhotoMapData;
 }
 
-export function DashboardGlobe({ data }: DashboardGlobeProps) {
+export function DashboardGlobe({ data, photoData }: DashboardGlobeProps) {
   const {
     destinations,
     visitedCountryCodes,
@@ -55,6 +57,8 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
   // While the replay runs, the dashboard chrome (stats pills, search, panels)
   // steps aside so the globe tells the story alone.
   const [replayActive, setReplayActive] = useState(false);
+  // Photo map mode hides the same chrome (its own header pill takes over).
+  const [photoActive, setPhotoActive] = useState(false);
   // Fullscreen: the card swaps to a fixed full-viewport container. Escape is
   // panel-first: with a drill-down or discovery panel open it walks that up
   // instead of collapsing the globe.
@@ -187,14 +191,23 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
             closeDiscover();
           }
         }}
+        photos={photoData?.photos}
+        photoUnlocatedCount={photoData?.unlocatedCount}
+        onPhotoModeActiveChange={(active) => {
+          setPhotoActive(active);
+          if (active) {
+            setSelected(null);
+            closeDiscover();
+          }
+        }}
         onFullscreenToggle={toggleFullscreen}
         fullscreen={fullscreen}
       />
 
       {/* Stats overlay. Wraps within the card on narrow screens so the pills
-          never push past the globe's edge. Hidden during replay, which brings
-          its own readout. */}
-      {!isEmpty && !replayActive ? (
+          never push past the globe's edge. Hidden during replay and photo
+          mode, which bring their own readouts. */}
+      {!isEmpty && !replayActive && !photoActive ? (
         <div
           className={cn(
             "absolute left-4 right-4 z-20 flex flex-wrap items-center gap-2 pr-14",
@@ -254,8 +267,8 @@ export function DashboardGlobe({ data }: DashboardGlobeProps) {
       ) : null}
 
       {/* Search: explore any city or country by name. z-30 keeps the expanded
-          dropdown above the stats pills. Hidden during replay. */}
-      {replayActive ? null : (
+          dropdown above the stats pills. Hidden during replay and photo mode. */}
+      {replayActive || photoActive ? null : (
         <div
           className={cn(
             "absolute right-4 z-30 flex justify-end",
