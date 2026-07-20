@@ -62,6 +62,12 @@ export interface Experience {
   visited_date: string | null;
   notes: string | null;
   status: ExperienceStatus;
+  // Day-planning slot: day 1 = the destination's arrival date, null =
+  // unassigned. Rows predating the column read as null in the data layer.
+  planned_day: number | null;
+  // PostGIS point as EWKB hex when POI coordinates were saved; select * reads
+  // carry it along and the day planner decodes it for proximity hints.
+  geom?: string | null;
   created_at: string;
   updated_at: string;
 }

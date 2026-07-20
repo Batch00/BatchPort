@@ -11,6 +11,7 @@ import {
   deleteExperience,
   markExperienceDone,
   markExperiencePlanned,
+  setExperiencePlannedDay,
   getCategories,
   type ExperienceInput,
 } from "@/lib/experiences";
@@ -57,6 +58,23 @@ export async function markExperienceDoneAction(
     });
   } catch {
     return { error: "Could not mark the experience as done." };
+  }
+  revalidateAppData();
+  return { ok: true };
+}
+
+/** Assign a planned experience to a day of the stay (or back to unassigned
+ * with null). Fails with a friendly message until the planned_day column
+ * migration has run. */
+export async function setExperiencePlannedDayAction(
+  id: string,
+  day: number | null,
+): Promise<ActionResult> {
+  if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  try {
+    await setExperiencePlannedDay(id, day);
+  } catch {
+    return { error: "Could not assign the day. Please try again." };
   }
   revalidateAppData();
   return { ok: true };

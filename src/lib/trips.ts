@@ -47,6 +47,8 @@ export interface DestinationOption {
   id: string;
   name: string;
   country_code: string | null;
+  // Lets the discovery city view derive the visit month for the climate line.
+  arrival_date: string | null;
 }
 
 export interface TripDestinationOption {
@@ -55,6 +57,8 @@ export interface TripDestinationOption {
   // Lets the POI "Add to a trip" flow save ideas (planned experiences) onto
   // planned and ongoing trips instead of done ones.
   status: TripStatus;
+  // Fallback month source when a matching destination has no arrival date.
+  start_date: string | null;
   destinations: DestinationOption[];
 }
 
@@ -64,7 +68,9 @@ export async function getTripDestinationOptions(): Promise<
   const { supabase } = await requireUser();
   const { data, error } = await supabase
     .from("trips")
-    .select("id, name, status, destinations(id, name, country_code, order_index)")
+    .select(
+      "id, name, status, start_date, destinations(id, name, country_code, arrival_date, order_index)",
+    )
     .order("start_date", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -72,6 +78,7 @@ export async function getTripDestinationOptions(): Promise<
     id: string;
     name: string;
     status: TripStatus;
+    start_date: string | null;
     destinations: (DestinationOption & { order_index: number })[];
   }[];
   return rows
@@ -80,9 +87,15 @@ export async function getTripDestinationOptions(): Promise<
       id: trip.id,
       name: trip.name,
       status: trip.status,
+      start_date: trip.start_date,
       destinations: [...trip.destinations]
         .sort((a, b) => a.order_index - b.order_index)
-        .map(({ id, name, country_code }) => ({ id, name, country_code })),
+        .map(({ id, name, country_code, arrival_date }) => ({
+          id,
+          name,
+          country_code,
+          arrival_date,
+        })),
     }));
 }
 

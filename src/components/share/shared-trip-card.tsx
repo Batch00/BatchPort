@@ -8,6 +8,7 @@ import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
 import { PlannedExperienceRowReadOnly } from "@/components/experiences/planned-checklist";
 import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
+import { groupByPlanDay, planDayCount, planDayLabel } from "@/lib/day-plan";
 import { CountryFlag } from "@/components/country-flag";
 import {
   daysUntil,
@@ -17,7 +18,65 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TripStatus } from "@/lib/types";
-import type { ProfileTrip } from "@/lib/share-data";
+import type { ProfileDestination, ProfileTrip } from "@/lib/share-data";
+
+// Read-only planned ideas for one destination. On a dated stay with any
+// day-assigned idea, the list groups under "Day N · date" headers (matching
+// the owner's planning workspace); otherwise it stays a flat checklist.
+function ReadOnlyPlannedList({
+  destination,
+}: {
+  destination: ProfileDestination;
+}) {
+  const planned = destination.experiences.filter(
+    (experience) => experience.status === "planned",
+  );
+  if (planned.length === 0) return null;
+
+  const dayCount = planDayCount(
+    destination.arrival_date,
+    destination.departure_date,
+  );
+  const anyAssigned = planned.some(
+    (experience) => experience.planned_day !== null,
+  );
+
+  const row = (experience: ProfileDestination["experiences"][number]) => (
+    <PlannedExperienceRowReadOnly
+      key={experience.id}
+      name={experience.name}
+      categoryLabel={experience.category?.label}
+      categoryIcon={experience.category?.icon}
+      categoryColor={experience.category?.color}
+    />
+  );
+
+  if (!dayCount || !destination.arrival_date || !anyAssigned) {
+    return <ul className="mt-2 flex flex-col gap-1.5">{planned.map(row)}</ul>;
+  }
+
+  const groups = groupByPlanDay(
+    planned,
+    (experience) => experience.planned_day,
+    dayCount,
+  );
+  const arrival = destination.arrival_date;
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {groups.map((items, day) => {
+        if (items.length === 0) return null;
+        return (
+          <div key={day}>
+            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-foreground/35">
+              {day === 0 ? "Unassigned" : `Day ${day} · ${planDayLabel(arrival, day)}`}
+            </p>
+            <ul className="flex flex-col gap-1.5">{items.map(row)}</ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // A read-only trip card that expands inline to reveal its destinations and
 // experiences. No links into the app (those routes are protected); this is a
@@ -146,50 +205,46 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
                     </p>
 
                     {destination.experiences.length > 0 ? (
-                      <ul className="mt-2 flex flex-col gap-1.5">
-                        {destination.experiences
-                          .filter((e) => e.status !== "planned")
-                          .map((experience) => (
-                            <li
-                              key={experience.id}
-                              className="flex items-center gap-2 text-sm"
-                            >
-                              <span
-                                className="flex size-5 shrink-0 items-center justify-center rounded bg-white/5"
-                                style={
-                                  experience.category?.color
-                                    ? { color: experience.category.color }
-                                    : undefined
-                                }
-                              >
-                                <CategoryIcon
-                                  icon={experience.category?.icon}
-                                  className="size-3"
-                                />
-                              </span>
-                              <span className="min-w-0 flex-1 break-words text-foreground/85">
-                                {experience.name}
-                              </span>
-                              {experience.rating ? (
-                                <RatingDisplay
-                                  rating={experience.rating}
-                                  size={12}
-                                />
-                              ) : null}
-                            </li>
-                          ))}
-                        {destination.experiences
-                          .filter((e) => e.status === "planned")
-                          .map((experience) => (
-                            <PlannedExperienceRowReadOnly
-                              key={experience.id}
-                              name={experience.name}
-                              categoryLabel={experience.category?.label}
-                              categoryIcon={experience.category?.icon}
-                              categoryColor={experience.category?.color}
-                            />
-                          ))}
-                      </ul>
+                      <>
+                        {destination.experiences.some(
+                          (e) => e.status !== "planned",
+                        ) ? (
+                          <ul className="mt-2 flex flex-col gap-1.5">
+                            {destination.experiences
+                              .filter((e) => e.status !== "planned")
+                              .map((experience) => (
+                                <li
+                                  key={experience.id}
+                                  className="flex items-center gap-2 text-sm"
+                                >
+                                  <span
+                                    className="flex size-5 shrink-0 items-center justify-center rounded bg-white/5"
+                                    style={
+                                      experience.category?.color
+                                        ? { color: experience.category.color }
+                                        : undefined
+                                    }
+                                  >
+                                    <CategoryIcon
+                                      icon={experience.category?.icon}
+                                      className="size-3"
+                                    />
+                                  </span>
+                                  <span className="min-w-0 flex-1 break-words text-foreground/85">
+                                    {experience.name}
+                                  </span>
+                                  {experience.rating ? (
+                                    <RatingDisplay
+                                      rating={experience.rating}
+                                      size={12}
+                                    />
+                                  ) : null}
+                                </li>
+                              ))}
+                          </ul>
+                        ) : null}
+                        <ReadOnlyPlannedList destination={destination} />
+                      </>
                     ) : (
                       <p className="mt-2 flex items-center gap-1 text-xs text-foreground/40">
                         <MapPinIcon className="size-3" />

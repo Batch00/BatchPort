@@ -19,6 +19,9 @@ export interface ProfileExperience {
   // "planned" ideas render as a read-only checklist row; "done" as a normal
   // logged experience. Rows predating the status column read as "done".
   status: "planned" | "done";
+  // Day-planning slot (1 = arrival date), null when unassigned or predating
+  // the column. Lets the read-only card group ideas by day.
+  planned_day: number | null;
   category: { label: string; icon: string | null; color: string | null } | null;
 }
 
@@ -115,6 +118,8 @@ interface ExperienceRow {
   created_at: string;
   // Absent until the status column migration runs; missing means "done".
   status?: string | null;
+  // Absent until the planned_day migration runs; missing means unassigned.
+  planned_day?: number | null;
   categories: {
     label: string;
     icon: string | null;
@@ -257,6 +262,8 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
         status: (exp.status === "planned" ? "planned" : "done") as
           | "planned"
           | "done",
+        planned_day:
+          typeof exp.planned_day === "number" ? exp.planned_day : null,
         category: exp.categories
           ? {
               label: exp.categories.label,

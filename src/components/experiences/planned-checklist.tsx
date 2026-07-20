@@ -36,20 +36,29 @@ function todayIso(): string {
 export function PlannedExperienceRow({
   experience,
   disabled = false,
+  defaultDate,
   onChanged,
   menu,
+  dragging = false,
+  className,
 }: {
   experience: PlannedRowData;
   /** Read-only surfaces (demo account): the checkbox does nothing. */
   disabled?: boolean;
+  /** Date the checkoff follow-up pre-fills (a day-assigned experience uses its
+   * day's date instead of today). Falls back to today. */
+  defaultDate?: string;
   onChanged: () => void;
   /** Optional right-aligned actions (edit and delete menus). */
   menu?: ReactNode;
+  /** Dimmed while this row is the one being dragged in the day board. */
+  dragging?: boolean;
+  className?: string;
 }) {
   const [checked, setChecked] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
   const [rating, setRating] = useState(0);
-  const [visitedDate, setVisitedDate] = useState(todayIso);
+  const [visitedDate, setVisitedDate] = useState(() => defaultDate ?? todayIso());
   const [saving, setSaving] = useState(false);
 
   async function handleCheck() {
@@ -91,7 +100,13 @@ export function PlannedExperienceRow({
   }
 
   return (
-    <li className="rounded-lg bg-white/[0.02] ring-1 ring-foreground/10">
+    <li
+      className={cn(
+        "rounded-lg bg-white/[0.02] ring-1 ring-foreground/10 transition-opacity",
+        dragging && "opacity-50",
+        className,
+      )}
+    >
       <div className="flex items-center gap-3 px-3 py-2">
         <button
           type="button"

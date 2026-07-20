@@ -12,11 +12,26 @@ const COUNTRY_PROVIDER = "discover_country";
 const CITIES_PROVIDER = "discover_cities";
 const CITY_PROVIDER = "discover_city";
 const POI_PROVIDER = "discover_poi";
+const CLIMATE_PROVIDER = "discover_climate";
 const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 const USER_AGENT =
   process.env.NOMINATIM_USER_AGENT ??
   "BatchPort/1.0 (+https://batchport.batch-apps.com)";
+
+/** Practical country facts resolved from Wikidata claims. All best-effort:
+ * missing properties are empty/null and simply do not render. */
+export interface CountryFacts {
+  /** ISO 4217 codes where available, else labels ("EUR", "Swiss franc"). */
+  currencies: string[];
+  languages: string[];
+  /** "right" or "left" (Wikidata P1622 label), null when unknown. */
+  drivingSide: string | null;
+  /** Plug standard labels ("Type E", "Europlug"). */
+  plugTypes: string[];
+  /** Mains voltage in volts (the lowest claimed value, i.e. single-phase). */
+  voltage: number | null;
+}
 
 export interface DiscoverCountry {
   code: string;
@@ -26,6 +41,7 @@ export interface DiscoverCountry {
   summary: string | null;
   heroImageUrl: string | null;
   attribution: string | null;
+  facts: CountryFacts | null;
 }
 
 export interface DiscoverCity {
@@ -155,12 +171,158 @@ function isEmblemImage(url: string): boolean {
   return /flag|coat[_ ]of[_ ]arms|emblem|seal[_ ]of/i.test(url);
 }
 
+// --- Country practical facts (Wikidata claims) ---
+
+async function wikidataFetch(url: string): Promise<unknown | null> {
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+interface WdClaim {
+  rank?: string;
+  mainsnak?: { datavalue?: { value?: unknown } };
+  qualifiers?: { P582?: unknown[] };
+}
+
+/** Usable values of a claim list: deprecated ranks and statements with an end
+ * date (P582, e.g. a country's former currency) are dropped; preferred-rank
+ * statements win over normal ones when both exist. */
+function claimValues(claims: WdClaim[] | undefined): unknown[] {
+  if (!claims || claims.length === 0) return [];
+  const usable = claims.filter(
+    (claim) => claim.rank !== "deprecated" && !claim.qualifiers?.P582,
+  );
+  const preferred = usable.filter((claim) => claim.rank === "preferred");
+  const picked = preferred.length > 0 ? preferred : usable;
+  return picked
+    .map((claim) => claim.mainsnak?.datavalue?.value)
+    .filter((value) => value !== undefined);
+}
+
+function claimEntityIds(values: unknown[], limit: number): string[] {
+  const ids: string[] = [];
+  for (const value of values) {
+    const id = (value as { id?: string }).id;
+    if (typeof id === "string" && !ids.includes(id)) ids.push(id);
+    if (ids.length >= limit) break;
+  }
+  return ids;
+}
+
+const FACT_PROPS = {
+  currency: "P38",
+  language: "P37",
+  drivingSide: "P1622",
+  plugType: "P2853",
+  voltage: "P2884",
+} as const;
+
+/** Resolve the practical facts for a country by name. Two to three Wikidata
+ * calls on a country-aggregate cache miss: entity search, claims, then one
+ * batched label lookup for the value entities. Any failure returns null. */
+async function getCountryFacts(countryName: string): Promise<CountryFacts | null> {
+  const search = (await wikidataFetch(
+    `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(
+      countryName,
+    )}&language=en&format=json&limit=1`,
+  )) as { search?: { id?: string }[] } | null;
+  const entityId = search?.search?.[0]?.id;
+  if (!entityId) return null;
+
+  const entities = (await wikidataFetch(
+    `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${entityId}&props=claims&format=json`,
+  )) as {
+    entities?: Record<string, { claims?: Record<string, WdClaim[]> }>;
+  } | null;
+  const claims = entities?.entities?.[entityId]?.claims;
+  if (!claims) return null;
+
+  // Multiple currencies can be legitimately current (France lists the euro and
+  // the CFP franc of its overseas territories), so keep two at most.
+  const currencyIds = claimEntityIds(claimValues(claims[FACT_PROPS.currency]), 2);
+  const languageIds = claimEntityIds(claimValues(claims[FACT_PROPS.language]), 3);
+  const drivingIds = claimEntityIds(
+    claimValues(claims[FACT_PROPS.drivingSide]),
+    1,
+  );
+  const plugIds = claimEntityIds(claimValues(claims[FACT_PROPS.plugType]), 3);
+
+  // Mains voltage: countries with three-phase claims list 230 and 400; the
+  // lowest value is the household single-phase one travellers care about.
+  let voltage: number | null = null;
+  for (const value of claimValues(claims[FACT_PROPS.voltage])) {
+    const amount = Number((value as { amount?: string }).amount);
+    if (Number.isFinite(amount) && amount > 0) {
+      voltage = voltage === null ? amount : Math.min(voltage, amount);
+    }
+  }
+
+  const valueIds = [...currencyIds, ...languageIds, ...drivingIds, ...plugIds];
+  const labelById = new Map<string, string>();
+  const isoById = new Map<string, string>();
+  if (valueIds.length > 0) {
+    const labels = (await wikidataFetch(
+      `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${valueIds.join(
+        "|",
+      )}&props=labels|claims&languages=en&format=json`,
+    )) as {
+      entities?: Record<
+        string,
+        {
+          labels?: { en?: { value?: string } };
+          claims?: Record<string, WdClaim[]>;
+        }
+      >;
+    } | null;
+    for (const id of valueIds) {
+      const entity = labels?.entities?.[id];
+      const label = entity?.labels?.en?.value;
+      if (label) labelById.set(id, label);
+      // ISO 4217 code off currency entities ("EUR" reads better than "euro").
+      const iso = claimValues(entity?.claims?.P498)[0];
+      if (typeof iso === "string") isoById.set(id, iso);
+    }
+  }
+
+  const facts: CountryFacts = {
+    currencies: currencyIds
+      .map((id) => isoById.get(id) ?? labelById.get(id))
+      .filter((value): value is string => Boolean(value)),
+    languages: languageIds
+      .map((id) => labelById.get(id))
+      .filter((value): value is string => Boolean(value)),
+    drivingSide: drivingIds.length > 0 ? labelById.get(drivingIds[0]) ?? null : null,
+    plugTypes: plugIds
+      .map((id) => labelById.get(id))
+      .filter((value): value is string => Boolean(value)),
+    voltage,
+  };
+
+  const empty =
+    facts.currencies.length === 0 &&
+    facts.languages.length === 0 &&
+    !facts.drivingSide &&
+    facts.plugTypes.length === 0 &&
+    facts.voltage === null;
+  return empty ? null : facts;
+}
+
 // --- Country aggregate ---
 
 export async function getDiscoverCountry(
   code: string,
 ): Promise<DiscoverCountry | null> {
-  const queryNorm = code.toLowerCase();
+  // v2: the aggregate gained the Wikidata facts block; the version suffix
+  // makes pre-facts cached payloads miss so they refresh with facts included.
+  const queryNorm = `${code.toLowerCase()}|v2`;
 
   const cached = await readCache(COUNTRY_PROVIDER, queryNorm);
   if (cached) return cached as DiscoverCountry;
@@ -179,10 +341,12 @@ export async function getDiscoverCountry(
     }>();
   if (error || !country) return null;
 
-  // Wikipedia summary and the Wikidata P18 photo resolve independently.
-  const [wiki, p18] = await Promise.all([
+  // Wikipedia summary, the Wikidata P18 photo, and the practical facts all
+  // resolve independently.
+  const [wiki, p18, facts] = await Promise.all([
     fetchWikipediaSummary(country.name),
     getWikimediaPhoto(country.name),
+    getCountryFacts(country.name),
   ]);
 
   // Prefer the P18 image (consistent with the existing photo pipeline and it
@@ -210,6 +374,7 @@ export async function getDiscoverCountry(
     summary: wiki.extract,
     heroImageUrl,
     attribution,
+    facts,
   };
 
   await writeCache(COUNTRY_PROVIDER, queryNorm, result);
@@ -767,4 +932,121 @@ export async function getDiscoverPoi(
     await writeCache(POI_PROVIDER, queryNorm, result);
   }
   return result;
+}
+
+// --- Monthly climate (Open-Meteo ERA5 archive) ---
+
+/** Typical conditions for one month at a location, averaged over a decade of
+ * ERA5 reanalysis. Temperatures in °C; wetDays is the average number of days
+ * per month with at least 1 mm of precipitation. */
+export interface DiscoverClimate {
+  month: number;
+  high: number;
+  low: number;
+  wetDays: number;
+}
+
+// Endpoint choice: the archive API (ERA5 reanalysis, real observed weather)
+// rather than the climate API (CMIP6 model projections aimed at future
+// scenarios). One request for a fixed recent decade yields every month's
+// climatology, which is averaged server-side. The window is pinned so cache
+// keys stay deterministic.
+const CLIMATE_START = "2015-01-01";
+const CLIMATE_END = "2024-12-31";
+const CLIMATE_YEARS = 10;
+// A day with at least 1 mm of precipitation counts as wet (the WMO convention).
+const WET_DAY_MM = 1;
+
+// One decimal degree of rounding (~11 km): climate does not vary within a city,
+// and nearby lookups share cache rows.
+function climateKey(lat: number, lng: number, month: number): string {
+  return `${lat.toFixed(1)},${lng.toFixed(1)}|${month}`;
+}
+
+export async function getDiscoverClimate(
+  lat: number,
+  lng: number,
+  month: number,
+): Promise<DiscoverClimate | null> {
+  const cached = await readCache(CLIMATE_PROVIDER, climateKey(lat, lng, month));
+  if (cached) return cached as DiscoverClimate;
+
+  // Fetch with the key-rounded coordinates so every lookup that shares a cache
+  // key is backed by identical upstream data.
+  let daily: {
+    time?: string[];
+    temperature_2m_max?: (number | null)[];
+    temperature_2m_min?: (number | null)[];
+    precipitation_sum?: (number | null)[];
+  };
+  try {
+    const url = new URL("https://archive-api.open-meteo.com/v1/archive");
+    url.searchParams.set("latitude", lat.toFixed(1));
+    url.searchParams.set("longitude", lng.toFixed(1));
+    url.searchParams.set("start_date", CLIMATE_START);
+    url.searchParams.set("end_date", CLIMATE_END);
+    url.searchParams.set(
+      "daily",
+      "temperature_2m_max,temperature_2m_min,precipitation_sum",
+    );
+    url.searchParams.set("timezone", "UTC");
+    const response = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+      // The decade of daily values is a large payload; give it more room than
+      // the metadata calls get.
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) return null;
+    daily = ((await response.json()) as { daily?: typeof daily }).daily ?? {};
+  } catch {
+    return null;
+  }
+
+  const time = daily.time ?? [];
+  const highs = daily.temperature_2m_max ?? [];
+  const lows = daily.temperature_2m_min ?? [];
+  const precip = daily.precipitation_sum ?? [];
+
+  // Accumulate per calendar month across the decade.
+  const sums = Array.from({ length: 12 }, () => ({
+    high: 0,
+    low: 0,
+    count: 0,
+    wet: 0,
+  }));
+  for (let i = 0; i < time.length; i += 1) {
+    const monthIndex = Number(time[i]?.slice(5, 7)) - 1;
+    const high = highs[i];
+    const low = lows[i];
+    if (monthIndex < 0 || monthIndex > 11 || high == null || low == null) {
+      continue;
+    }
+    const bucket = sums[monthIndex];
+    bucket.high += high;
+    bucket.low += low;
+    bucket.count += 1;
+    if ((precip[i] ?? 0) >= WET_DAY_MM) bucket.wet += 1;
+  }
+
+  const months: DiscoverClimate[] = [];
+  for (let m = 0; m < 12; m += 1) {
+    const bucket = sums[m];
+    if (bucket.count === 0) continue;
+    months.push({
+      month: m + 1,
+      high: Math.round(bucket.high / bucket.count),
+      low: Math.round(bucket.low / bucket.count),
+      wetDays: Math.round(bucket.wet / CLIMATE_YEARS),
+    });
+  }
+  if (months.length === 0) return null;
+
+  // The one upstream fetch yields all twelve months; cache each under its own
+  // month key so later lookups for other months of the same place stay local.
+  await Promise.all(
+    months.map((entry) =>
+      writeCache(CLIMATE_PROVIDER, climateKey(lat, lng, entry.month), entry),
+    ),
+  );
+  return months.find((entry) => entry.month === month) ?? null;
 }

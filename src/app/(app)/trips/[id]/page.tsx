@@ -15,6 +15,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { StatusBadge } from "@/components/trips/status-badge";
 import { DeleteTripButton } from "@/components/trips/delete-trip-button";
 import { DestinationPlan } from "@/components/trips/trip-planner";
+import { TripCountryFacts } from "@/components/trips/trip-country-facts";
 import { DiscoveryProvider } from "@/components/discover/discovery-host";
 import { PhotoBanner } from "@/components/photos/photo-banner";
 import { TripPhotosSection } from "@/components/photos/trip-photos";
@@ -172,6 +173,27 @@ export default async function TripDetailPage({
         </p>
       ) : null}
 
+      {/* Practical facts strip, once per country, on trips still being planned
+          or underway. A completed trip's facts are no longer actionable. */}
+      {trip.status === "planned" || trip.status === "ongoing" ? (
+        <TripCountryFacts
+          countries={(() => {
+            const seen = new Set<string>();
+            const list: { code: string; name: string }[] = [];
+            for (const destination of trip.destinations) {
+              const code = destination.country_code;
+              if (!code || seen.has(code)) continue;
+              seen.add(code);
+              list.push({
+                code,
+                name: countryNameByCode.get(code) ?? code,
+              });
+            }
+            return list;
+          })()}
+        />
+      ) : null}
+
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-medium text-foreground/80">Destinations</h2>
         <Link
@@ -282,6 +304,8 @@ export default async function TripDetailPage({
                     lat: destination.latitude,
                     lng: destination.longitude,
                     country_code: destination.country_code,
+                    arrival_date: destination.arrival_date,
+                    departure_date: destination.departure_date,
                   }}
                   countryName={
                     destination.country_code

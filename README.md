@@ -342,10 +342,13 @@ scripts/
 
 The `geocode_cache.provider` check constraint must allow every provider the app
 writes: `photon`, `photon_poi`, `nominatim`, `wikimedia`, `discover_country`,
-`discover_cities`, `discover_city`, and `discover_poi`. If the constraint is
-stale, cache writes fail silently and every lookup hits the upstream API. Run
-`scripts/sql/2026-07-18-discover-poi-provider.sql` in the Supabase SQL editor
-to widen it (it supersedes `2026-07-15-geocode-cache-providers.sql`).
+`discover_cities`, `discover_city`, `discover_poi`, and `discover_climate`. If
+the constraint is stale, cache writes fail silently and every lookup hits the
+upstream API. Run `scripts/sql/2026-07-20-planner-completion.sql` in the
+Supabase SQL editor to widen it (it supersedes
+`2026-07-18-discover-poi-provider.sql`, which superseded
+`2026-07-15-geocode-cache-providers.sql`). That same file also adds the
+`experiences.planned_day` column (below).
 
 Planned trips are excluded from visited countries and stats in the app data
 layer, but the SQL stats views also need the planned filter applied. See
@@ -358,6 +361,17 @@ and the matching stats-view filters. Run
 Until it runs, the app degrades: experience writes retry without the status
 key, reads treat a missing status as 'done', and the stats layer subtracts
 planned experiences app-side.
+
+Day planning needs the `experiences.planned_day` column (integer; day 1 = the
+destination's arrival date, null = unassigned). It is added by
+`scripts/sql/2026-07-20-planner-completion.sql` alongside the climate cache
+provider. Until it runs, day-assignment writes fail with a friendly error,
+reads treat a missing value as unassigned, and the plan block still renders as
+a flat list. Climate lines and country practical facts (currency, languages,
+driving side, plug/voltage from Wikidata) need no schema change; climate uses
+the Open-Meteo ERA5 archive and caches under the `discover_climate` provider,
+and the facts ride along in the existing `discover_country` aggregate (its
+cache key was bumped so stale pre-facts payloads refresh).
 
 ## Development Setup
 

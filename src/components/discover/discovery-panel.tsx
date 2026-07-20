@@ -22,6 +22,8 @@ import { createBucketItem } from "@/lib/actions/bucket-list";
 import { startTripFromCityAction } from "@/lib/actions/trips";
 import { addPoiExperienceAction } from "@/lib/actions/experiences";
 import { CountryFlag } from "@/components/country-flag";
+import { CountryFactsRow } from "@/components/discover/country-facts";
+import { ClimateLine } from "@/components/discover/climate-line";
 import { placeKey } from "@/lib/geo";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -109,6 +111,29 @@ const POI_LABELS: Record<PoiCategory, string> = {
   beach: "Beach",
   worship: "Place of worship",
 };
+
+// The visit month (1-12) for a city reached from a planned or ongoing trip:
+// the matching destination's arrival date, else the trip's start date. Null
+// when no planning trip covers this city, so the climate line only shows when
+// a month is actually known (climate without a month is noise).
+function planningMonthForCity(
+  cityName: string,
+  tripOptions: TripDestinationOption[],
+): number | null {
+  const normalized = cityName.trim().toLowerCase();
+  for (const trip of tripOptions) {
+    if (trip.status !== "planned" && trip.status !== "ongoing") continue;
+    const match = trip.destinations.find(
+      (destination) => destination.name.trim().toLowerCase() === normalized,
+    );
+    if (!match) continue;
+    const date = match.arrival_date ?? trip.start_date;
+    if (!date) return null;
+    const month = Number(date.slice(5, 7));
+    return month >= 1 && month <= 12 ? month : null;
+  }
+  return null;
+}
 
 function formatPopulation(population: number | null): string | null {
   if (!population || population <= 0) return null;
@@ -327,6 +352,10 @@ function CountryBody({
     <>
       <SummaryBlock summary={country?.summary ?? null} loading={countryLoading} />
 
+      {country?.facts ? (
+        <CountryFactsRow facts={country.facts} className="mt-4" />
+      ) : null}
+
       <div className="mt-4 flex flex-col gap-2">
         {onList ? (
           <Button variant="secondary" className="w-full" disabled>
@@ -388,6 +417,7 @@ function CityBody({
   countryCode,
   isOnBucketList,
   planningTripName,
+  climateMonth,
   readOnly,
   onHeroLoaded,
   onOpenPoi,
@@ -399,6 +429,9 @@ function CityBody({
   isOnBucketList: boolean;
   /** A planned or ongoing trip with a destination named like this city. */
   planningTripName: string | null;
+  /** Calendar month 1-12 to show the climate line for, when one is known
+   * (arrived here from a planned-trip context). Null skips it. */
+  climateMonth: number | null;
   readOnly: boolean;
   /** Reports the city hero URL up so the shared shell hero can show it. */
   onHeroLoaded: (cityName: string, url: string | null) => void;
@@ -487,6 +520,15 @@ function CityBody({
         </p>
       ) : null}
       <SummaryBlock summary={detail?.summary ?? null} loading={loading} />
+
+      {hasCoords && climateMonth !== null ? (
+        <ClimateLine
+          lat={city.lat as number}
+          lng={city.lng as number}
+          month={climateMonth}
+          className="mt-3"
+        />
+      ) : null}
 
       {readOnly ? (
         // Both mutation actions collapse into the one conversion treatment;
@@ -1077,6 +1119,7 @@ export function DiscoveryPanel({
                     ),
                 )?.name ?? null
               }
+              climateMonth={planningMonthForCity(cityView.name, tripOptions)}
               readOnly={readOnly}
               onHeroLoaded={(cityName, url) =>
                 setCityHeroes((current) =>

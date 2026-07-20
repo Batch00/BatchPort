@@ -24,13 +24,19 @@ export interface ExperienceInput {
 // The geom column rides along as a short WKB hex string the UI ignores.
 
 // Rows written before the status column existed carry no status; they are all
-// logged activities, so missing reads as "done".
+// logged activities, so missing reads as "done". Likewise planned_day predates
+// nothing being assigned, so missing reads as null (unassigned).
 export function normalizeExperience(
-  row: Omit<Experience, "status"> & { status?: string | null },
+  row: Omit<Experience, "status" | "planned_day"> & {
+    status?: string | null;
+    planned_day?: number | null;
+  },
 ): Experience {
   return {
     ...row,
     status: row.status === "planned" ? "planned" : "done",
+    planned_day:
+      typeof row.planned_day === "number" ? row.planned_day : null,
   } as Experience;
 }
 
@@ -169,6 +175,21 @@ export async function markExperiencePlanned(id: string): Promise<void> {
   const { error } = await supabase
     .from("experiences")
     .update({ status: "planned", rating: null, visited_date: null })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+/** Assign a planned experience to a plan day (1 = arrival date) or back to
+ * unassigned (null). Requires the planned_day column; pre-migration this
+ * throws and the action surfaces a friendly error instead of pretending. */
+export async function setExperiencePlannedDay(
+  id: string,
+  day: number | null,
+): Promise<void> {
+  const { supabase } = await requireUser();
+  const { error } = await supabase
+    .from("experiences")
+    .update({ planned_day: day })
     .eq("id", id);
   if (error) throw error;
 }

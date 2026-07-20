@@ -23,7 +23,15 @@ import {
 import { RatingDisplay } from "@/components/rating-display";
 import { PlannedExperienceRow } from "@/components/experiences/planned-checklist";
 import { IdeasStrip } from "@/components/trips/ideas-strip";
+import { PlanDayBoard } from "@/components/trips/plan-day-board";
+import { ClimateLine } from "@/components/discover/climate-line";
 import { deleteExperienceAction } from "@/lib/actions/experiences";
+import {
+  experiencePoint,
+  planDayCount,
+  proximitySummary,
+  todayPlanDay,
+} from "@/lib/day-plan";
 import { cn } from "@/lib/utils";
 import type { Category, Experience, TripStatus } from "@/lib/types";
 
@@ -40,6 +48,16 @@ interface PlanDestination {
   lat: number | null;
   lng: number | null;
   country_code: string | null;
+  arrival_date: string | null;
+  departure_date: string | null;
+}
+
+// The 1-12 visit month for the climate line, from the arrival date. Null when
+// the destination has no arrival date (climate without a month is noise).
+function climateMonthOf(arrival: string | null): number | null {
+  if (!arrival) return null;
+  const month = Number(arrival.slice(5, 7));
+  return month >= 1 && month <= 12 ? month : null;
 }
 
 function categoryOf(
@@ -151,6 +169,28 @@ export function DestinationPlan({
 
   const refresh = () => router.refresh();
 
+  // Day sections apply only to a dated stay of reasonable length; otherwise the
+  // planned items stay a flat list.
+  const dayCount = planDayCount(
+    destination.arrival_date,
+    destination.departure_date,
+  );
+  const todayDay =
+    tripStatus === "ongoing"
+      ? todayPlanDay(destination.arrival_date, destination.departure_date)
+      : null;
+  const climateMonth = climateMonthOf(destination.arrival_date);
+  const hasClimateCoords =
+    destination.lat !== null && destination.lng !== null;
+
+  // One quiet proximity line for the flat planned list (the day board computes
+  // its own per group).
+  const flatProximity = proximitySummary(
+    planned
+      .map((experience) => experiencePoint(experience.geom))
+      .filter((point): point is { lat: number; lng: number } => point !== null),
+  );
+
   const plannedRows = (withDelete: boolean) => (
     <ul className="flex flex-col gap-1.5">
       {planned.map((experience) => {
@@ -218,16 +258,41 @@ export function DestinationPlan({
 
   return (
     <div className="mt-1.5 flex flex-col gap-3 rounded-xl bg-white/[0.02] p-3 ring-1 ring-foreground/10">
+      {hasClimateCoords && climateMonth !== null ? (
+        <ClimateLine
+          lat={destination.lat as number}
+          lng={destination.lng as number}
+          month={climateMonth}
+        />
+      ) : null}
+
       <div>
         <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-foreground/40">
           Planned{planned.length > 0 ? ` (${planned.length})` : ""}
         </h4>
-        {planned.length > 0 ? (
-          plannedRows(false)
-        ) : (
+        {planned.length === 0 ? (
           <p className="text-xs text-foreground/40">
             No ideas saved yet. Grab some from the suggestions below.
           </p>
+        ) : dayCount !== null && destination.arrival_date ? (
+          <PlanDayBoard
+            arrival={destination.arrival_date}
+            dayCount={dayCount}
+            todayDay={todayDay}
+            planned={planned}
+            categories={categories}
+            isDemo={isDemo}
+            onChanged={refresh}
+          />
+        ) : (
+          <>
+            {plannedRows(false)}
+            {flatProximity ? (
+              <p className="mt-1.5 px-1 text-[10px] text-foreground/35">
+                {flatProximity}
+              </p>
+            ) : null}
+          </>
         )}
       </div>
 
