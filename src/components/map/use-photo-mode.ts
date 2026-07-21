@@ -2,10 +2,16 @@
 
 // Photo map engine for the globe: hides the normal travel layers (the same
 // mechanism replay uses), adds a MapLibre clustered GeoJSON source of photo
-// locations, and renders clusters and unclustered points as HTML markers
-// (thumbnail tiles for points, count circles for clusters). Thumbnail markers
-// are capped; past the cap a small circle layer stays visible and clickable,
-// so nothing becomes unreachable, only less pretty.
+// locations, and renders clusters and unclustered points as HTML markers.
+//
+// Presentation goal (a large library reads as "grouped by the places I was",
+// not a confetti scatter): clustering is aggressive and place-aware, a cluster
+// shows a single representative thumbnail with a count badge rather than a pile
+// of overlapping tiles, and a cluster that can no longer split routes its tap
+// straight to the lightbox for the whole set instead of scattering unreadable
+// points. Thumbnail point markers are capped; past the cap a small circle layer
+// stays visible and clickable, so nothing becomes unreachable, only less
+// pretty.
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type {
@@ -43,9 +49,15 @@ const SOURCE_ID = "photo-points";
 const CLUSTER_CIRCLE_LAYER = "photo-cluster-circle";
 const POINT_CIRCLE_LAYER = "photo-point-circle";
 // Beyond this many visible thumbnail markers the remainder render as plain
-// circles. Clusters keep the viewport count far below this in practice; the
-// cap only bites when someone zooms into a dense city with dozens of stacks.
+// circles. Aggressive clustering keeps the viewport count far below this in
+// practice; the cap only bites when someone zooms into a dense city with dozens
+// of separated stacks.
 const MAX_THUMB_MARKERS = 80;
+// Aggressive, place-aware clustering: a wide radius merges nearby photos into
+// one place marker, and a high max zoom keeps them merged until the camera is
+// genuinely close, so mid-zoom reads as a handful of places, not a scatter.
+const CLUSTER_RADIUS = 64;
+const CLUSTER_MAX_ZOOM = 14;
 // ~1 meter: photos that fall back to the same owner coordinates stack exactly,
 // and EXIF points this close are the same spot for all practical purposes.
 const GROUP_PRECISION = 5;
@@ -60,7 +72,8 @@ interface UsePhotoModeOptions {
   /** Shared flag the globe's hover and click handlers check to go inert. */
   activeRef: RefObject<boolean>;
   onActiveChange?: (active: boolean) => void;
-  /** Fired when a photo marker is clicked, with the stack's photo indices. */
+  /** Fired when a photo marker (or a terminal cluster) is opened, with the
+   * stack's or set's photo indices. */
   onOpenGroup: (indices: number[]) => void;
 }
 
@@ -69,6 +82,9 @@ export interface PhotoModeHandle {
   enter: () => void;
   exit: () => void;
   toggle: () => void;
+  /** Re-add the photo source, layers, and markers after a basemap style switch
+   * wiped them (the globe calls this on style reload while photo mode is on). */
+  reattach: () => void;
 }
 
 export function usePhotoMode({
@@ -113,6 +129,9 @@ export function usePhotoMode({
 
   const markersRef = useRef(new Map<string, MlMarker>());
   const rafRef = useRef(0);
+  // Representative thumbnail URL per cluster id, so a cluster marker recreated
+  // on pan-back does not re-query its leaves.
+  const clusterRepRef = useRef(new Map<number, string>());
   // The maplibre module, resolved on first enter (instant: the globe already
   // loaded it) and kept for the Marker constructor.
   const mlRef = useRef<typeof import("maplibre-gl") | null>(null);
@@ -125,17 +144,46 @@ export function usePhotoMode({
     pointerLeave: () => void;
   } | null>(null);
 
-  function expandCluster(clusterId: number, center: [number, number]) {
+  // A cluster tap either zooms in (if it will split) or, once it can split no
+  // further, opens the whole set in the lightbox. This is what keeps a dense
+  // city from ever scattering into an unreadable pile of overlapping tiles.
+  function handleClusterTap(clusterId: number, center: [number, number]) {
     const map = mapRef.current;
     const source = map?.getSource(SOURCE_ID) as GeoJSONSource | undefined;
     if (!map || !source) return;
     source
       .getClusterExpansionZoom(clusterId)
       .then((zoom) => {
-        map.easeTo({ center, zoom: zoom + 0.4, duration: 650 });
+        if (zoom > map.getMaxZoom()) {
+          openCluster(clusterId);
+        } else {
+          map.easeTo({ center, zoom: zoom + 0.4, duration: 650 });
+        }
       })
       .catch(() => {
-        // The cluster may have dissolved between click and lookup; ignore.
+        // The cluster may have dissolved between tap and lookup; ignore.
+      });
+  }
+
+  // Open every photo under a cluster as one lightbox set (used for clusters
+  // that will not split further).
+  function openCluster(clusterId: number) {
+    const map = mapRef.current;
+    const source = map?.getSource(SOURCE_ID) as GeoJSONSource | undefined;
+    if (!source) return;
+    source
+      .getClusterLeaves(clusterId, 10000, 0)
+      .then((leaves) => {
+        const indices: number[] = [];
+        for (const leaf of leaves) {
+          const groupIndex = Number(leaf.properties?.group);
+          const group = dataRef.current.groups[groupIndex];
+          if (group) indices.push(...group.indices);
+        }
+        if (indices.length > 0) dataRef.current.onOpenGroup(indices);
+      })
+      .catch(() => {
+        // Ignore a cluster that dissolved between tap and lookup.
       });
   }
 
@@ -144,16 +192,67 @@ export function usePhotoMode({
     if (group) dataRef.current.onOpenGroup(group.indices);
   }
 
-  function clusterElement(count: number, clusterId: number, center: [number, number]) {
+  // Resolve a cluster's representative photo (its first leaf's cover) and paint
+  // it into the marker's img. Cached per cluster id.
+  function fillClusterThumb(clusterId: number, img: HTMLImageElement) {
+    const cached = clusterRepRef.current.get(clusterId);
+    if (cached) {
+      img.src = cached;
+      return;
+    }
+    const source = mapRef.current?.getSource(SOURCE_ID) as
+      | GeoJSONSource
+      | undefined;
+    if (!source) return;
+    source
+      .getClusterLeaves(clusterId, 1, 0)
+      .then((leaves) => {
+        const groupIndex = Number(leaves[0]?.properties?.group);
+        const group = dataRef.current.groups[groupIndex];
+        const photo = group
+          ? dataRef.current.photos[group.indices[0]]
+          : undefined;
+        if (photo) {
+          clusterRepRef.current.set(clusterId, photo.thumbUrl);
+          img.src = photo.thumbUrl;
+        }
+      })
+      .catch(() => {
+        // Leave the placeholder tint if the leaves cannot be read.
+      });
+  }
+
+  // A cluster marker: one representative thumbnail with a stacked-card look and
+  // a count badge. Reads as "a place", not a pile of overlapping photos.
+  function clusterElement(
+    count: number,
+    clusterId: number,
+    center: [number, number],
+  ) {
     const el = document.createElement("button");
     el.type = "button";
-    el.setAttribute("aria-label", `Zoom into ${count} photos`);
-    const size = count >= 100 ? 56 : count >= 25 ? 50 : 44;
-    el.style.cssText = `width:${size}px;height:${size}px;border-radius:9999px;background:rgba(10,14,22,0.82);border:2px solid var(--brand,#2563eb);color:#f4f4f5;font-size:0.8rem;font-weight:600;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.5);backdrop-filter:blur(4px)`;
-    el.textContent = String(count);
+    el.setAttribute("aria-label", `${count} photos here`);
+    const size = count >= 100 ? 64 : count >= 25 ? 58 : 52;
+    el.style.cssText = `position:relative;width:${size}px;height:${size}px;padding:0;border-radius:12px;border:2px solid var(--brand,#2563eb);background:#101623;cursor:pointer;box-shadow:3px 3px 0 -1px rgba(16,22,35,0.9),3px 3px 0 rgba(255,255,255,0.12),0 4px 14px rgba(0,0,0,0.55)`;
+
+    const img = document.createElement("img");
+    img.alt = "";
+    img.loading = "lazy";
+    img.draggable = false;
+    img.style.cssText =
+      "width:100%;height:100%;object-fit:cover;display:block;border-radius:10px";
+    el.appendChild(img);
+    fillClusterThumb(clusterId, img);
+
+    const badge = document.createElement("span");
+    badge.textContent = count >= 1000 ? `${Math.floor(count / 1000)}k+` : String(count);
+    badge.style.cssText =
+      "position:absolute;right:-6px;top:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--brand,#2563eb);color:#fff;font-size:0.7rem;font-weight:700;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 1px 4px rgba(0,0,0,0.5)";
+    el.appendChild(badge);
+
     el.addEventListener("click", (event) => {
       event.stopPropagation();
-      expandCluster(clusterId, center);
+      handleClusterTap(clusterId, center);
     });
     return el;
   }
@@ -261,6 +360,58 @@ export function usePhotoMode({
     markersRef.current.clear();
   }
 
+  // Add (or re-add) the clustered source and the circle layers beneath the HTML
+  // markers. Idempotent, so both enter() and the post-style-switch reattach()
+  // can call it. The travel layers are hidden by the caller.
+  function addPhotoLayers() {
+    const map = mapRef.current;
+    if (!map) return;
+    const brandHex = readBrandHex();
+    if (!map.getSource(SOURCE_ID)) {
+      map.addSource(SOURCE_ID, {
+        type: "geojson",
+        data: dataRef.current.featureCollection,
+        cluster: true,
+        clusterRadius: CLUSTER_RADIUS,
+        clusterMaxZoom: CLUSTER_MAX_ZOOM,
+        // Sum the per-stack photo counts so cluster badges show photos, not
+        // stacks.
+        clusterProperties: { photoCount: ["+", ["get", "count"]] },
+      });
+    }
+
+    // A soft glow behind clusters, and a small dot per point that doubles as
+    // the click target for stacks past the thumbnail marker cap.
+    if (!map.getLayer(CLUSTER_CIRCLE_LAYER)) {
+      map.addLayer({
+        id: CLUSTER_CIRCLE_LAYER,
+        type: "circle",
+        source: SOURCE_ID,
+        filter: ["has", "point_count"],
+        paint: {
+          "circle-radius": 30,
+          "circle-color": brandHex,
+          "circle-opacity": 0.22,
+          "circle-blur": 1,
+        },
+      });
+    }
+    if (!map.getLayer(POINT_CIRCLE_LAYER)) {
+      map.addLayer({
+        id: POINT_CIRCLE_LAYER,
+        type: "circle",
+        source: SOURCE_ID,
+        filter: ["!", ["has", "point_count"]],
+        paint: {
+          "circle-radius": 5,
+          "circle-color": "#ffffff",
+          "circle-stroke-color": brandHex,
+          "circle-stroke-width": 2,
+        },
+      });
+    }
+  }
+
   function enter() {
     const map = mapRef.current;
     if (!map || activeRef.current || !map.getLayer("pins")) return;
@@ -274,45 +425,7 @@ export function usePhotoMode({
       if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", "none");
     }
 
-    const brandHex = readBrandHex();
-    map.addSource(SOURCE_ID, {
-      type: "geojson",
-      data: dataRef.current.featureCollection,
-      cluster: true,
-      clusterRadius: 50,
-      clusterMaxZoom: 11,
-      // Sum the per-stack photo counts so cluster badges show photos, not
-      // stacks.
-      clusterProperties: { photoCount: ["+", ["get", "count"]] },
-    });
-
-    // Circle layers underneath the HTML markers: a soft glow behind clusters,
-    // and a small dot per point that doubles as the click target for stacks
-    // past the thumbnail marker cap.
-    map.addLayer({
-      id: CLUSTER_CIRCLE_LAYER,
-      type: "circle",
-      source: SOURCE_ID,
-      filter: ["has", "point_count"],
-      paint: {
-        "circle-radius": 26,
-        "circle-color": brandHex,
-        "circle-opacity": 0.25,
-        "circle-blur": 1,
-      },
-    });
-    map.addLayer({
-      id: POINT_CIRCLE_LAYER,
-      type: "circle",
-      source: SOURCE_ID,
-      filter: ["!", ["has", "point_count"]],
-      paint: {
-        "circle-radius": 5,
-        "circle-color": "#ffffff",
-        "circle-stroke-color": brandHex,
-        "circle-stroke-width": 2,
-      },
-    });
+    addPhotoLayers();
 
     const listeners = {
       update: scheduleUpdate,
@@ -329,7 +442,7 @@ export function usePhotoMode({
         if (!feature || feature.geometry.type !== "Point") return;
         const clusterId = feature.properties?.cluster_id;
         if (clusterId === undefined) return;
-        expandCluster(
+        handleClusterTap(
           Number(clusterId),
           feature.geometry.coordinates as [number, number],
         );
@@ -361,6 +474,21 @@ export function usePhotoMode({
     });
   }
 
+  // Called by the globe after a basemap style switch reloads the style and
+  // wipes every runtime source/layer. Re-hide the travel layers (recreated
+  // visible), re-add the photo source/layers, and rebuild the markers.
+  function reattach() {
+    const map = mapRef.current;
+    if (!map || !activeRef.current) return;
+    for (const id of TRAVEL_LAYERS) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", "none");
+    }
+    clusterRepRef.current.clear();
+    addPhotoLayers();
+    clearMarkers();
+    scheduleUpdate();
+  }
+
   function exit() {
     if (!activeRef.current) return;
     activeRef.current = false;
@@ -384,6 +512,7 @@ export function usePhotoMode({
       rafRef.current = 0;
     }
     clearMarkers();
+    clusterRepRef.current.clear();
     if (map) {
       if (map.getLayer(CLUSTER_CIRCLE_LAYER)) map.removeLayer(CLUSTER_CIRCLE_LAYER);
       if (map.getLayer(POINT_CIRCLE_LAYER)) map.removeLayer(POINT_CIRCLE_LAYER);
@@ -411,6 +540,7 @@ export function usePhotoMode({
     const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined;
     if (!source) return;
     clearMarkers();
+    clusterRepRef.current.clear();
     source.setData(featureCollection);
     scheduleUpdate();
     // The imperative sync only depends on the rebuilt collection.
@@ -425,5 +555,5 @@ export function usePhotoMode({
     };
   }, []);
 
-  return { active, enter, exit, toggle };
+  return { active, enter, exit, toggle, reattach };
 }

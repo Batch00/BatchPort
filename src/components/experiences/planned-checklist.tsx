@@ -65,13 +65,17 @@ export function PlannedExperienceRow({
     if (disabled || checked) return;
     // Optimistic: the row flips and the follow-up opens before the server
     // confirms. The experience is done from this moment; the follow-up only
-    // decorates it.
+    // decorates it. This first write skips revalidation on purpose: revalidating
+    // now would re-render the parent, move this experience out of the planned
+    // list, and unmount the row before the user can pick a rating or date. The
+    // follow-up's Save (or Skip) commits with revalidation instead.
     setChecked(true);
     setFollowUpOpen(true);
-    const result = await markExperienceDoneAction(experience.id, {
-      rating: null,
-      visitedDate: null,
-    });
+    const result = await markExperienceDoneAction(
+      experience.id,
+      { rating: null, visitedDate: null },
+      { revalidate: false },
+    );
     if ("error" in result) {
       toast.error(result.error);
       setChecked(false);
@@ -94,6 +98,8 @@ export function PlannedExperienceRow({
     onChanged();
   }
 
+  // The check already persisted the done status (without revalidating); Skip
+  // just leaves it done with no rating and refreshes the parent's server data.
   function handleSkip() {
     setFollowUpOpen(false);
     onChanged();

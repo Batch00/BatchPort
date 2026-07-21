@@ -23,7 +23,7 @@ import { startTripFromCityAction } from "@/lib/actions/trips";
 import { addPoiExperienceAction } from "@/lib/actions/experiences";
 import { CountryFlag } from "@/components/country-flag";
 import { CountryFactsRow } from "@/components/discover/country-facts";
-import { ClimateLine } from "@/components/discover/climate-line";
+import { ClimateSection } from "@/components/discover/climate-line";
 import { placeKey } from "@/lib/geo";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -325,6 +325,13 @@ function CountryBody({
   const [added, setAdded] = useState(false);
   const [adding, startAdding] = useTransition();
   const onList = added || isOnBucketList;
+  // Representative point for the country's climate: the largest city with
+  // coordinates. Climate varies across large countries, but the top city is a
+  // sensible "what is it like there" proxy, and it lets discovery show climate
+  // at the country level without a planned trip.
+  const climatePoint = cities?.find(
+    (city) => Number.isFinite(city.lat) && Number.isFinite(city.lng),
+  );
 
   function handleAdd() {
     startAdding(async () => {
@@ -354,6 +361,14 @@ function CountryBody({
 
       {country?.facts ? (
         <CountryFactsRow facts={country.facts} className="mt-4" />
+      ) : null}
+
+      {climatePoint ? (
+        <ClimateSection
+          lat={climatePoint.lat}
+          lng={climatePoint.lng}
+          className="mt-4"
+        />
       ) : null}
 
       <div className="mt-4 flex flex-col gap-2">
@@ -429,8 +444,8 @@ function CityBody({
   isOnBucketList: boolean;
   /** A planned or ongoing trip with a destination named like this city. */
   planningTripName: string | null;
-  /** Calendar month 1-12 to show the climate line for, when one is known
-   * (arrived here from a planned-trip context). Null skips it. */
+  /** Calendar month 1-12 to open the climate selector on, when one is known
+   * (arrived here from a planned-trip context). Null defaults to this month. */
   climateMonth: number | null;
   readOnly: boolean;
   /** Reports the city hero URL up so the shared shell hero can show it. */
@@ -521,11 +536,11 @@ function CityBody({
       ) : null}
       <SummaryBlock summary={detail?.summary ?? null} loading={loading} />
 
-      {hasCoords && climateMonth !== null ? (
-        <ClimateLine
+      {hasCoords ? (
+        <ClimateSection
           lat={city.lat as number}
           lng={city.lng as number}
-          month={climateMonth}
+          defaultMonth={climateMonth}
           className="mt-3"
         />
       ) : null}

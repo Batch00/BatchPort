@@ -22,8 +22,11 @@ const USER_AGENT =
 /** Practical country facts resolved from Wikidata claims. All best-effort:
  * missing properties are empty/null and simply do not render. */
 export interface CountryFacts {
-  /** ISO 4217 codes where available, else labels ("EUR", "Swiss franc"). */
-  currencies: string[];
+  /** Currencies to show: `code` is the ISO 4217 code where available, else the
+   * label ("EUR", "Swiss franc"); `name` is the fuller label ("Euro") for a
+   * tooltip when the chip shows only the code, null when the chip already shows
+   * the full name. */
+  currencies: { code: string; name: string | null }[];
   languages: string[];
   /** "right" or "left" (Wikidata P1622 label), null when unknown. */
   drivingSide: string | null;
@@ -294,8 +297,19 @@ async function getCountryFacts(countryName: string): Promise<CountryFacts | null
 
   const facts: CountryFacts = {
     currencies: currencyIds
-      .map((id) => isoById.get(id) ?? labelById.get(id))
-      .filter((value): value is string => Boolean(value)),
+      .map((id) => {
+        const iso = isoById.get(id);
+        const label = labelById.get(id) ?? null;
+        const code = iso ?? label;
+        if (!code) return null;
+        // Showing the ISO code leaves the label as the fuller tooltip name;
+        // showing the label already reveals everything there is.
+        return { code, name: iso ? label : null };
+      })
+      .filter(
+        (value): value is { code: string; name: string | null } =>
+          value !== null,
+      ),
     languages: languageIds
       .map((id) => labelById.get(id))
       .filter((value): value is string => Boolean(value)),
@@ -320,9 +334,10 @@ async function getCountryFacts(countryName: string): Promise<CountryFacts | null
 export async function getDiscoverCountry(
   code: string,
 ): Promise<DiscoverCountry | null> {
-  // v2: the aggregate gained the Wikidata facts block; the version suffix
-  // makes pre-facts cached payloads miss so they refresh with facts included.
-  const queryNorm = `${code.toLowerCase()}|v2`;
+  // v3: the currencies fact changed from bare code strings to {code, name}
+  // objects; the version suffix makes older cached payloads miss so they
+  // refresh in the new shape. (v2 first added the Wikidata facts block.)
+  const queryNorm = `${code.toLowerCase()}|v3`;
 
   const cached = await readCache(COUNTRY_PROVIDER, queryNorm);
   if (cached) return cached as DiscoverCountry;

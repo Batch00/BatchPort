@@ -23,8 +23,11 @@ import { boundsOfPoints, greatCirclePoints } from "@/lib/geo";
 import { buildReplayTimeline } from "@/lib/replay";
 import { cn } from "@/lib/utils";
 import { Lightbox } from "@/components/photos/lightbox";
-import { MapControls } from "./projection-toggle";
+import { UnlocatedPhotosModal } from "./unlocated-photos-modal";
+import type { UnlocatedPhoto } from "@/lib/photo-map-data";
+import { MapControls, type BasemapOption } from "./projection-toggle";
 import {
+  TRAVEL_LAYERS,
   VISITED_BORDER,
   boundsOfFeature,
   hexToRgb,
@@ -128,6 +131,9 @@ export interface GlobeProps {
   photos?: GlobePhoto[];
   /** Photos with no resolvable location, surfaced in the mode header. */
   photoUnlocatedCount?: number;
+  /** The unlocated photos themselves, opened as an off-map grid from the
+   * header when present. */
+  unlocatedPhotos?: UnlocatedPhoto[];
   /** Fired when photo mode starts or ends, so hosts can hide their overlays. */
   onPhotoModeActiveChange?: (active: boolean) => void;
   /** When provided, shows the fullscreen toggle in the control cluster. The
@@ -253,6 +259,58 @@ async function buildPmtilesStyle(
   return style;
 }
 
+// --- Basemap styles ----------------------------------------------------------
+//
+// The dark minimal style is the brand default and needs zero keys, so a fresh
+// deploy never regresses. Detailed styles (real zoom detail past where the dark
+// PMTiles raster goes gray) come from MapTiler and only appear when
+// NEXT_PUBLIC_MAPTILER_KEY is set; without it the switcher hides those options
+// (and hides entirely, since only the one style remains).
+
+const BASEMAP_STORAGE_KEY = "batchport:basemap";
+
+// MapTiler style slugs. Dark-leaning where a dark variant exists, to stay on
+// brand; satellite uses "hybrid" so imagery keeps place labels.
+const MAPTILER_STYLES: { id: string; label: string; slug: string }[] = [
+  { id: "streets", label: "Streets", slug: "streets-v2-dark" },
+  { id: "satellite", label: "Satellite", slug: "hybrid" },
+  { id: "terrain", label: "Terrain", slug: "outdoor-v2" },
+];
+
+/** The basemaps offered in the switcher. Always includes the keyless dark
+ * default; adds the MapTiler styles only when a key is configured. */
+function availableBasemaps(): BasemapOption[] {
+  const list: BasemapOption[] = [{ id: "dark", label: "Dark" }];
+  if (process.env.NEXT_PUBLIC_MAPTILER_KEY) {
+    for (const style of MAPTILER_STYLES) {
+      list.push({ id: style.id, label: style.label });
+    }
+  }
+  return list;
+}
+
+/** Resolve a basemap id to a MapLibre style. Unknown ids and the "dark" id both
+ * resolve to the dark style (PMTiles raster when configured, else the bundled
+ * JSON), so a missing key or a stale persisted id always degrades safely. */
+async function resolveBasemapStyle(
+  id: string,
+): Promise<string | StyleSpecification> {
+  const key = process.env.NEXT_PUBLIC_MAPTILER_KEY;
+  const maptiler = MAPTILER_STYLES.find((style) => style.id === id);
+  if (maptiler && key) {
+    return `https://api.maptiler.com/maps/${maptiler.slug}/style.json?key=${key}`;
+  }
+  const pmtilesUrl = process.env.NEXT_PUBLIC_PMTILES_URL;
+  if (pmtilesUrl) {
+    try {
+      return await buildPmtilesStyle(pmtilesUrl);
+    } catch {
+      return "/styles/dark-style.json";
+    }
+  }
+  return "/styles/dark-style.json";
+}
+
 export function Globe({
   visitedCountryCodes,
   bucketCountryCodes = [],
@@ -276,6 +334,7 @@ export function Globe({
   onReplayActiveChange,
   photos = [],
   photoUnlocatedCount = 0,
+  unlocatedPhotos = [],
   onPhotoModeActiveChange,
   onFullscreenToggle,
   fullscreen = false,
@@ -297,6 +356,20 @@ export function Globe({
     indices: number[];
     index: number;
   } | null>(null);
+  // The off-map grid of photos that have no location to pin, opened from the
+  // photo mode header.
+  const [unlocatedOpen, setUnlocatedOpen] = useState(false);
+  // The active basemap id and the list offered in the switcher. The list is
+  // stable per session (it only depends on the MapTiler key env var).
+  const basemaps = useMemo(() => availableBasemaps(), []);
+  const [basemap, setBasemap] = useState("dark");
+  // The style-switch routine, defined inside the one-time map effect and read
+  // by the switcher control.
+  const applyBasemapRef = useRef<(id: string) => void>(() => {});
+  // Photo mode's re-attach, mirrored so the map effect (which reinstalls
+  // overlays after a style switch) can restore the photo layers without a stale
+  // closure.
+  const photoReattachRef = useRef<() => void>(() => {});
 
   const replayTimeline = useMemo(
     () => (enableReplay ? buildReplayTimeline(destinations) : null),
@@ -324,9 +397,15 @@ export function Globe({
     activeRef: photoActiveRef,
     onActiveChange: (active) => {
       onPhotoModeActiveChange?.(active);
-      if (!active) setPhotoLightbox(null);
+      if (!active) {
+        setPhotoLightbox(null);
+        setUnlocatedOpen(false);
+      }
     },
     onOpenGroup: (indices) => setPhotoLightbox({ indices, index: 0 }),
+  });
+  useEffect(() => {
+    photoReattachRef.current = photoMode.reattach;
   });
 
   // Lightbox keyboard handling lives with the host (the Lightbox component is
@@ -869,6 +948,339 @@ export function Globe({
       raf = requestAnimationFrame(frame);
     }
 
+    // Sky and atmosphere, re-applied after every style (initial load or a
+    // later basemap switch, which resets style-level settings).
+    function applySky() {
+      if (!map) return;
+      try {
+        map.setSky({
+          "sky-color": "#0a1a33",
+          "horizon-color": "#0d0d0d",
+          "fog-color": "#0d0d0d",
+          "sky-horizon-blend": 0.6,
+          "horizon-fog-blend": 0.6,
+          "fog-ground-blend": 0.4,
+          "atmosphere-blend": 0.5,
+        });
+      } catch {
+        // Older renderers may not support sky; the map still works without it.
+      }
+    }
+
+    // The dark style ships the countries source and the hit-test fill / border
+    // layers; MapTiler basemaps do not. Add them when missing (transparent land
+    // so imagery shows through but stays hoverable, subtle borders) so country
+    // hover, click, and the visited/bucket fills work on every basemap.
+    function ensureCountriesBase() {
+      if (!map) return;
+      if (!map.getSource("countries")) {
+        map.addSource("countries", {
+          type: "geojson",
+          data: "/data/countries.geojson",
+          generateId: true,
+        });
+      }
+      if (!map.getLayer("country-fill")) {
+        map.addLayer({
+          id: "country-fill",
+          type: "fill",
+          source: "countries",
+          paint: {
+            "fill-color": "#ffffff",
+            "fill-opacity": [
+              "case",
+              ["boolean", ["feature-state", "hover"], false],
+              0.08,
+              0,
+            ],
+          },
+        });
+      }
+      if (!map.getLayer("country-outline")) {
+        map.addLayer({
+          id: "country-outline",
+          type: "line",
+          source: "countries",
+          paint: {
+            "line-color": "rgba(255,255,255,0.15)",
+            "line-width": 0.6,
+          },
+        });
+      }
+    }
+
+    // Install every runtime overlay (country fills, arcs, pins, bucket pins) on
+    // top of the current style. Called on first load and re-called after a
+    // basemap switch wipes all non-style sources and layers. The existence
+    // guards keep it safe to call more than once and preserve the intended
+    // z-order (fills beneath the country border, pins and arcs on top).
+    function installOverlays() {
+      if (!map) return;
+      ensureCountriesBase();
+
+      const visitedFilter = matchFilter(dataRef.current.visitedCountryCodes);
+      const visitedSet = new Set(dataRef.current.visitedCountryCodes);
+      const bucketFilter = matchFilter(
+        dataRef.current.bucketCountryCodes.filter(
+          (code) => !visitedSet.has(code),
+        ),
+      );
+      const beforeOutline = map.getLayer("country-outline")
+        ? "country-outline"
+        : undefined;
+
+      // Want-to-visit fill (dim amber), drawn beneath the visited fill.
+      if (!map.getLayer("country-bucket")) {
+        map.addLayer(
+          {
+            id: "country-bucket",
+            type: "fill",
+            source: "countries",
+            filter: bucketFilter,
+            paint: { "fill-color": BUCKET_FILL, "fill-opacity": 0.25 },
+          },
+          beforeOutline,
+        );
+      }
+
+      // Visited country fill (brand blue), under the outline so borders stay
+      // crisp; brightens on hover.
+      if (!map.getLayer("country-visited")) {
+        map.addLayer(
+          {
+            id: "country-visited",
+            type: "fill",
+            source: "countries",
+            filter: visitedFilter,
+            paint: {
+              "fill-color": brandFillCss,
+              "fill-opacity": [
+                "case",
+                ["boolean", ["feature-state", "hover"], false],
+                0.72,
+                0.55,
+              ],
+            },
+          },
+          beforeOutline,
+        );
+      }
+
+      if (!map.getLayer("country-visited-outline")) {
+        map.addLayer({
+          id: "country-visited-outline",
+          type: "line",
+          source: "countries",
+          filter: visitedFilter,
+          paint: {
+            "line-color": VISITED_BORDER,
+            "line-width": 1,
+            "line-opacity": 0.9,
+          },
+        });
+      }
+
+      // Planned trips: countries get a dashed brand-blue outline with no fill,
+      // so upcoming travel is visible but clearly not yet visited.
+      if (!map.getLayer("country-planned-outline")) {
+        map.addLayer({
+          id: "country-planned-outline",
+          type: "line",
+          source: "countries",
+          filter: matchFilter(dataRef.current.plannedCountryCodes),
+          paint: {
+            "line-color": VISITED_BORDER,
+            "line-width": 1.5,
+            "line-opacity": 0.85,
+            "line-dasharray": [2, 2],
+          },
+        });
+      }
+
+      // Native pins and arcs: rendered by MapLibre so they stay locked to their
+      // coordinates on both globe and mercator projections.
+      if (!map.getSource("arcs")) {
+        map.addSource("arcs", {
+          type: "geojson",
+          data: arcsFC(dataRef.current.arcs),
+        });
+      }
+      if (!map.getSource("destinations")) {
+        map.addSource("destinations", {
+          type: "geojson",
+          data: destinationsFC(dataRef.current.destinations, brandHex),
+        });
+      }
+
+      // Completed/ongoing legs: solid with a glow. Planned legs: dashed, no
+      // glow, slightly dimmer.
+      if (!map.getLayer("trip-arcs-glow")) {
+        map.addLayer({
+          id: "trip-arcs-glow",
+          type: "line",
+          source: "arcs",
+          filter: ["!", ["get", "planned"]],
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": brandHex,
+            "line-width": 7,
+            "line-opacity": 0.18,
+            "line-blur": 2,
+          },
+        });
+      }
+      if (!map.getLayer("trip-arcs")) {
+        map.addLayer({
+          id: "trip-arcs",
+          type: "line",
+          source: "arcs",
+          filter: ["!", ["get", "planned"]],
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": brandHex,
+            "line-width": 2.5,
+            "line-opacity": 0.9,
+          },
+        });
+      }
+      if (!map.getLayer("trip-arcs-planned")) {
+        map.addLayer({
+          id: "trip-arcs-planned",
+          type: "line",
+          source: "arcs",
+          filter: ["get", "planned"],
+          layout: { "line-join": "round" },
+          paint: {
+            "line-color": brandHex,
+            "line-width": 2,
+            "line-opacity": 0.6,
+            "line-dasharray": [1.5, 2],
+          },
+        });
+      }
+
+      // Amber pins for place-type bucket items, drawn beneath destination pins
+      // so real stops win overlaps.
+      if (!map.getSource("bucket-places")) {
+        map.addSource("bucket-places", {
+          type: "geojson",
+          data: bucketPlacesFC(dataRef.current.bucketPlaces),
+        });
+      }
+      if (!map.getLayer("bucket-pins-glow")) {
+        map.addLayer({
+          id: "bucket-pins-glow",
+          type: "circle",
+          source: "bucket-places",
+          paint: {
+            "circle-radius": 11,
+            "circle-color": BUCKET_PIN_STROKE,
+            "circle-opacity": 0.3,
+            "circle-blur": 1,
+          },
+        });
+      }
+      if (!map.getLayer("bucket-pins")) {
+        map.addLayer({
+          id: "bucket-pins",
+          type: "circle",
+          source: "bucket-places",
+          paint: {
+            "circle-radius": 5,
+            "circle-color": BUCKET_PIN_FILL,
+            "circle-stroke-color": BUCKET_PIN_STROKE,
+            "circle-stroke-width": 2,
+          },
+        });
+      }
+
+      // Glow only behind real (non-planned) stops.
+      if (!map.getLayer("pins-glow")) {
+        map.addLayer({
+          id: "pins-glow",
+          type: "circle",
+          source: "destinations",
+          filter: ["!", ["get", "planned"]],
+          paint: {
+            "circle-radius": 14,
+            "circle-color": ["get", "color"],
+            "circle-opacity": 0.4,
+            "circle-blur": 1,
+          },
+        });
+      }
+      // One pins layer for both states: planned stops swap the white core for a
+      // dark one, reading as a hollow ring in the trip's colour.
+      if (!map.getLayer("pins")) {
+        map.addLayer({
+          id: "pins",
+          type: "circle",
+          source: "destinations",
+          paint: {
+            "circle-radius": [
+              "case",
+              ["boolean", ["feature-state", "hover"], false],
+              PIN_RADIUS_HOVER,
+              PIN_RADIUS,
+            ],
+            "circle-color": [
+              "case",
+              ["get", "planned"],
+              PLANNED_PIN_CORE,
+              "#ffffff",
+            ],
+            "circle-stroke-color": ["get", "color"],
+            "circle-stroke-width": ["case", ["get", "planned"], 2, 2.5],
+            "circle-opacity": ["case", ["get", "planned"], 0.9, 1],
+          },
+        });
+      }
+    }
+
+    // Re-establish everything a style switch resets: sky, projection, all
+    // overlays, and whichever alternate mode currently owns the globe. Preserves
+    // photo map mode (its layers are re-added) and replay (travel layers stay
+    // hidden) so a basemap change never breaks the active view.
+    function reinstallAfterStyle() {
+      if (!map) return;
+      applySky();
+      map.setProjection({ type: projectionRef.current });
+      installOverlays();
+      if (photoActiveRef.current) {
+        photoReattachRef.current();
+      } else if (replayActiveRef.current) {
+        for (const id of TRAVEL_LAYERS) {
+          if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", "none");
+        }
+      }
+    }
+
+    // Switch the basemap: persist the choice, swap the style, and reinstall the
+    // overlays once the new style has loaded. Resolving to an unknown or
+    // key-less id falls back to the dark style, so this never blanks the map.
+    function applyBasemap(id: string) {
+      if (!map) return;
+      try {
+        sessionStorage.setItem(BASEMAP_STORAGE_KEY, id);
+      } catch {
+        // Non-fatal: the choice just will not persist across reloads.
+      }
+      setBasemap(id);
+      void resolveBasemapStyle(id).then((nextStyle) => {
+        if (cancelled || !map) return;
+        // diff:false forces a clean swap: every runtime source/layer is wiped
+        // and deterministically re-added by installOverlays, rather than relying
+        // on MapLibre's diff to preserve them across very different styles.
+        map.setStyle(nextStyle, { diff: false });
+        const onStyleData = () => {
+          if (!map || !map.isStyleLoaded()) return;
+          map.off("styledata", onStyleData);
+          reinstallAfterStyle();
+        };
+        map.on("styledata", onStyleData);
+      });
+    }
+
     async function init() {
       const maplibreModule = await import("maplibre-gl");
       const { Protocol } = await import("pmtiles");
@@ -877,19 +1289,30 @@ export function Globe({
       const ml = maplibreModule;
       maplibregl = ml;
 
+      // Register the PMTiles protocol up front whenever a PMTiles URL is
+      // configured, regardless of the starting basemap, so switching back to
+      // the dark PMTiles style later still resolves.
       const pmtilesUrl = process.env.NEXT_PUBLIC_PMTILES_URL;
-      let style: string | StyleSpecification = "/styles/dark-style.json";
       if (pmtilesUrl) {
         const protocol = new Protocol();
         ml.addProtocol("pmtiles", protocol.tile);
         protocolRegistered = true;
-        try {
-          style = await buildPmtilesStyle(pmtilesUrl);
-        } catch {
-          style = "/styles/dark-style.json";
-        }
-        if (cancelled) return;
       }
+
+      // Restore the per-session basemap choice (falling back to dark), then
+      // resolve its style for the initial render.
+      let initialBasemap = "dark";
+      try {
+        const saved = sessionStorage.getItem(BASEMAP_STORAGE_KEY);
+        if (saved && availableBasemaps().some((option) => option.id === saved)) {
+          initialBasemap = saved;
+        }
+      } catch {
+        // sessionStorage may be unavailable (private mode); keep the default.
+      }
+      setBasemap(initialBasemap);
+      const style = await resolveBasemapStyle(initialBasemap);
+      if (cancelled) return;
 
       // Start centred on the user's data when fitting, so the fly-in is short.
       let center: [number, number] = [8, 28];
@@ -924,208 +1347,9 @@ export function Globe({
       m.on("load", () => {
         if (cancelled || !map) return;
 
-        map.setProjection({ type: "globe" });
-
-        try {
-          map.setSky({
-            "sky-color": "#0a1a33",
-            "horizon-color": "#0d0d0d",
-            "fog-color": "#0d0d0d",
-            "sky-horizon-blend": 0.6,
-            "horizon-fog-blend": 0.6,
-            "fog-ground-blend": 0.4,
-            "atmosphere-blend": 0.5,
-          });
-        } catch {
-          // Older renderers may not support sky; the map still works without it.
-        }
-
-        const visitedFilter = matchFilter(dataRef.current.visitedCountryCodes);
-        const visitedSet = new Set(dataRef.current.visitedCountryCodes);
-        const bucketFilter = matchFilter(
-          dataRef.current.bucketCountryCodes.filter(
-            (code) => !visitedSet.has(code),
-          ),
-        );
-
-        // Want-to-visit fill (dim amber), drawn beneath the visited fill.
-        map.addLayer(
-          {
-            id: "country-bucket",
-            type: "fill",
-            source: "countries",
-            filter: bucketFilter,
-            paint: { "fill-color": BUCKET_FILL, "fill-opacity": 0.25 },
-          },
-          "country-outline",
-        );
-
-        // Visited country fill (brand blue), under the outline so borders stay
-        // crisp; brightens on hover.
-        map.addLayer(
-          {
-            id: "country-visited",
-            type: "fill",
-            source: "countries",
-            filter: visitedFilter,
-            paint: {
-              "fill-color": brandFillCss,
-              "fill-opacity": [
-                "case",
-                ["boolean", ["feature-state", "hover"], false],
-                0.72,
-                0.55,
-              ],
-            },
-          },
-          "country-outline",
-        );
-
-        map.addLayer({
-          id: "country-visited-outline",
-          type: "line",
-          source: "countries",
-          filter: visitedFilter,
-          paint: {
-            "line-color": VISITED_BORDER,
-            "line-width": 1,
-            "line-opacity": 0.9,
-          },
-        });
-
-        // Planned trips: countries get a dashed brand-blue outline with no
-        // fill, so upcoming travel is visible but clearly not yet visited.
-        map.addLayer({
-          id: "country-planned-outline",
-          type: "line",
-          source: "countries",
-          filter: matchFilter(dataRef.current.plannedCountryCodes),
-          paint: {
-            "line-color": VISITED_BORDER,
-            "line-width": 1.5,
-            "line-opacity": 0.85,
-            "line-dasharray": [2, 2],
-          },
-        });
-
-        // Native pins and arcs: rendered by MapLibre so they stay locked to
-        // their coordinates on both globe and mercator projections.
-        map.addSource("arcs", {
-          type: "geojson",
-          data: arcsFC(dataRef.current.arcs),
-        });
-        map.addSource("destinations", {
-          type: "geojson",
-          data: destinationsFC(dataRef.current.destinations, brandHex),
-        });
-
-        // Completed/ongoing legs: solid with a glow. Planned legs: dashed,
-        // no glow, slightly dimmer.
-        map.addLayer({
-          id: "trip-arcs-glow",
-          type: "line",
-          source: "arcs",
-          filter: ["!", ["get", "planned"]],
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: {
-            "line-color": brandHex,
-            "line-width": 7,
-            "line-opacity": 0.18,
-            "line-blur": 2,
-          },
-        });
-        map.addLayer({
-          id: "trip-arcs",
-          type: "line",
-          source: "arcs",
-          filter: ["!", ["get", "planned"]],
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: {
-            "line-color": brandHex,
-            "line-width": 2.5,
-            "line-opacity": 0.9,
-          },
-        });
-        map.addLayer({
-          id: "trip-arcs-planned",
-          type: "line",
-          source: "arcs",
-          filter: ["get", "planned"],
-          layout: { "line-join": "round" },
-          paint: {
-            "line-color": brandHex,
-            "line-width": 2,
-            "line-opacity": 0.6,
-            "line-dasharray": [1.5, 2],
-          },
-        });
-
-        // Amber pins for place-type bucket items, drawn beneath destination
-        // pins so real stops win overlaps.
-        map.addSource("bucket-places", {
-          type: "geojson",
-          data: bucketPlacesFC(dataRef.current.bucketPlaces),
-        });
-        map.addLayer({
-          id: "bucket-pins-glow",
-          type: "circle",
-          source: "bucket-places",
-          paint: {
-            "circle-radius": 11,
-            "circle-color": BUCKET_PIN_STROKE,
-            "circle-opacity": 0.3,
-            "circle-blur": 1,
-          },
-        });
-        map.addLayer({
-          id: "bucket-pins",
-          type: "circle",
-          source: "bucket-places",
-          paint: {
-            "circle-radius": 5,
-            "circle-color": BUCKET_PIN_FILL,
-            "circle-stroke-color": BUCKET_PIN_STROKE,
-            "circle-stroke-width": 2,
-          },
-        });
-
-        // Glow only behind real (non-planned) stops.
-        map.addLayer({
-          id: "pins-glow",
-          type: "circle",
-          source: "destinations",
-          filter: ["!", ["get", "planned"]],
-          paint: {
-            "circle-radius": 14,
-            "circle-color": ["get", "color"],
-            "circle-opacity": 0.4,
-            "circle-blur": 1,
-          },
-        });
-        // One pins layer for both states: planned stops swap the white core
-        // for a dark one, reading as a hollow ring in the trip's colour.
-        map.addLayer({
-          id: "pins",
-          type: "circle",
-          source: "destinations",
-          paint: {
-            "circle-radius": [
-              "case",
-              ["boolean", ["feature-state", "hover"], false],
-              PIN_RADIUS_HOVER,
-              PIN_RADIUS,
-            ],
-            "circle-color": [
-              "case",
-              ["get", "planned"],
-              PLANNED_PIN_CORE,
-              "#ffffff",
-            ],
-            "circle-stroke-color": ["get", "color"],
-            "circle-stroke-width": ["case", ["get", "planned"], 2, 2.5],
-            "circle-opacity": ["case", ["get", "planned"], 0.9, 1],
-          },
-        });
+        map.setProjection({ type: projectionRef.current });
+        applySky();
+        installOverlays();
 
         map.on("mousemove", onMouseMove);
         map.on("mouseout", onMouseOut);
@@ -1136,6 +1360,8 @@ export function Globe({
         }
 
         loadedRef.current = true;
+        // The switcher control becomes live only once the map is loaded.
+        applyBasemapRef.current = applyBasemap;
 
         if (dataRef.current.autoRotate) {
           raf = requestAnimationFrame(frame);
@@ -1193,11 +1419,28 @@ export function Globe({
             map
           </span>
           {photoUnlocatedCount > 0 ? (
-            <span className="text-foreground/40">
-              {photoUnlocatedCount} without location
-            </span>
+            unlocatedPhotos.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setUnlocatedOpen(true)}
+                className="pointer-events-auto rounded-full px-1.5 text-foreground/50 underline decoration-foreground/20 underline-offset-2 transition-colors hover:text-foreground hover:decoration-foreground/50"
+              >
+                {photoUnlocatedCount} without location
+              </button>
+            ) : (
+              <span className="text-foreground/40">
+                {photoUnlocatedCount} without location
+              </span>
+            )
           ) : null}
         </div>
+      ) : null}
+
+      {photoMode.active && unlocatedOpen && unlocatedPhotos.length > 0 ? (
+        <UnlocatedPhotosModal
+          photos={unlocatedPhotos}
+          onClose={() => setUnlocatedOpen(false)}
+        />
       ) : null}
       {!replay.active ? (
         <MapControls
@@ -1219,6 +1462,9 @@ export function Globe({
           }
           onPhotoToggle={photos.length > 0 ? photoMode.toggle : undefined}
           photoModeActive={photoMode.active}
+          basemaps={basemaps}
+          activeBasemap={basemap}
+          onBasemapChange={(id) => applyBasemapRef.current(id)}
           onFullscreenToggle={onFullscreenToggle}
           fullscreen={fullscreen}
         />

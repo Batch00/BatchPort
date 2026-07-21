@@ -166,6 +166,7 @@ Set these in `.env.local` (gitignored; never commit this file). See `.env.local.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public | Supabase anon key |
 | `NEXT_PUBLIC_APP_URL` | public | Canonical app URL for auth redirects and absolute links (e.g. https://batchport.batch-apps.com) |
 | `NEXT_PUBLIC_PMTILES_URL` | public | Base URL for the PMTiles dark basemap; leave empty to use the bundled dark style |
+| `NEXT_PUBLIC_MAPTILER_KEY` | public | MapTiler API key (free tier) enabling the detailed basemap styles (streets, satellite, terrain) in the globe style switcher; leave empty to ship only the keyless dark default |
 | `SUPABASE_SERVICE_ROLE_KEY` | server only | Privileged Supabase access for admin operations (invites, geocode_cache writes, Storage cleanup) |
 | `RESEND_API_KEY` | server only | Resend API key for transactional email |
 | `BATCHPORT_ADMIN_EMAIL` | server only | Email address that receives access request notifications |

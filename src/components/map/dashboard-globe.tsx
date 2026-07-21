@@ -193,6 +193,7 @@ export function DashboardGlobe({ data, photoData }: DashboardGlobeProps) {
         }}
         photos={photoData?.photos}
         photoUnlocatedCount={photoData?.unlocatedCount}
+        unlocatedPhotos={photoData?.unlocated}
         onPhotoModeActiveChange={(active) => {
           setPhotoActive(active);
           if (active) {

@@ -45,10 +45,16 @@ export async function updateExperienceAction(
 
 /** The checkoff: flip a planned experience to done, optionally recording the
  * rating and date from the inline follow-up. Also used by the follow-up's
- * second call on an already-done experience (idempotent). */
+ * second call on an already-done experience (idempotent).
+ *
+ * `revalidate` defaults to true. The inline checklist passes false on the
+ * initial tap so the app-wide revalidation does not re-render the destination
+ * page and unmount the row before the user can pick a rating and date in the
+ * follow-up; the follow-up's Save (or Skip) then commits with revalidate on. */
 export async function markExperienceDoneAction(
   id: string,
   extras: { rating: number | null; visitedDate: string | null },
+  options: { revalidate?: boolean } = {},
 ): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   try {
@@ -59,7 +65,7 @@ export async function markExperienceDoneAction(
   } catch {
     return { error: "Could not mark the experience as done." };
   }
-  revalidateAppData();
+  if (options.revalidate !== false) revalidateAppData();
   return { ok: true };
 }
 

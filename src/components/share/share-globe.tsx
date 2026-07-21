@@ -184,6 +184,7 @@ export function ShareGlobe({
         }}
         photos={photoData?.photos}
         photoUnlocatedCount={photoData?.unlocatedCount}
+        unlocatedPhotos={photoData?.unlocated}
         onPhotoModeActiveChange={(active) => {
           setPhotoActive(active);
           if (active) {

@@ -14,9 +14,25 @@ import type { PhotoOwnerType, PhotoSource } from "@/lib/types";
 // is_shared() helper for the sessionless demo and share surfaces, so passing
 // a userId is safe here just like in map-data.ts.
 
+/** A photo with no resolvable map coordinate. Carries everything needed to
+ * show it in a grid/lightbox (so unmappable photos are still viewable), just
+ * no lat/lng. */
+export interface UnlocatedPhoto {
+  id: string;
+  thumbUrl: string;
+  fullUrl: string;
+  dateTaken: string | null;
+  attribution: string | null;
+  destinationName: string | null;
+  tripName: string | null;
+}
+
 export interface PhotoMapData {
   photos: GlobePhoto[];
+  /** Count of photos with no resolvable location (equals `unlocated.length`). */
   unlocatedCount: number;
+  /** The unlocated photos themselves, so the UI can show them off-map. */
+  unlocated: UnlocatedPhoto[];
 }
 
 interface PhotoRow {
@@ -82,7 +98,7 @@ export async function getPhotoMapData(userId?: string): Promise<PhotoMapData> {
     } = await supabase.auth.getUser();
     resolvedUserId = user?.id ?? null;
   }
-  if (!resolvedUserId) return { photos: [], unlocatedCount: 0 };
+  if (!resolvedUserId) return { photos: [], unlocatedCount: 0, unlocated: [] };
 
   const [photosResult, destsResult, expsResult] = await Promise.all([
     supabase
@@ -128,7 +144,7 @@ export async function getPhotoMapData(userId?: string): Promise<PhotoMapData> {
   }
 
   const photos: GlobePhoto[] = [];
-  let unlocatedCount = 0;
+  const unlocated: UnlocatedPhoto[] = [];
 
   for (const row of photoRows) {
     let lat: number | null = null;
@@ -167,7 +183,15 @@ export async function getPhotoMapData(userId?: string): Promise<PhotoMapData> {
     }
 
     if (lat === null || lng === null) {
-      unlocatedCount += 1;
+      unlocated.push({
+        id: row.id,
+        thumbUrl: getPhotoUrl(row, "thumb"),
+        fullUrl: getPhotoUrl(row),
+        dateTaken: row.date_taken,
+        attribution: row.attribution,
+        destinationName,
+        tripName,
+      });
       continue;
     }
 
@@ -185,5 +209,14 @@ export async function getPhotoMapData(userId?: string): Promise<PhotoMapData> {
   }
 
   photos.sort(byDateTaken);
-  return { photos, unlocatedCount };
+  // Dated unlocated photos first too, so the off-map grid reads chronologically.
+  unlocated.sort((a, b) => {
+    if (a.dateTaken && b.dateTaken && a.dateTaken !== b.dateTaken) {
+      return a.dateTaken < b.dateTaken ? -1 : 1;
+    }
+    if (a.dateTaken && !b.dateTaken) return -1;
+    if (!a.dateTaken && b.dateTaken) return 1;
+    return 0;
+  });
+  return { photos, unlocatedCount: unlocated.length, unlocated };
 }

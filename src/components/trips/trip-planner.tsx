@@ -24,7 +24,7 @@ import { RatingDisplay } from "@/components/rating-display";
 import { PlannedExperienceRow } from "@/components/experiences/planned-checklist";
 import { IdeasStrip } from "@/components/trips/ideas-strip";
 import { PlanDayBoard } from "@/components/trips/plan-day-board";
-import { ClimateLine } from "@/components/discover/climate-line";
+import { ClimateSection } from "@/components/discover/climate-line";
 import { deleteExperienceAction } from "@/lib/actions/experiences";
 import {
   experiencePoint,
@@ -259,10 +259,10 @@ export function DestinationPlan({
   return (
     <div className="mt-1.5 flex flex-col gap-3 rounded-xl bg-white/[0.02] p-3 ring-1 ring-foreground/10">
       {hasClimateCoords && climateMonth !== null ? (
-        <ClimateLine
+        <ClimateSection
           lat={destination.lat as number}
           lng={destination.lng as number}
-          month={climateMonth}
+          defaultMonth={climateMonth}
         />
       ) : null}
 
