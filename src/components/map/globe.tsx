@@ -779,9 +779,11 @@ export function Globe({
       }
       clearPinHover();
 
-      const features = map.queryRenderedFeatures(event.point, {
-        layers: ["country-fill"],
-      });
+      // The layer can be briefly absent mid basemap switch (between setStyle
+      // wiping the old style and style.load reinstalling the overlays).
+      const features = map.getLayer("country-fill")
+        ? map.queryRenderedFeatures(event.point, { layers: ["country-fill"] })
+        : [];
       const feature = features[0];
       if (!feature || feature.id === undefined) {
         clearCountryHover();
@@ -1255,9 +1257,11 @@ export function Globe({
       }
     }
 
-    // Switch the basemap: persist the choice, swap the style, and reinstall the
-    // overlays once the new style has loaded. Resolving to an unknown or
-    // key-less id falls back to the dark style, so this never blanks the map.
+    // Switch the basemap: persist the choice and swap the style. The persistent
+    // style.load handler registered in init reinstalls every overlay once the
+    // new style is ready, so this function only needs to kick off the swap.
+    // Resolving to an unknown or key-less id falls back to the dark style, so
+    // this never blanks the map.
     function applyBasemap(id: string) {
       if (!map) return;
       try {
@@ -1269,15 +1273,9 @@ export function Globe({
       void resolveBasemapStyle(id).then((nextStyle) => {
         if (cancelled || !map) return;
         // diff:false forces a clean swap: every runtime source/layer is wiped
-        // and deterministically re-added by installOverlays, rather than relying
-        // on MapLibre's diff to preserve them across very different styles.
+        // and deterministically re-added on style.load, rather than relying on
+        // MapLibre's diff to preserve them across very different styles.
         map.setStyle(nextStyle, { diff: false });
-        const onStyleData = () => {
-          if (!map || !map.isStyleLoaded()) return;
-          map.off("styledata", onStyleData);
-          reinstallAfterStyle();
-        };
-        map.on("styledata", onStyleData);
       });
     }
 
@@ -1343,6 +1341,22 @@ export function Globe({
       mapRef.current = m;
 
       m.addControl(new ml.AttributionControl({ compact: true }), "bottom-left");
+
+      // Reinstall the overlays after every basemap switch. style.load fires
+      // exactly once per style, at the moment addSource/addLayer are safe
+      // again. (Waiting for styledata gated on isStyleLoaded() does not work:
+      // isStyleLoaded() stays false while the new style's tiles are still
+      // loading, so the guard can reject every styledata firing and the
+      // reinstall then never runs.) loadedRef skips the initial style load,
+      // which the load handler below installs.
+      m.on("style.load", () => {
+        if (cancelled || !map || !loadedRef.current) return;
+        try {
+          reinstallAfterStyle();
+        } catch (error) {
+          console.error("BatchPort globe: overlay reinstall failed", error);
+        }
+      });
 
       m.on("load", () => {
         if (cancelled || !map) return;

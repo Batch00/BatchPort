@@ -233,7 +233,11 @@ export function usePhotoMode({
     el.type = "button";
     el.setAttribute("aria-label", `${count} photos here`);
     const size = count >= 100 ? 64 : count >= 25 ? 58 : 52;
-    el.style.cssText = `position:relative;width:${size}px;height:${size}px;padding:0;border-radius:12px;border:2px solid var(--brand,#2563eb);background:#101623;cursor:pointer;box-shadow:3px 3px 0 -1px rgba(16,22,35,0.9),3px 3px 0 rgba(255,255,255,0.12),0 4px 14px rgba(0,0,0,0.55)`;
+    // position:absolute matches the .maplibregl-marker stylesheet rule (an
+    // inline position:relative would override it and drop the marker into
+    // normal flow, detaching it from its map coordinates) while still acting
+    // as the containing block for the count badge.
+    el.style.cssText = `position:absolute;width:${size}px;height:${size}px;padding:0;border-radius:12px;border:2px solid var(--brand,#2563eb);background:#101623;cursor:pointer;box-shadow:3px 3px 0 -1px rgba(16,22,35,0.9),3px 3px 0 rgba(255,255,255,0.12),0 4px 14px rgba(0,0,0,0.55)`;
 
     const img = document.createElement("img");
     img.alt = "";
@@ -263,8 +267,10 @@ export function usePhotoMode({
     const el = document.createElement("button");
     el.type = "button";
     el.setAttribute("aria-label", "Open photo");
+    // position:absolute for the same reason as clusterElement: it must not
+    // override the .maplibregl-marker rule that anchors the marker.
     el.style.cssText =
-      "position:relative;width:46px;height:46px;padding:0;border-radius:10px;overflow:hidden;border:2px solid rgba(255,255,255,0.35);background:#101623;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.55)";
+      "position:absolute;width:46px;height:46px;padding:0;border-radius:10px;overflow:hidden;border:2px solid rgba(255,255,255,0.35);background:#101623;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,0.55)";
     if (photo) {
       const img = document.createElement("img");
       img.src = photo.thumbUrl;
