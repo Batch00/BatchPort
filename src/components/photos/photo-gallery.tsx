@@ -9,6 +9,7 @@ import {
   CheckSquare2Icon,
   FolderInputIcon,
   GripVerticalIcon,
+  MapPinIcon,
   MoreVerticalIcon,
   Square,
   StarIcon,
@@ -41,6 +42,7 @@ import { Button } from "@/components/ui/button";
 import { SafeImage } from "@/components/photos/safe-image";
 import { Lightbox } from "@/components/photos/lightbox";
 import { CoverPositionDialog } from "@/components/photos/cover-position-dialog";
+import { FixLocationDialog } from "@/components/photos/fix-location-dialog";
 import {
   deletePhotoRecord,
   deletePhotoRecords,
@@ -223,6 +225,8 @@ export function PhotoGallery({
     isPrimary: boolean;
   } | null>(null);
   const [movePhoto, setMovePhoto] = useState<Photo | null>(null);
+  // The photo whose map location is being manually overridden.
+  const [fixLocationPhoto, setFixLocationPhoto] = useState<Photo | null>(null);
   // Single-photo delete confirmation target.
   const [deleteTarget, setDeleteTarget] = useState<Photo | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -665,6 +669,12 @@ export function PhotoGallery({
               Move to...
             </DropdownMenuItem>
           ) : null}
+          {showRetag ? (
+            <DropdownMenuItem onSelect={() => setFixLocationPhoto(photo)}>
+              <MapPinIcon />
+              Fix location...
+            </DropdownMenuItem>
+          ) : null}
           {showDelete ? (
             <DropdownMenuItem
               variant="destructive"
@@ -990,6 +1000,20 @@ export function PhotoGallery({
           }
           onConfirm={confirmSetCover}
           onCancel={() => setPositionRequest(null)}
+        />
+      ) : null}
+
+      {fixLocationPhoto && retagDestinations ? (
+        <FixLocationDialog
+          photoId={fixLocationPhoto.id}
+          destinations={retagDestinations}
+          isDemo={isDemo}
+          onDone={() => {
+            setFixLocationPhoto(null);
+            if (onChanged) onChanged();
+            else router.refresh();
+          }}
+          onCancel={() => setFixLocationPhoto(null)}
         />
       ) : null}
 

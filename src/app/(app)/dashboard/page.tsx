@@ -58,7 +58,11 @@ export default async function DashboardPage() {
       tripOptions={tripDestinationOptions}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-8">
-        <DashboardGlobe data={mapData} photoData={photoMapData} />
+        <DashboardGlobe
+          data={mapData}
+          photoData={photoMapData}
+          isDemo={isDemoUser(user.id)}
+        />
 
         <section>
           <div className="mb-4 flex items-center justify-between gap-4">

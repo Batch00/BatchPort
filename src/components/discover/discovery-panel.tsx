@@ -55,10 +55,11 @@ export interface DiscoveryCityTarget {
   population?: number | null;
 }
 
-/** A POI the panel can drill into from a city's highlight row or from a POI
- * detail's nearby list. Category is null for nearby items, which come from
- * Wikipedia geosearch and carry no OSM tag. */
-interface DiscoveryPoiTarget {
+/** A POI the panel can drill into from a city's highlight row, a POI detail's
+ * nearby list, or a map attraction marker. Category is null for nearby and
+ * attraction items, which come from Wikipedia geosearch and carry no OSM
+ * tag. */
+export interface DiscoveryPoiTarget {
   name: string;
   lat: number;
   lng: number;
@@ -80,6 +81,9 @@ interface DiscoveryPanelProps {
   bucketPlaceKeys?: string[];
   /** When set, the panel opens directly on this city's view. */
   initialCity?: DiscoveryCityTarget | null;
+  /** When set, the panel opens directly on this POI's detail view (map
+   * attraction markers). May arrive without a city or country context. */
+  initialPoi?: DiscoveryPoiTarget | null;
   /**
    * Anon and demo surfaces: replaces the mutation actions (bucket add, start
    * trip) with a single request-access conversion link. The truthful "On your
@@ -920,17 +924,19 @@ export function DiscoveryPanel({
   isOnBucketList,
   bucketPlaceKeys = [],
   initialCity = null,
+  initialPoi = null,
   readOnly = false,
   tripOptions = [],
   onClose,
   onBucketAdded,
 }: DiscoveryPanelProps) {
   // Navigation depth: country (both null), city (cityView set), or POI detail
-  // (both set; a POI is always reached through a city).
+  // (poiView set; usually reached through a city, but attraction markers open
+  // a POI directly with no city context).
   const [cityView, setCityView] = useState<DiscoveryCityTarget | null>(
     initialCity,
   );
-  const [poiView, setPoiView] = useState<DiscoveryPoiTarget | null>(null);
+  const [poiView, setPoiView] = useState<DiscoveryPoiTarget | null>(initialPoi);
   const [country, setCountry] = useState<DiscoverCountry | null>(null);
   // Items saved without a country code have nothing country-level to fetch;
   // the panel then only ever shows the city view, non-loading.
@@ -979,7 +985,10 @@ export function DiscoveryPanel({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       if (poiViewRef.current) {
-        setPoiView(null);
+        // A POI opened directly from a map marker has no city or country
+        // behind it; walking up would land on an empty shell, so dismiss.
+        if (!cityViewRef.current && !code) onClose();
+        else setPoiView(null);
       } else if (cityViewRef.current) {
         setCityView(null);
       } else {
@@ -988,7 +997,7 @@ export function DiscoveryPanel({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [onClose, code]);
 
   const regionLine = [country?.continent, country?.region]
     .filter(Boolean)

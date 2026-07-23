@@ -11,7 +11,10 @@ import {
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
-import type { DiscoveryCityTarget } from "@/components/discover/discovery-panel";
+import type {
+  DiscoveryCityTarget,
+  DiscoveryPoiTarget,
+} from "@/components/discover/discovery-panel";
 import type { BucketItem } from "@/lib/bucket-list";
 import type { TripDestinationOption } from "@/lib/trips";
 
@@ -33,11 +36,13 @@ const DiscoveryPanel = dynamic(
 );
 
 /** What the discovery panel is pointed at: a country, optionally opened
- * straight onto one of its cities (search results, bucket place items). */
+ * straight onto one of its cities (search results, bucket place items) or a
+ * POI detail (map attraction markers, which may carry no country context). */
 export interface DiscoveryTarget {
   code: string;
   name: string;
   city: DiscoveryCityTarget | null;
+  poi?: DiscoveryPoiTarget | null;
 }
 
 // How a bucket item opens in discovery, shared by every card grid: country
@@ -125,12 +130,13 @@ export function DiscoveryProvider({
             onClick={(event) => event.stopPropagation()}
           >
             <DiscoveryPanel
-              key={`${target.code}:${target.city?.name ?? ""}`}
+              key={`${target.code}:${target.city?.name ?? ""}:${target.poi?.name ?? ""}`}
               code={target.code}
               name={target.name}
               isOnBucketList={bucketCountryCodes.includes(target.code)}
               bucketPlaceKeys={bucketPlaceKeys}
               initialCity={target.city}
+              initialPoi={target.poi ?? null}
               readOnly={readOnly}
               tripOptions={tripOptions}
               onClose={close}

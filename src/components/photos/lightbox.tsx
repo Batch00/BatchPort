@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 
 // The app's single fullscreen photo viewer, shared by the gallery grids and
@@ -23,6 +23,7 @@ export function Lightbox({
   onPrev,
   onNext,
   onClose,
+  actions,
 }: {
   item: LightboxItem;
   index: number;
@@ -30,6 +31,9 @@ export function Lightbox({
   onPrev: () => void;
   onNext: () => void;
   onClose: () => void;
+  /** Optional host-provided action row rendered under the image (e.g. the
+   * photo map's "View in destination" link and location fix). */
+  actions?: ReactNode;
 }) {
   const hasMultiple = total > 1;
   const touchStartX = useRef<number | null>(null);
@@ -118,6 +122,11 @@ export function Lightbox({
           <figcaption className="text-center text-xs text-white/60">
             {item.attribution}
           </figcaption>
+        ) : null}
+        {actions ? (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {actions}
+          </div>
         ) : null}
       </figure>
 

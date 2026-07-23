@@ -205,6 +205,10 @@ export async function getPhotoMapData(userId?: string): Promise<PhotoMapData> {
       attribution: row.attribution,
       destinationName,
       tripName,
+      ownerType: row.owner_type,
+      tripId:
+        row.owner_type === "trip" ? row.owner_id : ownerDest?.trip_id ?? null,
+      destinationId: row.owner_type === "trip" ? null : ownerDest?.id ?? null,
     });
   }
 

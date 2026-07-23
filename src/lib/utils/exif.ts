@@ -10,6 +10,27 @@ export interface ExifData {
 // bytes (e.g. for content fingerprinting) read the file only once. exifreader
 // is imported lazily: it is a sizeable parser only needed once a user actually
 // stages an upload, so it stays out of the page's initial bundle.
+interface RefTag {
+  value?: unknown;
+  description?: unknown;
+}
+
+// True when a GPS hemisphere ref tag indicates the negative hemisphere.
+// Matches the raw value ("S" / ["S"]) and any description phrasing that
+// starts with the hemisphere word ("South", "South latitude").
+function isSouthOrWest(
+  tag: RefTag | undefined,
+  letter: "S" | "W",
+  word: "South" | "West",
+): boolean {
+  if (!tag) return false;
+  const raw = Array.isArray(tag.value) ? tag.value[0] : tag.value;
+  if (typeof raw === "string" && raw.toUpperCase().startsWith(letter)) {
+    return true;
+  }
+  return typeof tag.description === "string" && tag.description.startsWith(word);
+}
+
 export async function extractExifFromBuffer(
   buffer: ArrayBuffer,
 ): Promise<ExifData> {
@@ -22,10 +43,18 @@ export async function extractExifFromBuffer(
     let dateTaken: string | null = null;
 
     if (tags.GPSLatitude && tags.GPSLongitude) {
-      gpsLat = tags.GPSLatitude.description as unknown as number;
-      gpsLng = tags.GPSLongitude.description as unknown as number;
-      if (tags.GPSLatitudeRef?.description === "South") gpsLat = -gpsLat;
-      if (tags.GPSLongitudeRef?.description === "West") gpsLng = -gpsLng;
+      // exifreader's GPS descriptions are unsigned decimal degrees; the
+      // hemisphere lives in the ref tags. The ref description is a phrase
+      // ("South latitude", "West longitude"), never the bare word, and the
+      // raw value is an array like ["S"], so check both defensively.
+      gpsLat = Math.abs(Number(tags.GPSLatitude.description));
+      gpsLng = Math.abs(Number(tags.GPSLongitude.description));
+      if (isSouthOrWest(tags.GPSLatitudeRef, "S", "South")) gpsLat = -gpsLat;
+      if (isSouthOrWest(tags.GPSLongitudeRef, "W", "West")) gpsLng = -gpsLng;
+      if (Number.isNaN(gpsLat) || Number.isNaN(gpsLng)) {
+        gpsLat = null;
+        gpsLng = null;
+      }
     }
 
     if (tags.DateTimeOriginal) {

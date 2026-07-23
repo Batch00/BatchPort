@@ -6,6 +6,7 @@ import {
   EllipsisIcon,
   Globe2,
   ImageIcon,
+  LandmarkIcon,
   Layers2Icon,
   LocateFixedIcon,
   Map as MapIcon,
@@ -36,6 +37,9 @@ interface MapControlsProps {
   // When provided, shows a photos toggle that enters/exits photo map mode.
   onPhotoToggle?: () => void;
   photoModeActive?: boolean;
+  // When provided, shows the "Show attractions" explore layer toggle.
+  onAttractionsToggle?: () => void;
+  attractionsActive?: boolean;
   // When provided (two or more options), shows a basemap style switcher.
   basemaps?: BasemapOption[];
   activeBasemap?: string;
@@ -46,13 +50,19 @@ interface MapControlsProps {
 }
 
 // Buttons shrink on phones so the whole cluster stays inside a short map; the
-// phone layout is a single compact bottom row (secondary controls collapse
-// into the More menu) while sm+ uses the familiar vertical column.
+// phone layout is a compact right-side column below the search corner
+// (secondary controls collapse into the More menu) while sm+ uses the familiar
+// bottom-right vertical column.
 const BUTTON_CLASS =
-  "flex size-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-foreground/80 shadow-lg backdrop-blur-md transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 sm:size-11";
+  "flex size-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-foreground/80 shadow-lg backdrop-blur-md transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 sm:size-11";
 
+const ICON_CLASS = "size-4 sm:size-5";
+
+// The phone column is top-anchored, so popovers open to the left of their
+// button (opening downward would spill past a short map's bottom edge); the
+// sm+ column is bottom-anchored and keeps the upward menus.
 const MENU_CLASS =
-  "absolute bottom-full right-0 mb-2 min-w-40 overflow-hidden rounded-xl border border-white/10 bg-black/85 p-1 shadow-2xl backdrop-blur-md";
+  "absolute right-full top-0 mr-2 min-w-40 overflow-hidden rounded-xl border border-white/10 bg-black/85 p-1 shadow-2xl backdrop-blur-md sm:bottom-full sm:left-auto sm:right-0 sm:top-auto sm:mb-2 sm:mr-0";
 
 const MENU_ITEM_CLASS =
   "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-white/10";
@@ -77,12 +87,12 @@ function useDismissOnOutsidePointer(
   }, [open]);
 }
 
-// Floating map controls. On phones they lay out as one short horizontal row
-// pinned to the bottom-right: photo, replay, recenter, and the basemap
-// switcher stay inline, and the secondary controls (fullscreen, refresh,
-// projection) collapse behind a single More button so the row never wraps
-// toward the map center even at 380px. On sm+ every control returns to the
-// familiar vertical bottom-right column and the More button disappears.
+// Floating map controls. On phones they form a compact right-side vertical
+// column that starts below the top-corner search area: photo, recenter, and
+// the basemap switcher stay visible, and the secondary controls (fullscreen,
+// replay, refresh, projection) collapse behind a single More button so the
+// column stays under half the height of even a short 300px map. On sm+ every
+// control returns to the familiar bottom-right column and More disappears.
 export function MapControls({
   projection,
   onToggle,
@@ -92,6 +102,8 @@ export function MapControls({
   onReplay,
   onPhotoToggle,
   photoModeActive = false,
+  onAttractionsToggle,
+  attractionsActive = false,
   basemaps,
   activeBasemap,
   onBasemapChange,
@@ -130,6 +142,22 @@ export function MapControls({
       onSelect: onFullscreenToggle,
     });
   }
+  if (onReplay) {
+    moreItems.push({
+      key: "replay",
+      label: "Replay travel history",
+      icon: <PlayIcon className="size-4" />,
+      onSelect: onReplay,
+    });
+  }
+  if (onAttractionsToggle) {
+    moreItems.push({
+      key: "attractions",
+      label: attractionsActive ? "Hide attractions" : "Show attractions",
+      icon: <LandmarkIcon className="size-4" />,
+      onSelect: onAttractionsToggle,
+    });
+  }
   if (onRefresh) {
     moreItems.push({
       key: "refresh",
@@ -155,14 +183,14 @@ export function MapControls({
   return (
     <div
       className={cn(
-        // One non-wrapping row on phones (secondary controls live in the More
-        // menu, so it stays short), a vertical column on sm+.
-        "absolute z-20 flex flex-row flex-nowrap items-center gap-2 sm:flex-col sm:items-stretch",
+        // A compact top-anchored column on phones (starting below the search
+        // corner so nothing collides), the bottom-anchored column on sm+.
+        "absolute z-20 flex flex-col items-end gap-1.5 sm:items-stretch sm:gap-2",
         // Fullscreen has no card inset, so the cluster respects device
         // safe areas (notches, home indicators) instead.
         fullscreen
-          ? "bottom-[max(2.5rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))]"
-          : "bottom-10 right-4",
+          ? "right-[max(0.75rem,env(safe-area-inset-right))] top-[max(4rem,calc(env(safe-area-inset-top)+3.25rem))] sm:bottom-[max(2.5rem,env(safe-area-inset-bottom))] sm:right-[max(1rem,env(safe-area-inset-right))] sm:top-auto"
+          : "right-3 top-16 sm:bottom-10 sm:right-4 sm:top-auto",
       )}
     >
       {onFullscreenToggle ? (
@@ -175,9 +203,9 @@ export function MapControls({
             className={BUTTON_CLASS}
           >
             {fullscreen ? (
-              <Minimize2Icon className="size-5" />
+              <Minimize2Icon className={ICON_CLASS} />
             ) : (
-              <Maximize2Icon className="size-5" />
+              <Maximize2Icon className={ICON_CLASS} />
             )}
           </button>
         </div>
@@ -197,19 +225,21 @@ export function MapControls({
               "border-brand/60 bg-brand/20 text-foreground hover:bg-brand/30",
           )}
         >
-          <ImageIcon className="size-5" />
+          <ImageIcon className={ICON_CLASS} />
         </button>
       ) : null}
       {onReplay ? (
-        <button
-          type="button"
-          onClick={onReplay}
-          aria-label="Replay your travel history"
-          title="Replay"
-          className={BUTTON_CLASS}
-        >
-          <PlayIcon className="size-5 translate-x-px" />
-        </button>
+        <div className="hidden sm:contents">
+          <button
+            type="button"
+            onClick={onReplay}
+            aria-label="Replay your travel history"
+            title="Replay"
+            className={BUTTON_CLASS}
+          >
+            <PlayIcon className={cn(ICON_CLASS, "translate-x-px")} />
+          </button>
+        </div>
       ) : null}
       {onRefresh ? (
         <div className="hidden sm:contents">
@@ -222,7 +252,7 @@ export function MapControls({
             className={cn(BUTTON_CLASS, refreshing && "opacity-60")}
           >
             <RefreshCwIcon
-              className={cn("size-5", refreshing && "animate-spin")}
+              className={cn(ICON_CLASS, refreshing && "animate-spin")}
             />
           </button>
         </div>
@@ -235,7 +265,7 @@ export function MapControls({
           title="Recenter"
           className={BUTTON_CLASS}
         >
-          <LocateFixedIcon className="size-5" />
+          <LocateFixedIcon className={ICON_CLASS} />
         </button>
       ) : null}
       {showBasemaps ? (
@@ -253,7 +283,7 @@ export function MapControls({
                 "border-brand/60 bg-brand/20 text-foreground hover:bg-brand/30",
             )}
           >
-            <Layers2Icon className="size-5" />
+            <Layers2Icon className={ICON_CLASS} />
           </button>
           {menuOpen ? (
             <div role="menu" className={MENU_CLASS}>
@@ -286,6 +316,26 @@ export function MapControls({
           ) : null}
         </div>
       ) : null}
+      {onAttractionsToggle ? (
+        <div className="hidden sm:contents">
+          <button
+            type="button"
+            onClick={onAttractionsToggle}
+            aria-label={
+              attractionsActive ? "Hide attractions" : "Show attractions"
+            }
+            title={attractionsActive ? "Hide attractions" : "Attractions"}
+            aria-pressed={attractionsActive}
+            className={cn(
+              BUTTON_CLASS,
+              attractionsActive &&
+                "border-brand/60 bg-brand/20 text-foreground hover:bg-brand/30",
+            )}
+          >
+            <LandmarkIcon className={ICON_CLASS} />
+          </button>
+        </div>
+      ) : null}
       <div className="hidden sm:contents">
         <button
           type="button"
@@ -295,9 +345,9 @@ export function MapControls({
           className={BUTTON_CLASS}
         >
           {isGlobe ? (
-            <MapIcon className="size-5" />
+            <MapIcon className={ICON_CLASS} />
           ) : (
-            <Globe2 className="size-5" />
+            <Globe2 className={ICON_CLASS} />
           )}
         </button>
       </div>
@@ -315,7 +365,7 @@ export function MapControls({
               "border-brand/60 bg-brand/20 text-foreground hover:bg-brand/30",
           )}
         >
-          <EllipsisIcon className="size-5" />
+          <EllipsisIcon className={ICON_CLASS} />
         </button>
         {moreOpen ? (
           <div role="menu" className={MENU_CLASS}>

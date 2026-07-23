@@ -22,8 +22,10 @@ export const TRAVEL_LAYERS = [
   "trip-arcs",
   "trip-arcs-planned",
   "bucket-pins-glow",
+  "bucket-pins-halo",
   "bucket-pins",
   "pins-glow",
+  "pins-halo",
   "pins",
 ];
 

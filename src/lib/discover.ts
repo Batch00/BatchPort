@@ -13,6 +13,7 @@ const CITIES_PROVIDER = "discover_cities";
 const CITY_PROVIDER = "discover_city";
 const POI_PROVIDER = "discover_poi";
 const CLIMATE_PROVIDER = "discover_climate";
+const GEO_PROVIDER = "discover_geo";
 const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 const USER_AGENT =
@@ -945,6 +946,118 @@ export async function getDiscoverPoi(
   // (a hero, nearby items) are.
   if (result.summary || result.heroImageUrl || result.nearby.length > 0) {
     await writeCache(POI_PROVIDER, queryNorm, result);
+  }
+  return result;
+}
+
+// --- Viewport attractions (Wikipedia geosearch) ---
+
+/** One Wikipedia-documented place near a viewport center, for the globe's
+ * "Show attractions" explore layer. */
+export interface DiscoverGeoAttraction {
+  name: string;
+  description: string | null;
+  lat: number;
+  lng: number;
+  thumbnailUrl: string | null;
+}
+
+const GEO_LIMIT = 15;
+
+// Zoom bands keep the cache coarse: one radius and one key-rounding per band,
+// so panning within the same neighborhood re-hits the same cache row instead
+// of minting a new request per pixel of movement.
+function geoBand(zoom: number): { band: string; radiusM: number; round: number } {
+  if (zoom >= 14) return { band: "high", radiusM: 2000, round: 2 };
+  if (zoom >= 12) return { band: "mid", radiusM: 5000, round: 2 };
+  // Wikipedia caps ggsradius at 10000 m.
+  return { band: "low", radiusM: 10000, round: 1 };
+}
+
+// Articles about events rather than places (reused from the POI nearby list).
+const NON_PLACE_RE =
+  /battle|revolt|rebellion|siege|incident|massacre|bombing|murder|assassination|riot|attack|conflict/i;
+
+/** Wikipedia-documented attractions around a viewport center. One geosearch
+ * request per cache miss; results cached under discover_geo for 90 days keyed
+ * by the rounded center and zoom band. */
+export async function getDiscoverGeoAttractions(
+  lat: number,
+  lng: number,
+  zoom: number,
+): Promise<DiscoverGeoAttraction[]> {
+  const { band, radiusM, round } = geoBand(zoom);
+  const queryNorm = `${lat.toFixed(round)},${lng.toFixed(round)}|${band}`;
+
+  const cached = await readCache(GEO_PROVIDER, queryNorm);
+  if (cached) return cached as DiscoverGeoAttraction[];
+
+  let pages: {
+    title?: string;
+    index?: number;
+    description?: string;
+    coordinates?: { lat?: number; lon?: number }[];
+    thumbnail?: { source?: string };
+  }[] = [];
+  try {
+    const url = new URL("https://en.wikipedia.org/w/api.php");
+    url.searchParams.set("action", "query");
+    url.searchParams.set("format", "json");
+    url.searchParams.set("formatversion", "2");
+    url.searchParams.set("generator", "geosearch");
+    url.searchParams.set("ggscoord", `${lat}|${lng}`);
+    url.searchParams.set("ggsradius", String(radiusM));
+    url.searchParams.set("ggslimit", "20");
+    url.searchParams.set("prop", "description|coordinates|pageimages");
+    url.searchParams.set("piprop", "thumbnail");
+    url.searchParams.set("pithumbsize", "160");
+    const response = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!response.ok) return [];
+    pages =
+      ((await response.json()) as { query?: { pages?: typeof pages } }).query
+        ?.pages ?? [];
+  } catch {
+    return [];
+  }
+
+  const withIndex: (DiscoverGeoAttraction & { index: number })[] = [];
+  for (const page of pages) {
+    const coord = page.coordinates?.[0];
+    if (
+      !page.title ||
+      typeof coord?.lat !== "number" ||
+      typeof coord?.lon !== "number"
+    ) {
+      continue;
+    }
+    if (page.description && NON_PLACE_RE.test(page.description)) continue;
+    withIndex.push({
+      name: page.title,
+      description: page.description ?? null,
+      lat: coord.lat,
+      lng: coord.lon,
+      thumbnailUrl: page.thumbnail?.source ?? null,
+      index: page.index ?? Number.MAX_SAFE_INTEGER,
+    });
+  }
+  withIndex.sort((a, b) => a.index - b.index);
+  const result: DiscoverGeoAttraction[] = withIndex
+    .slice(0, GEO_LIMIT)
+    .map(({ name, description, lat: pLat, lng: pLng, thumbnailUrl }) => ({
+      name,
+      description,
+      lat: pLat,
+      lng: pLng,
+      thumbnailUrl,
+    }));
+
+  // Empty results are indistinguishable from transient upstream failures and
+  // are not cached; genuinely empty areas cost one cheap request per settle.
+  if (result.length > 0) {
+    await writeCache(GEO_PROVIDER, queryNorm, result);
   }
   return result;
 }

@@ -35,6 +35,11 @@ export interface GlobePhoto {
   attribution: string | null;
   destinationName: string | null;
   tripName: string | null;
+  /** Owner context for the lightbox's gallery link and location fixes. Null
+   * ids mean the owner row is missing or the photo is trip-level. */
+  ownerType: "trip" | "destination" | "experience";
+  tripId: string | null;
+  destinationId: string | null;
 }
 
 /** Photos stacked at (effectively) the same coordinates render as one marker. */

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./map.css";
@@ -23,6 +24,7 @@ import { boundsOfPoints, greatCirclePoints } from "@/lib/geo";
 import { buildReplayTimeline } from "@/lib/replay";
 import { cn } from "@/lib/utils";
 import { Lightbox } from "@/components/photos/lightbox";
+import { FixLocationDialog } from "@/components/photos/fix-location-dialog";
 import { UnlocatedPhotosModal } from "./unlocated-photos-modal";
 import type { UnlocatedPhoto } from "@/lib/photo-map-data";
 import { MapControls, type BasemapOption } from "./projection-toggle";
@@ -38,6 +40,7 @@ import {
 import { ReplayControls } from "./replay-controls";
 import { useReplay } from "./use-replay";
 import { usePhotoMode, type GlobePhoto } from "./use-photo-mode";
+import { useAttractions, type AttractionPoi } from "./use-attractions";
 
 type Projection = "globe" | "mercator";
 
@@ -136,6 +139,16 @@ export interface GlobeProps {
   unlocatedPhotos?: UnlocatedPhoto[];
   /** Fired when photo mode starts or ends, so hosts can hide their overlays. */
   onPhotoModeActiveChange?: (active: boolean) => void;
+  /** Authenticated photo management: enables the lightbox's gallery link and
+   * Fix location action, plus assign/delete in the unlocated grid. Omit on
+   * read-only surfaces (demo, share). */
+  photoManagement?: {
+    destinations: { id: string; name: string }[];
+    isDemo: boolean;
+  };
+  /** When provided, enables the "Show attractions" explore layer: viewport
+   * Wikipedia geosearch markers that open in the host's discovery panel. */
+  onOpenAttraction?: (poi: AttractionPoi) => void;
   /** When provided, shows the fullscreen toggle in the control cluster. The
    * host owns the fullscreen state and container styling. */
   onFullscreenToggle?: () => void;
@@ -269,6 +282,99 @@ async function buildPmtilesStyle(
 
 const BASEMAP_STORAGE_KEY = "batchport:basemap";
 
+// Per-style overlay treatment. The dark minimal style carries the full-strength
+// brand fills (there is no underlying detail to bury); detailed basemaps drop
+// the fills to a light tint with clearer borders so streets, imagery, and
+// terrain stay readable underneath. Light styles also get a dark halo behind
+// the white-core pins, which otherwise vanish against pale terrain.
+interface OverlayTheme {
+  visitedOpacity: number;
+  visitedHoverOpacity: number;
+  bucketOpacity: number;
+  visitedOutlineWidth: number;
+  visitedOutlineOpacity: number;
+  plannedOutlineWidth: number;
+  pinHalo: boolean;
+}
+
+const OVERLAY_THEMES: Record<string, OverlayTheme> = {
+  // The brand default look, unchanged.
+  dark: {
+    visitedOpacity: 0.55,
+    visitedHoverOpacity: 0.72,
+    bucketOpacity: 0.25,
+    visitedOutlineWidth: 1,
+    visitedOutlineOpacity: 0.9,
+    plannedOutlineWidth: 1.5,
+    pinHalo: false,
+  },
+  // Dark streets style: light tint so the road network reads through.
+  streets: {
+    visitedOpacity: 0.18,
+    visitedHoverOpacity: 0.3,
+    bucketOpacity: 0.14,
+    visitedOutlineWidth: 1.6,
+    visitedOutlineOpacity: 1,
+    plannedOutlineWidth: 1.6,
+    pinHalo: false,
+  },
+  // Imagery: the faintest wash, borders do the work; halo the pins against
+  // bright terrain and snow.
+  satellite: {
+    visitedOpacity: 0.14,
+    visitedHoverOpacity: 0.26,
+    bucketOpacity: 0.12,
+    visitedOutlineWidth: 1.6,
+    visitedOutlineOpacity: 1,
+    plannedOutlineWidth: 1.6,
+    pinHalo: true,
+  },
+  // Outdoor terrain is a light style: light tint, strong borders, pin halos.
+  terrain: {
+    visitedOpacity: 0.16,
+    visitedHoverOpacity: 0.28,
+    bucketOpacity: 0.14,
+    visitedOutlineWidth: 1.6,
+    visitedOutlineOpacity: 1,
+    plannedOutlineWidth: 1.6,
+    pinHalo: true,
+  },
+};
+
+function overlayTheme(basemapId: string): OverlayTheme {
+  return OVERLAY_THEMES[basemapId] ?? OVERLAY_THEMES.dark;
+}
+
+// Zoom depth per basemap: the keyless dark style has no detail past country
+// shapes, so zooming further just shows empty space; MapTiler styles carry
+// real street-level detail down to z19 (past the photo clustering max of 14,
+// so photo stacks fully unstack at street level).
+function maxZoomForBasemap(id: string): number {
+  return MAPTILER_STYLES.some((style) => style.id === id) &&
+    process.env.NEXT_PUBLIC_MAPTILER_KEY
+    ? 19
+    : 10;
+}
+
+// The countries GeoJSON is re-added to every new style; cache the parsed
+// payload so a basemap switch reinstalls the source from memory instead of
+// re-fetching the multi-megabyte file.
+let cachedCountries: unknown | null = null;
+let countriesFetchStarted = false;
+function primeCountriesCache() {
+  if (countriesFetchStarted) return;
+  countriesFetchStarted = true;
+  fetch("/data/countries.geojson")
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data) => {
+      if (data) cachedCountries = data;
+      else countriesFetchStarted = false;
+    })
+    .catch(() => {
+      countriesFetchStarted = false;
+    });
+}
+
 // MapTiler style slugs. Dark-leaning where a dark variant exists, to stay on
 // brand; satellite uses "hybrid" so imagery keeps place labels.
 const MAPTILER_STYLES: { id: string; label: string; slug: string }[] = [
@@ -336,6 +442,8 @@ export function Globe({
   photoUnlocatedCount = 0,
   unlocatedPhotos = [],
   onPhotoModeActiveChange,
+  photoManagement,
+  onOpenAttraction,
   onFullscreenToggle,
   fullscreen = false,
 }: GlobeProps) {
@@ -359,10 +467,21 @@ export function Globe({
   // The off-map grid of photos that have no location to pin, opened from the
   // photo mode header.
   const [unlocatedOpen, setUnlocatedOpen] = useState(false);
+  // The photo whose location is being manually fixed from the map lightbox.
+  const [fixLocationId, setFixLocationId] = useState<string | null>(null);
+  // Mirrored for the lightbox key handler (registered once per lightbox open):
+  // while the fix dialog is up, Escape belongs to the dialog, not the lightbox.
+  const fixLocationOpenRef = useRef(false);
+  useEffect(() => {
+    fixLocationOpenRef.current = fixLocationId !== null;
+  }, [fixLocationId]);
   // The active basemap id and the list offered in the switcher. The list is
   // stable per session (it only depends on the MapTiler key env var).
   const basemaps = useMemo(() => availableBasemaps(), []);
   const [basemap, setBasemap] = useState("dark");
+  // True from a basemap switch until the new style's tiles settle, so the
+  // brief tile load reads as intentional rather than a broken map.
+  const [styleLoading, setStyleLoading] = useState(false);
   // The style-switch routine, defined inside the one-time map effect and read
   // by the switcher control.
   const applyBasemapRef = useRef<(id: string) => void>(() => {});
@@ -408,11 +527,27 @@ export function Globe({
     photoReattachRef.current = photoMode.reattach;
   });
 
+  // The optional attractions explore layer. It stands down whenever another
+  // mode takes the globe (photo map, replay) and its toggle hides with them.
+  const attractions = useAttractions({
+    mapRef,
+    enabled: Boolean(onOpenAttraction),
+    onOpen: (poi) => onOpenAttraction?.(poi),
+  });
+  const attractionsDisableRef = useRef(attractions.disable);
+  useEffect(() => {
+    attractionsDisableRef.current = attractions.disable;
+  });
+  useEffect(() => {
+    if (photoMode.active || replay.active) attractionsDisableRef.current();
+  }, [photoMode.active, replay.active]);
+
   // Lightbox keyboard handling lives with the host (the Lightbox component is
   // presentation-only): Escape closes, arrows step through the stack.
   useEffect(() => {
     if (!photoLightbox) return;
     function onKey(event: KeyboardEvent) {
+      if (fixLocationOpenRef.current) return;
       if (event.key === "Escape") setPhotoLightbox(null);
       if (event.key === "ArrowRight") stepPhotoLightbox(1);
       if (event.key === "ArrowLeft") stepPhotoLightbox(-1);
@@ -555,6 +690,10 @@ export function Globe({
 
     let hoveredCountryId: number | string | null = null;
     let hoveredPinId: number | string | null = null;
+    // The active basemap id, read by installOverlays for the per-style
+    // overlay theme and zoom cap. Set before setStyle so the style.load
+    // reinstall sees the new id.
+    let currentBasemapId = "dark";
     let lastInteraction = 0;
     let lastFrame = 0;
 
@@ -978,36 +1117,54 @@ export function Globe({
       if (!map.getSource("countries")) {
         map.addSource("countries", {
           type: "geojson",
-          data: "/data/countries.geojson",
+          // The module-level cache makes basemap switches reinstall from
+          // memory; the URL form only runs on the very first style load.
+          data:
+            (cachedCountries as FeatureCollection | null) ??
+            "/data/countries.geojson",
           generateId: true,
         });
       }
+      // On detailed basemaps the country layers (and the visited/bucket fills
+      // anchored beneath country-outline) slot in under the style's own label
+      // layers, so place names and native POI labels render above the tint.
+      // The dark style keeps its original stacking untouched.
+      const beforeLabels =
+        currentBasemapId === "dark"
+          ? undefined
+          : map.getStyle().layers?.find((layer) => layer.type === "symbol")?.id;
       if (!map.getLayer("country-fill")) {
-        map.addLayer({
-          id: "country-fill",
-          type: "fill",
-          source: "countries",
-          paint: {
-            "fill-color": "#ffffff",
-            "fill-opacity": [
-              "case",
-              ["boolean", ["feature-state", "hover"], false],
-              0.08,
-              0,
-            ],
+        map.addLayer(
+          {
+            id: "country-fill",
+            type: "fill",
+            source: "countries",
+            paint: {
+              "fill-color": "#ffffff",
+              "fill-opacity": [
+                "case",
+                ["boolean", ["feature-state", "hover"], false],
+                0.08,
+                0,
+              ],
+            },
           },
-        });
+          beforeLabels,
+        );
       }
       if (!map.getLayer("country-outline")) {
-        map.addLayer({
-          id: "country-outline",
-          type: "line",
-          source: "countries",
-          paint: {
-            "line-color": "rgba(255,255,255,0.15)",
-            "line-width": 0.6,
+        map.addLayer(
+          {
+            id: "country-outline",
+            type: "line",
+            source: "countries",
+            paint: {
+              "line-color": "rgba(255,255,255,0.15)",
+              "line-width": 0.6,
+            },
           },
-        });
+          beforeLabels,
+        );
       }
     }
 
@@ -1020,6 +1177,7 @@ export function Globe({
       if (!map) return;
       ensureCountriesBase();
 
+      const theme = overlayTheme(currentBasemapId);
       const visitedFilter = matchFilter(dataRef.current.visitedCountryCodes);
       const visitedSet = new Set(dataRef.current.visitedCountryCodes);
       const bucketFilter = matchFilter(
@@ -1039,7 +1197,7 @@ export function Globe({
             type: "fill",
             source: "countries",
             filter: bucketFilter,
-            paint: { "fill-color": BUCKET_FILL, "fill-opacity": 0.25 },
+            paint: { "fill-color": BUCKET_FILL, "fill-opacity": theme.bucketOpacity },
           },
           beforeOutline,
         );
@@ -1059,8 +1217,8 @@ export function Globe({
               "fill-opacity": [
                 "case",
                 ["boolean", ["feature-state", "hover"], false],
-                0.72,
-                0.55,
+                theme.visitedHoverOpacity,
+                theme.visitedOpacity,
               ],
             },
           },
@@ -1076,8 +1234,8 @@ export function Globe({
           filter: visitedFilter,
           paint: {
             "line-color": VISITED_BORDER,
-            "line-width": 1,
-            "line-opacity": 0.9,
+            "line-width": theme.visitedOutlineWidth,
+            "line-opacity": theme.visitedOutlineOpacity,
           },
         });
       }
@@ -1092,7 +1250,7 @@ export function Globe({
           filter: matchFilter(dataRef.current.plannedCountryCodes),
           paint: {
             "line-color": VISITED_BORDER,
-            "line-width": 1.5,
+            "line-width": theme.plannedOutlineWidth,
             "line-opacity": 0.85,
             "line-dasharray": [2, 2],
           },
@@ -1182,6 +1340,19 @@ export function Globe({
           },
         });
       }
+      // Contrast halo behind the bucket pins on light basemaps.
+      if (theme.pinHalo && !map.getLayer("bucket-pins-halo")) {
+        map.addLayer({
+          id: "bucket-pins-halo",
+          type: "circle",
+          source: "bucket-places",
+          paint: {
+            "circle-radius": 8,
+            "circle-color": "#0a0a0a",
+            "circle-opacity": 0.75,
+          },
+        });
+      }
       if (!map.getLayer("bucket-pins")) {
         map.addLayer({
           id: "bucket-pins",
@@ -1208,6 +1379,26 @@ export function Globe({
             "circle-color": ["get", "color"],
             "circle-opacity": 0.4,
             "circle-blur": 1,
+          },
+        });
+      }
+      // Contrast halo behind destination pins on light basemaps: the white
+      // core and pale category strokes vanish against bright terrain without
+      // a dark ring underneath.
+      if (theme.pinHalo && !map.getLayer("pins-halo")) {
+        map.addLayer({
+          id: "pins-halo",
+          type: "circle",
+          source: "destinations",
+          paint: {
+            "circle-radius": [
+              "case",
+              ["boolean", ["feature-state", "hover"], false],
+              PIN_RADIUS_HOVER + 3,
+              PIN_RADIUS + 3,
+            ],
+            "circle-color": "#0a0a0a",
+            "circle-opacity": 0.75,
           },
         });
       }
@@ -1269,9 +1460,12 @@ export function Globe({
       } catch {
         // Non-fatal: the choice just will not persist across reloads.
       }
+      currentBasemapId = id;
       setBasemap(id);
+      setStyleLoading(true);
       void resolveBasemapStyle(id).then((nextStyle) => {
         if (cancelled || !map) return;
+        map.setMaxZoom(maxZoomForBasemap(id));
         // diff:false forces a clean swap: every runtime source/layer is wiped
         // and deterministically re-added on style.load, rather than relying on
         // MapLibre's diff to preserve them across very different styles.
@@ -1308,7 +1502,9 @@ export function Globe({
       } catch {
         // sessionStorage may be unavailable (private mode); keep the default.
       }
+      currentBasemapId = initialBasemap;
       setBasemap(initialBasemap);
+      primeCountriesCache();
       const style = await resolveBasemapStyle(initialBasemap);
       if (cancelled) return;
 
@@ -1334,7 +1530,7 @@ export function Globe({
         center,
         zoom,
         minZoom: 0.5,
-        maxZoom: 12,
+        maxZoom: maxZoomForBasemap(initialBasemap),
         attributionControl: false,
       });
       map = m;
@@ -1356,6 +1552,11 @@ export function Globe({
         } catch (error) {
           console.error("BatchPort globe: overlay reinstall failed", error);
         }
+        // Clear the switch loading cue once the new style's tiles settle.
+        // idle can be starved on a busy map, so a timeout backstops it.
+        const clear = () => setStyleLoading(false);
+        map.once("idle", clear);
+        window.setTimeout(clear, 8000);
       });
 
       m.on("load", () => {
@@ -1421,6 +1622,12 @@ export function Globe({
         ref={tooltipRef}
         className="pointer-events-none absolute left-0 top-0 z-20 hidden rounded-md border border-white/10 bg-black/80 px-2 py-1 text-xs font-medium text-foreground/90 shadow-md backdrop-blur-sm"
       />
+      {styleLoading ? (
+        <div className="pointer-events-none absolute bottom-10 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-black/70 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md">
+          <span className="size-3 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+          Loading map style...
+        </div>
+      ) : null}
       {photoMode.active ? (
         <div
           className={cn(
@@ -1453,6 +1660,9 @@ export function Globe({
       {photoMode.active && unlocatedOpen && unlocatedPhotos.length > 0 ? (
         <UnlocatedPhotosModal
           photos={unlocatedPhotos}
+          destinations={photoManagement?.destinations}
+          isDemo={photoManagement?.isDemo ?? false}
+          onChanged={onRefresh}
           onClose={() => setUnlocatedOpen(false)}
         />
       ) : null}
@@ -1476,6 +1686,12 @@ export function Globe({
           }
           onPhotoToggle={photos.length > 0 ? photoMode.toggle : undefined}
           photoModeActive={photoMode.active}
+          onAttractionsToggle={
+            onOpenAttraction && !photoMode.active
+              ? attractions.toggle
+              : undefined
+          }
+          attractionsActive={attractions.active}
           basemaps={basemaps}
           activeBasemap={basemap}
           onBasemapChange={(id) => applyBasemapRef.current(id)}
@@ -1506,6 +1722,36 @@ export function Globe({
               [photo.destinationName, photo.tripName]
                 .filter(Boolean)
                 .join(" · ") || null;
+            // Authenticated surfaces: link to the owning gallery page (where
+            // full editing lives) and offer the manual location fix.
+            const galleryHref =
+              photoManagement && photo.tripId
+                ? photo.destinationId
+                  ? `/trips/${photo.tripId}/destinations/${photo.destinationId}`
+                  : `/trips/${photo.tripId}`
+                : null;
+            const galleryLabel = photo.destinationId
+              ? `View in ${photo.destinationName ?? "destination"}`
+              : `View in ${photo.tripName ?? "trip"}`;
+            const actions = photoManagement ? (
+              <>
+                {galleryHref ? (
+                  <Link
+                    href={galleryHref}
+                    className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white/90 transition-colors hover:bg-white/20"
+                  >
+                    {galleryLabel}
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setFixLocationId(photo.id)}
+                  className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white/90 transition-colors hover:bg-white/20"
+                >
+                  Fix location
+                </button>
+              </>
+            ) : undefined;
             return (
               <Lightbox
                 item={{
@@ -1519,10 +1765,27 @@ export function Globe({
                 onPrev={() => stepPhotoLightbox(-1)}
                 onNext={() => stepPhotoLightbox(1)}
                 onClose={() => setPhotoLightbox(null)}
+                actions={actions}
               />
             );
           })()
         : null}
+
+      {fixLocationId && photoManagement ? (
+        <FixLocationDialog
+          photoId={fixLocationId}
+          destinations={photoManagement.destinations}
+          isDemo={photoManagement.isDemo}
+          onDone={() => {
+            setFixLocationId(null);
+            // The stack indices may shift once the photo moves; close the
+            // lightbox and let the refreshed data redraw the markers.
+            setPhotoLightbox(null);
+            onRefresh?.();
+          }}
+          onCancel={() => setFixLocationId(null)}
+        />
+      ) : null}
     </div>
   );
 }

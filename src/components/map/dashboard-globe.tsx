@@ -25,9 +25,14 @@ import {
 interface DashboardGlobeProps {
   data: MapData;
   photoData?: PhotoMapData;
+  isDemo?: boolean;
 }
 
-export function DashboardGlobe({ data, photoData }: DashboardGlobeProps) {
+export function DashboardGlobe({
+  data,
+  photoData,
+  isDemo = false,
+}: DashboardGlobeProps) {
   const {
     destinations,
     visitedCountryCodes,
@@ -103,6 +108,16 @@ export function DashboardGlobe({ data, photoData }: DashboardGlobeProps) {
           lng: place.lng as number,
         })),
     [bucketPlaces],
+  );
+
+  // Destination picker options for photo location management (assign,
+  // fix location) in photo map mode.
+  const photoManagement = useMemo(
+    () => ({
+      destinations: destinations.map((d) => ({ id: d.id, name: d.name })),
+      isDemo,
+    }),
+    [destinations, isDemo],
   );
 
   const selectedGroups = useMemo<TripGroup[]>(() => {
@@ -194,6 +209,22 @@ export function DashboardGlobe({ data, photoData }: DashboardGlobeProps) {
         photos={photoData?.photos}
         photoUnlocatedCount={photoData?.unlocatedCount}
         unlocatedPhotos={photoData?.unlocated}
+        photoManagement={photoManagement}
+        onOpenAttraction={(poi) => {
+          setSelected(null);
+          openDiscover({
+            code: "",
+            name: "",
+            city: null,
+            poi: {
+              name: poi.name,
+              lat: poi.lat,
+              lng: poi.lng,
+              category: null,
+              imageUrl: poi.thumbnailUrl,
+            },
+          });
+        }}
         onPhotoModeActiveChange={(active) => {
           setPhotoActive(active);
           if (active) {

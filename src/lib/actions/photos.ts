@@ -167,6 +167,51 @@ export async function retagPhoto(
   return { ok: true };
 }
 
+/** Where a photo's map location should come from after a manual fix. */
+export type PhotoLocationTarget = { destinationId: string } | "clear";
+
+// Manual location override for a mislocated photo. Overwrites gps_lat/gps_lng:
+// once the user corrects a photo, the stored coordinate (not the EXIF in the
+// file) is the source of truth, and the map's resolution chain already puts
+// stored GPS first. "clear" nulls the GPS so the photo falls back to its
+// owner's location (experience, destination, or the trip's first destination).
+export async function setPhotoLocation(
+  photoId: string,
+  target: PhotoLocationTarget,
+): Promise<ActionResult> {
+  if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  const { supabase } = await requireUser();
+
+  let patch: { gps_lat: number | null; gps_lng: number | null };
+  if (target === "clear") {
+    patch = { gps_lat: null, gps_lng: null };
+  } else {
+    // Coordinates come from the user's own destination row (RLS-scoped), not
+    // from the client, so the override can never point at arbitrary input.
+    const { data: dest, error } = await supabase
+      .from("destinations")
+      .select("latitude, longitude")
+      .eq("id", target.destinationId)
+      .maybeSingle();
+    if (error || !dest || dest.latitude == null || dest.longitude == null) {
+      return { error: "That destination has no coordinates to use." };
+    }
+    patch = {
+      gps_lat: dest.latitude as number,
+      gps_lng: dest.longitude as number,
+    };
+  }
+
+  const { error } = await supabase
+    .from("photos")
+    .update(patch)
+    .eq("id", photoId);
+  if (error) return { error: "Could not update the photo location." };
+
+  revalidateAppData();
+  return { ok: true };
+}
+
 export type DeletePhotosResult =
   | { ok: true; failedIds: string[] }
   | { error: string };
