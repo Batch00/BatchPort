@@ -1,267 +1,661 @@
-// Mock travel data for the landing page hero. Unauthenticated visitors have no
-// data of their own, so two Europe trips populate the globe. The shapes mirror
-// the Postgres schema (snake_case columns); buildMockGlobeProps adapts them to
-// the data-agnostic Globe component's prop shape.
+// GENERATED FILE. Do not edit by hand.
+// Run "npm run generate-mock-globe" to rebuild it from scripts/demo-dataset.ts.
+//
+// The landing hero's static fallback: a snapshot of the public demo account's
+// completed and ongoing trips, rendered when the live anon read of that account
+// is unavailable. Planned trips are excluded, matching the live hero. Every
+// coordinate here is a real place, carried over from the seed fixture.
+//
+// Trips in this snapshot:
+//   2019  Interrail Summer
+//   2021  Dia de Muertos Long Weekend
+//   2022  Slow Loop Through Southeast Asia
+//   2023  Andes Adventure
+//   2024  Golden Week in Japan
+//   2024  Serengeti and the Swahili Coast
+//   2025  Down Under and Across the Ditch
+//   2026  Iceland Ring Road
+//   2026  Fjords and Midnight Sun
 
-import type { GlobeArc, GlobeDestination } from "@/components/map/globe";
+import type { GlobeArc, GlobeDestination } from "@/components/map/globe-types";
 
-export interface Category {
-  id: string;
-  slug: string;
-  name: string;
-  /** Hex color used to tint the destination pins for this category. */
-  color: string;
-}
+/** ISO 3166-1 alpha-2 codes, matched against ISO_A2_EH in countries.geojson. */
+const visitedCountryCodes: string[] = ["AR","AT","AU","BO","CZ","DE","HU","IS","JP","KE","KH","LA","MX","NL","NO","NZ","PE","TH","TZ","VN"];
 
-export interface Trip {
-  id: string;
-  name: string;
-  start_date: string;
-  end_date: string;
-}
-
-export interface Destination {
-  id: string;
-  trip_id: string;
-  name: string;
-  country: string;
-  /** ISO 3166-1 alpha-2, matched against ISO_A2_EH in the countries GeoJSON. */
-  country_code: string;
-  latitude: number;
-  longitude: number;
-  /** Visit order within the trip, used to draw arcs between stops. */
-  order_index: number;
-}
-
-export interface Experience {
-  id: string;
-  destination_id: string;
-  name: string;
-  category_id: string;
-  /** 1 to 5. */
-  rating: number;
-  notes?: string;
-}
-
-export const categories: Category[] = [
-  { id: "cat-restaurant", slug: "restaurant", name: "Restaurant", color: "#f59e0b" },
-  { id: "cat-museum", slug: "museum", name: "Museum", color: "#a855f7" },
-  { id: "cat-attraction", slug: "attraction", name: "Attraction", color: "#22d3ee" },
-  { id: "cat-nightlife", slug: "nightlife", name: "Nightlife", color: "#ec4899" },
-  { id: "cat-nature", slug: "nature", name: "Nature", color: "#34d399" },
-  { id: "cat-cafe", slug: "cafe", name: "Cafe", color: "#fb923c" },
-];
-
-export const trips: Trip[] = [
+const destinations: GlobeDestination[] = [
   {
-    id: "trip-weu-2023",
-    name: "Western Europe Summer 2023",
-    start_date: "2023-06-10",
-    end_date: "2023-06-24",
-  },
-  {
-    id: "trip-med-2024",
-    name: "Mediterranean Fall 2024",
-    start_date: "2024-09-15",
-    end_date: "2024-09-29",
-  },
-];
-
-export const destinations: Destination[] = [
-  // Trip 1: Western Europe Summer 2023
-  {
-    id: "dest-london",
-    trip_id: "trip-weu-2023",
-    name: "London",
-    country: "United Kingdom",
-    country_code: "GB",
-    latitude: 51.5072,
-    longitude: -0.1276,
-    order_index: 0,
-  },
-  {
-    id: "dest-paris",
-    trip_id: "trip-weu-2023",
-    name: "Paris",
-    country: "France",
-    country_code: "FR",
-    latitude: 48.8566,
-    longitude: 2.3522,
-    order_index: 1,
-  },
-  {
-    id: "dest-amsterdam",
-    trip_id: "trip-weu-2023",
+    id: "dest-interrail-summer-amsterdam",
+    tripId: "trip-interrail-summer",
+    tripName: "Interrail Summer",
     name: "Amsterdam",
-    country: "Netherlands",
-    country_code: "NL",
-    latitude: 52.3676,
-    longitude: 4.9041,
-    order_index: 2,
+    countryCode: "NL",
+    lat: 52.3676,
+    lng: 4.9041,
+    categoryColor: "#6366F1",
   },
   {
-    id: "dest-berlin",
-    trip_id: "trip-weu-2023",
+    id: "dest-interrail-summer-berlin",
+    tripId: "trip-interrail-summer",
+    tripName: "Interrail Summer",
     name: "Berlin",
-    country: "Germany",
-    country_code: "DE",
-    latitude: 52.52,
-    longitude: 13.405,
-    order_index: 3,
-  },
-  // Trip 2: Mediterranean Fall 2024
-  {
-    id: "dest-barcelona",
-    trip_id: "trip-med-2024",
-    name: "Barcelona",
-    country: "Spain",
-    country_code: "ES",
-    latitude: 41.3851,
-    longitude: 2.1734,
-    order_index: 0,
+    countryCode: "DE",
+    lat: 52.52,
+    lng: 13.405,
+    categoryColor: "#3B82F6",
   },
   {
-    id: "dest-nice",
-    trip_id: "trip-med-2024",
-    name: "Nice",
-    country: "France",
-    country_code: "FR",
-    latitude: 43.7102,
-    longitude: 7.262,
-    order_index: 1,
+    id: "dest-interrail-summer-prague",
+    tripId: "trip-interrail-summer",
+    tripName: "Interrail Summer",
+    name: "Prague",
+    countryCode: "CZ",
+    lat: 50.0755,
+    lng: 14.4378,
+    categoryColor: "#14B8A6",
   },
   {
-    id: "dest-rome",
-    trip_id: "trip-med-2024",
-    name: "Rome",
-    country: "Italy",
-    country_code: "IT",
-    latitude: 41.9028,
-    longitude: 12.4964,
-    order_index: 2,
+    id: "dest-interrail-summer-vienna",
+    tripId: "trip-interrail-summer",
+    tripName: "Interrail Summer",
+    name: "Vienna",
+    countryCode: "AT",
+    lat: 48.2082,
+    lng: 16.3738,
+    categoryColor: "#F59E0B",
   },
   {
-    id: "dest-athens",
-    trip_id: "trip-med-2024",
-    name: "Athens",
-    country: "Greece",
-    country_code: "GR",
-    latitude: 37.9838,
-    longitude: 23.7275,
-    order_index: 3,
+    id: "dest-interrail-summer-budapest",
+    tripId: "trip-interrail-summer",
+    tripName: "Interrail Summer",
+    name: "Budapest",
+    countryCode: "HU",
+    lat: 47.4979,
+    lng: 19.0402,
+    categoryColor: "#14B8A6",
+  },
+  {
+    id: "dest-dia-de-muertos-long-weekend-mexico-city",
+    tripId: "trip-dia-de-muertos-long-weekend",
+    tripName: "Dia de Muertos Long Weekend",
+    name: "Mexico City",
+    countryCode: "MX",
+    lat: 19.4326,
+    lng: -99.1332,
+    categoryColor: "#6366F1",
+  },
+  {
+    id: "dest-dia-de-muertos-long-weekend-puebla",
+    tripId: "trip-dia-de-muertos-long-weekend",
+    tripName: "Dia de Muertos Long Weekend",
+    name: "Puebla",
+    countryCode: "MX",
+    lat: 19.0414,
+    lng: -98.2063,
+    categoryColor: "#2563EB",
+  },
+  {
+    id: "dest-dia-de-muertos-long-weekend-oaxaca",
+    tripId: "trip-dia-de-muertos-long-weekend",
+    tripName: "Dia de Muertos Long Weekend",
+    name: "Oaxaca",
+    countryCode: "MX",
+    lat: 17.0732,
+    lng: -96.7266,
+    categoryColor: "#F59E0B",
+  },
+  {
+    id: "dest-slow-loop-through-southeast-asia-bangkok",
+    tripId: "trip-slow-loop-through-southeast-asia",
+    tripName: "Slow Loop Through Southeast Asia",
+    name: "Bangkok",
+    countryCode: "TH",
+    lat: 13.7563,
+    lng: 100.5018,
+    categoryColor: "#2563EB",
+  },
+  {
+    id: "dest-slow-loop-through-southeast-asia-chiang-mai",
+    tripId: "trip-slow-loop-through-southeast-asia",
+    tripName: "Slow Loop Through Southeast Asia",
+    name: "Chiang Mai",
+    countryCode: "TH",
+    lat: 18.7883,
+    lng: 98.9853,
+    categoryColor: "#10B981",
+  },
+  {
+    id: "dest-slow-loop-through-southeast-asia-luang-prabang",
+    tripId: "trip-slow-loop-through-southeast-asia",
+    tripName: "Slow Loop Through Southeast Asia",
+    name: "Luang Prabang",
+    countryCode: "LA",
+    lat: 19.8834,
+    lng: 102.1347,
+    categoryColor: "#10B981",
+  },
+  {
+    id: "dest-slow-loop-through-southeast-asia-hanoi",
+    tripId: "trip-slow-loop-through-southeast-asia",
+    tripName: "Slow Loop Through Southeast Asia",
+    name: "Hanoi",
+    countryCode: "VN",
+    lat: 21.0278,
+    lng: 105.8342,
+    categoryColor: "#3B82F6",
+  },
+  {
+    id: "dest-slow-loop-through-southeast-asia-siem-reap",
+    tripId: "trip-slow-loop-through-southeast-asia",
+    tripName: "Slow Loop Through Southeast Asia",
+    name: "Siem Reap",
+    countryCode: "KH",
+    lat: 13.3671,
+    lng: 103.8448,
+    categoryColor: "#2563EB",
+  },
+  {
+    id: "dest-andes-adventure-lima",
+    tripId: "trip-andes-adventure",
+    tripName: "Andes Adventure",
+    name: "Lima",
+    countryCode: "PE",
+    lat: -12.0464,
+    lng: -77.0428,
+    categoryColor: "#3B82F6",
+  },
+  {
+    id: "dest-andes-adventure-cusco",
+    tripId: "trip-andes-adventure",
+    tripName: "Andes Adventure",
+    name: "Cusco",
+    countryCode: "PE",
+    lat: -13.5319,
+    lng: -71.9675,
+    categoryColor: "#2563EB",
+  },
+  {
+    id: "dest-andes-adventure-la-paz",
+    tripId: "trip-andes-adventure",
+    tripName: "Andes Adventure",
+    name: "La Paz",
+    countryCode: "BO",
+    lat: -16.4897,
+    lng: -68.1193,
+    categoryColor: "#94A3B8",
+  },
+  {
+    id: "dest-andes-adventure-uyuni",
+    tripId: "trip-andes-adventure",
+    tripName: "Andes Adventure",
+    name: "Uyuni",
+    countryCode: "BO",
+    lat: -20.4597,
+    lng: -66.825,
+    categoryColor: "#10B981",
+  },
+  {
+    id: "dest-andes-adventure-buenos-aires",
+    tripId: "trip-andes-adventure",
+    tripName: "Andes Adventure",
+    name: "Buenos Aires",
+    countryCode: "AR",
+    lat: -34.6037,
+    lng: -58.3816,
+    categoryColor: "#3B82F6",
+  },
+  {
+    id: "dest-golden-week-in-japan-tokyo",
+    tripId: "trip-golden-week-in-japan",
+    tripName: "Golden Week in Japan",
+    name: "Tokyo",
+    countryCode: "JP",
+    lat: 35.6762,
+    lng: 139.6503,
+    categoryColor: "#14B8A6",
+  },
+  {
+    id: "dest-golden-week-in-japan-hakone",
+    tripId: "trip-golden-week-in-japan",
+    tripName: "Golden Week in Japan",
+    name: "Hakone",
+    countryCode: "JP",
+    lat: 35.2324,
+    lng: 139.1069,
+    categoryColor: "#64748B",
+  },
+  {
+    id: "dest-golden-week-in-japan-kanazawa",
+    tripId: "trip-golden-week-in-japan",
+    tripName: "Golden Week in Japan",
+    name: "Kanazawa",
+    countryCode: "JP",
+    lat: 36.5613,
+    lng: 136.6562,
+    categoryColor: "#10B981",
+  },
+  {
+    id: "dest-golden-week-in-japan-kyoto",
+    tripId: "trip-golden-week-in-japan",
+    tripName: "Golden Week in Japan",
+    name: "Kyoto",
+    countryCode: "JP",
+    lat: 35.0116,
+    lng: 135.7681,
+    categoryColor: "#2563EB",
+  },
+  {
+    id: "dest-golden-week-in-japan-osaka",
+    tripId: "trip-golden-week-in-japan",
+    tripName: "Golden Week in Japan",
+    name: "Osaka",
+    countryCode: "JP",
+    lat: 34.6937,
+    lng: 135.5023,
+    categoryColor: "#A855F7",
+  },
+  {
+    id: "dest-serengeti-and-the-swahili-coast-nairobi",
+    tripId: "trip-serengeti-and-the-swahili-coast",
+    tripName: "Serengeti and the Swahili Coast",
+    name: "Nairobi",
+    countryCode: "KE",
+    lat: -1.2921,
+    lng: 36.8219,
+    categoryColor: "#10B981",
+  },
+  {
+    id: "dest-serengeti-and-the-swahili-coast-arusha",
+    tripId: "trip-serengeti-and-the-swahili-coast",
+    tripName: "Serengeti and the Swahili Coast",
+    name: "Arusha",
+    countryCode: "TZ",
+    lat: -3.3869,
+    lng: 36.683,
+    categoryColor: "#14B8A6",
+  },
+  {
+    id: "dest-serengeti-and-the-swahili-coast-serengeti-national-park",
+    tripId: "trip-serengeti-and-the-swahili-coast",
+    tripName: "Serengeti and the Swahili Coast",
+    name: "Serengeti National Park",
+    countryCode: "TZ",
+    lat: -2.3333,
+    lng: 34.8333,
+    categoryColor: "#10B981",
+  },
+  {
+    id: "dest-serengeti-and-the-swahili-coast-stone-town",
+    tripId: "trip-serengeti-and-the-swahili-coast",
+    tripName: "Serengeti and the Swahili Coast",
+    name: "Stone Town",
+    countryCode: "TZ",
+    lat: -6.1659,
+    lng: 39.1917,
+    categoryColor: "#06B6D4",
+  },
+  {
+    id: "dest-down-under-and-across-the-ditch-sydney",
+    tripId: "trip-down-under-and-across-the-ditch",
+    tripName: "Down Under and Across the Ditch",
+    name: "Sydney",
+    countryCode: "AU",
+    lat: -33.8688,
+    lng: 151.2093,
+    categoryColor: "#10B981",
+  },
+  {
+    id: "dest-down-under-and-across-the-ditch-melbourne",
+    tripId: "trip-down-under-and-across-the-ditch",
+    tripName: "Down Under and Across the Ditch",
+    name: "Melbourne",
+    countryCode: "AU",
+    lat: -37.8136,
+    lng: 144.9631,
+    categoryColor: "#3B82F6",
+  },
+  {
+    id: "dest-down-under-and-across-the-ditch-queenstown",
+    tripId: "trip-down-under-and-across-the-ditch",
+    tripName: "Down Under and Across the Ditch",
+    name: "Queenstown",
+    countryCode: "NZ",
+    lat: -45.0312,
+    lng: 168.6626,
+    categoryColor: "#F59E0B",
+  },
+  {
+    id: "dest-down-under-and-across-the-ditch-rotorua",
+    tripId: "trip-down-under-and-across-the-ditch",
+    tripName: "Down Under and Across the Ditch",
+    name: "Rotorua",
+    countryCode: "NZ",
+    lat: -38.1368,
+    lng: 176.2497,
+    categoryColor: "#F59E0B",
+  },
+  {
+    id: "dest-down-under-and-across-the-ditch-auckland",
+    tripId: "trip-down-under-and-across-the-ditch",
+    tripName: "Down Under and Across the Ditch",
+    name: "Auckland",
+    countryCode: "NZ",
+    lat: -36.8485,
+    lng: 174.7633,
+    categoryColor: "#F59E0B",
+  },
+  {
+    id: "dest-iceland-ring-road-reykjavik",
+    tripId: "trip-iceland-ring-road",
+    tripName: "Iceland Ring Road",
+    name: "Reykjavik",
+    countryCode: "IS",
+    lat: 64.1466,
+    lng: -21.9426,
+    categoryColor: "#F59E0B",
+  },
+  {
+    id: "dest-iceland-ring-road-vik",
+    tripId: "trip-iceland-ring-road",
+    tripName: "Iceland Ring Road",
+    name: "Vik",
+    countryCode: "IS",
+    lat: 63.4187,
+    lng: -19.006,
+    categoryColor: "#10B981",
+  },
+  {
+    id: "dest-iceland-ring-road-hofn",
+    tripId: "trip-iceland-ring-road",
+    tripName: "Iceland Ring Road",
+    name: "Hofn",
+    countryCode: "IS",
+    lat: 64.2539,
+    lng: -15.2082,
+    categoryColor: "#10B981",
+  },
+  {
+    id: "dest-iceland-ring-road-akureyri",
+    tripId: "trip-iceland-ring-road",
+    tripName: "Iceland Ring Road",
+    name: "Akureyri",
+    countryCode: "IS",
+    lat: 65.6835,
+    lng: -18.0878,
+    categoryColor: "#10B981",
+  },
+  {
+    id: "dest-fjords-and-midnight-sun-oslo",
+    tripId: "trip-fjords-and-midnight-sun",
+    tripName: "Fjords and Midnight Sun",
+    name: "Oslo",
+    countryCode: "NO",
+    lat: 59.9139,
+    lng: 10.7522,
+    categoryColor: "#6366F1",
+  },
+  {
+    id: "dest-fjords-and-midnight-sun-bergen",
+    tripId: "trip-fjords-and-midnight-sun",
+    tripName: "Fjords and Midnight Sun",
+    name: "Bergen",
+    countryCode: "NO",
+    lat: 60.3913,
+    lng: 5.3221,
+    categoryColor: "#14B8A6",
+  },
+  {
+    id: "dest-fjords-and-midnight-sun-flam",
+    tripId: "trip-fjords-and-midnight-sun",
+    tripName: "Fjords and Midnight Sun",
+    name: "Flam",
+    countryCode: "NO",
+    lat: 60.8631,
+    lng: 7.1136,
+    categoryColor: "#94A3B8",
+  },
+  {
+    id: "dest-fjords-and-midnight-sun-tromso",
+    tripId: "trip-fjords-and-midnight-sun",
+    tripName: "Fjords and Midnight Sun",
+    name: "Tromso",
+    countryCode: "NO",
+    lat: 69.6492,
+    lng: 18.9553,
+    categoryColor: null,
+  },
+].map((destination) => ({
+  ...destination,
+  arrivalDate: null,
+  departureDate: null,
+}));
+
+const arcs: GlobeArc[] = [
+  {
+    sourcePosition: [4.9041, 52.3676],
+    targetPosition: [13.405, 52.52],
+    tripName: "Interrail Summer",
+    sourceCity: "Amsterdam",
+    targetCity: "Berlin",
+  },
+  {
+    sourcePosition: [13.405, 52.52],
+    targetPosition: [14.4378, 50.0755],
+    tripName: "Interrail Summer",
+    sourceCity: "Berlin",
+    targetCity: "Prague",
+  },
+  {
+    sourcePosition: [14.4378, 50.0755],
+    targetPosition: [16.3738, 48.2082],
+    tripName: "Interrail Summer",
+    sourceCity: "Prague",
+    targetCity: "Vienna",
+  },
+  {
+    sourcePosition: [16.3738, 48.2082],
+    targetPosition: [19.0402, 47.4979],
+    tripName: "Interrail Summer",
+    sourceCity: "Vienna",
+    targetCity: "Budapest",
+  },
+  {
+    sourcePosition: [-99.1332, 19.4326],
+    targetPosition: [-98.2063, 19.0414],
+    tripName: "Dia de Muertos Long Weekend",
+    sourceCity: "Mexico City",
+    targetCity: "Puebla",
+  },
+  {
+    sourcePosition: [-98.2063, 19.0414],
+    targetPosition: [-96.7266, 17.0732],
+    tripName: "Dia de Muertos Long Weekend",
+    sourceCity: "Puebla",
+    targetCity: "Oaxaca",
+  },
+  {
+    sourcePosition: [100.5018, 13.7563],
+    targetPosition: [98.9853, 18.7883],
+    tripName: "Slow Loop Through Southeast Asia",
+    sourceCity: "Bangkok",
+    targetCity: "Chiang Mai",
+  },
+  {
+    sourcePosition: [98.9853, 18.7883],
+    targetPosition: [102.1347, 19.8834],
+    tripName: "Slow Loop Through Southeast Asia",
+    sourceCity: "Chiang Mai",
+    targetCity: "Luang Prabang",
+  },
+  {
+    sourcePosition: [102.1347, 19.8834],
+    targetPosition: [105.8342, 21.0278],
+    tripName: "Slow Loop Through Southeast Asia",
+    sourceCity: "Luang Prabang",
+    targetCity: "Hanoi",
+  },
+  {
+    sourcePosition: [105.8342, 21.0278],
+    targetPosition: [103.8448, 13.3671],
+    tripName: "Slow Loop Through Southeast Asia",
+    sourceCity: "Hanoi",
+    targetCity: "Siem Reap",
+  },
+  {
+    sourcePosition: [-77.0428, -12.0464],
+    targetPosition: [-71.9675, -13.5319],
+    tripName: "Andes Adventure",
+    sourceCity: "Lima",
+    targetCity: "Cusco",
+  },
+  {
+    sourcePosition: [-71.9675, -13.5319],
+    targetPosition: [-68.1193, -16.4897],
+    tripName: "Andes Adventure",
+    sourceCity: "Cusco",
+    targetCity: "La Paz",
+  },
+  {
+    sourcePosition: [-68.1193, -16.4897],
+    targetPosition: [-66.825, -20.4597],
+    tripName: "Andes Adventure",
+    sourceCity: "La Paz",
+    targetCity: "Uyuni",
+  },
+  {
+    sourcePosition: [-66.825, -20.4597],
+    targetPosition: [-58.3816, -34.6037],
+    tripName: "Andes Adventure",
+    sourceCity: "Uyuni",
+    targetCity: "Buenos Aires",
+  },
+  {
+    sourcePosition: [139.6503, 35.6762],
+    targetPosition: [139.1069, 35.2324],
+    tripName: "Golden Week in Japan",
+    sourceCity: "Tokyo",
+    targetCity: "Hakone",
+  },
+  {
+    sourcePosition: [139.1069, 35.2324],
+    targetPosition: [136.6562, 36.5613],
+    tripName: "Golden Week in Japan",
+    sourceCity: "Hakone",
+    targetCity: "Kanazawa",
+  },
+  {
+    sourcePosition: [136.6562, 36.5613],
+    targetPosition: [135.7681, 35.0116],
+    tripName: "Golden Week in Japan",
+    sourceCity: "Kanazawa",
+    targetCity: "Kyoto",
+  },
+  {
+    sourcePosition: [135.7681, 35.0116],
+    targetPosition: [135.5023, 34.6937],
+    tripName: "Golden Week in Japan",
+    sourceCity: "Kyoto",
+    targetCity: "Osaka",
+  },
+  {
+    sourcePosition: [36.8219, -1.2921],
+    targetPosition: [36.683, -3.3869],
+    tripName: "Serengeti and the Swahili Coast",
+    sourceCity: "Nairobi",
+    targetCity: "Arusha",
+  },
+  {
+    sourcePosition: [36.683, -3.3869],
+    targetPosition: [34.8333, -2.3333],
+    tripName: "Serengeti and the Swahili Coast",
+    sourceCity: "Arusha",
+    targetCity: "Serengeti National Park",
+  },
+  {
+    sourcePosition: [34.8333, -2.3333],
+    targetPosition: [39.1917, -6.1659],
+    tripName: "Serengeti and the Swahili Coast",
+    sourceCity: "Serengeti National Park",
+    targetCity: "Stone Town",
+  },
+  {
+    sourcePosition: [151.2093, -33.8688],
+    targetPosition: [144.9631, -37.8136],
+    tripName: "Down Under and Across the Ditch",
+    sourceCity: "Sydney",
+    targetCity: "Melbourne",
+  },
+  {
+    sourcePosition: [144.9631, -37.8136],
+    targetPosition: [168.6626, -45.0312],
+    tripName: "Down Under and Across the Ditch",
+    sourceCity: "Melbourne",
+    targetCity: "Queenstown",
+  },
+  {
+    sourcePosition: [168.6626, -45.0312],
+    targetPosition: [176.2497, -38.1368],
+    tripName: "Down Under and Across the Ditch",
+    sourceCity: "Queenstown",
+    targetCity: "Rotorua",
+  },
+  {
+    sourcePosition: [176.2497, -38.1368],
+    targetPosition: [174.7633, -36.8485],
+    tripName: "Down Under and Across the Ditch",
+    sourceCity: "Rotorua",
+    targetCity: "Auckland",
+  },
+  {
+    sourcePosition: [-21.9426, 64.1466],
+    targetPosition: [-19.006, 63.4187],
+    tripName: "Iceland Ring Road",
+    sourceCity: "Reykjavik",
+    targetCity: "Vik",
+  },
+  {
+    sourcePosition: [-19.006, 63.4187],
+    targetPosition: [-15.2082, 64.2539],
+    tripName: "Iceland Ring Road",
+    sourceCity: "Vik",
+    targetCity: "Hofn",
+  },
+  {
+    sourcePosition: [-15.2082, 64.2539],
+    targetPosition: [-18.0878, 65.6835],
+    tripName: "Iceland Ring Road",
+    sourceCity: "Hofn",
+    targetCity: "Akureyri",
+  },
+  {
+    sourcePosition: [10.7522, 59.9139],
+    targetPosition: [5.3221, 60.3913],
+    tripName: "Fjords and Midnight Sun",
+    sourceCity: "Oslo",
+    targetCity: "Bergen",
+  },
+  {
+    sourcePosition: [5.3221, 60.3913],
+    targetPosition: [7.1136, 60.8631],
+    tripName: "Fjords and Midnight Sun",
+    sourceCity: "Bergen",
+    targetCity: "Flam",
+  },
+  {
+    sourcePosition: [7.1136, 60.8631],
+    targetPosition: [18.9553, 69.6492],
+    tripName: "Fjords and Midnight Sun",
+    sourceCity: "Flam",
+    targetCity: "Tromso",
   },
 ];
 
-export const experiences: Experience[] = [
-  // London
-  { id: "exp-lon-1", destination_id: "dest-london", name: "British Museum", category_id: "cat-museum", rating: 5 },
-  { id: "exp-lon-2", destination_id: "dest-london", name: "The Ritz Afternoon Tea", category_id: "cat-restaurant", rating: 5 },
-  { id: "exp-lon-3", destination_id: "dest-london", name: "Tower of London", category_id: "cat-attraction", rating: 4 },
-  // Paris
-  { id: "exp-par-1", destination_id: "dest-paris", name: "Musee du Louvre", category_id: "cat-museum", rating: 5 },
-  { id: "exp-par-2", destination_id: "dest-paris", name: "Le Comptoir du Relais", category_id: "cat-restaurant", rating: 4 },
-  { id: "exp-par-3", destination_id: "dest-paris", name: "Eiffel Tower", category_id: "cat-attraction", rating: 4 },
-  // Amsterdam
-  { id: "exp-ams-1", destination_id: "dest-amsterdam", name: "Rijksmuseum", category_id: "cat-museum", rating: 5 },
-  { id: "exp-ams-2", destination_id: "dest-amsterdam", name: "Foodhallen", category_id: "cat-restaurant", rating: 4 },
-  { id: "exp-ams-3", destination_id: "dest-amsterdam", name: "Evening Canal Cruise", category_id: "cat-attraction", rating: 4 },
-  // Berlin
-  { id: "exp-ber-1", destination_id: "dest-berlin", name: "Pergamon Museum", category_id: "cat-museum", rating: 5 },
-  { id: "exp-ber-2", destination_id: "dest-berlin", name: "Brandenburg Gate", category_id: "cat-attraction", rating: 4 },
-  { id: "exp-ber-3", destination_id: "dest-berlin", name: "Berghain", category_id: "cat-nightlife", rating: 4 },
-  // Barcelona
-  { id: "exp-bcn-1", destination_id: "dest-barcelona", name: "Sagrada Familia", category_id: "cat-attraction", rating: 5 },
-  { id: "exp-bcn-2", destination_id: "dest-barcelona", name: "El Xampanyet", category_id: "cat-restaurant", rating: 5 },
-  { id: "exp-bcn-3", destination_id: "dest-barcelona", name: "Park Guell", category_id: "cat-nature", rating: 4 },
-  // Nice
-  { id: "exp-nce-1", destination_id: "dest-nice", name: "Promenade des Anglais", category_id: "cat-nature", rating: 4 },
-  { id: "exp-nce-2", destination_id: "dest-nice", name: "Cours Saleya Market", category_id: "cat-cafe", rating: 4 },
-  { id: "exp-nce-3", destination_id: "dest-nice", name: "Le Bistrot d'Antoine", category_id: "cat-restaurant", rating: 5 },
-  // Rome
-  { id: "exp-rom-1", destination_id: "dest-rome", name: "Colosseum", category_id: "cat-attraction", rating: 5 },
-  { id: "exp-rom-2", destination_id: "dest-rome", name: "Vatican Museums", category_id: "cat-museum", rating: 5 },
-  { id: "exp-rom-3", destination_id: "dest-rome", name: "Roscioli", category_id: "cat-restaurant", rating: 5 },
-  // Athens
-  { id: "exp-ath-1", destination_id: "dest-athens", name: "Acropolis", category_id: "cat-attraction", rating: 5 },
-  { id: "exp-ath-2", destination_id: "dest-athens", name: "Acropolis Museum", category_id: "cat-museum", rating: 5 },
-  { id: "exp-ath-3", destination_id: "dest-athens", name: "Ta Karamanlidika", category_id: "cat-restaurant", rating: 4 },
-];
-
-/** Lookup of category by id. */
-export const categoriesById: Record<string, Category> = Object.fromEntries(
-  categories.map((category) => [category.id, category]),
-);
-
-/** Lookup of trip by id. */
-export const tripsById: Record<string, Trip> = Object.fromEntries(
-  trips.map((trip) => [trip.id, trip]),
-);
-
 /**
- * Unique ISO alpha-2 codes for every country with at least one destination.
- * The country fill layer uses this to highlight visited countries.
- */
-export const visitedCountryCodes: string[] = Array.from(
-  new Set(destinations.map((destination) => destination.country_code)),
-);
-
-/**
- * The category a destination pin is colored by: the category of its highest
- * rated experience, falling back to the first experience, then attraction.
- */
-export function getDestinationPrimaryCategory(destinationId: string): Category {
-  const related = experiences
-    .filter((experience) => experience.destination_id === destinationId)
-    .sort((a, b) => b.rating - a.rating);
-  const categoryId = related[0]?.category_id ?? "cat-attraction";
-  return categoriesById[categoryId] ?? categories[0];
-}
-
-/**
- * Adapt the mock data into the Globe component's props. Kept here so the
- * landing page stays a thin server component and the Globe stays data-agnostic.
+ * The fallback globe payload, in the same shape the live landing read returns.
  */
 export function buildMockGlobeProps(): {
   visitedCountryCodes: string[];
   destinations: GlobeDestination[];
   arcs: GlobeArc[];
 } {
-  const globeDestinations: GlobeDestination[] = destinations.map(
-    (destination) => ({
-      id: destination.id,
-      tripId: destination.trip_id,
-      tripName: tripsById[destination.trip_id]?.name ?? "Trip",
-      name: destination.name,
-      countryCode: destination.country_code,
-      lat: destination.latitude,
-      lng: destination.longitude,
-      arrivalDate: null,
-      departureDate: null,
-      categoryColor: getDestinationPrimaryCategory(destination.id).color,
-    }),
-  );
-
-  const byTrip = new Map<string, Destination[]>();
-  for (const destination of destinations) {
-    const list = byTrip.get(destination.trip_id) ?? [];
-    list.push(destination);
-    byTrip.set(destination.trip_id, list);
-  }
-  const arcs: GlobeArc[] = [];
-  for (const list of byTrip.values()) {
-    const ordered = [...list].sort((a, b) => a.order_index - b.order_index);
-    for (let i = 0; i < ordered.length - 1; i += 1) {
-      const source = ordered[i];
-      const target = ordered[i + 1];
-      arcs.push({
-        sourcePosition: [source.longitude, source.latitude],
-        targetPosition: [target.longitude, target.latitude],
-        tripName: tripsById[source.trip_id]?.name ?? "Trip",
-        sourceCity: source.name,
-        targetCity: target.name,
-      });
-    }
-  }
-
-  return { visitedCountryCodes, destinations: globeDestinations, arcs };
+  return { visitedCountryCodes, destinations, arcs };
 }

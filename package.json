@@ -10,6 +10,7 @@
     "lint": "eslint",
     "seed": "npx tsx scripts/seed-trips.ts",
     "seed-demo": "npx tsx scripts/seed-demo.ts",
+    "generate-mock-globe": "npx tsx scripts/generate-mock-globe.ts",
     "backfill-photos": "npx tsx scripts/backfill-photos.ts",
     "backfill-exif": "npx tsx scripts/backfill-exif.ts",
     "backfill-thumbnails": "npx tsx scripts/backfill-thumbnails.ts",

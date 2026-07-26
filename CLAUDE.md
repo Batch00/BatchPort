@@ -56,13 +56,15 @@ Use **API routes** for:
 
 ### Supabase Client Setup
 
-Three clients exist for three contexts:
+Four clients exist for four contexts:
 
 1. **`utils/supabase/client.ts`:** Browser client, anon key, scoped to batchport schema. Use in Client Components for direct browser operations (e.g., Storage uploads in `uploadPhoto()`).
 
 2. **`utils/supabase/server.ts`:** Server client, anon key with SSR cookie handling, scoped to batchport schema. Use in Server Components, Route Handlers, and Server Actions. The factory is async because it must `await cookies()`.
 
-3. **`utils/supabase/admin.ts`:** Service-role client, uses `SUPABASE_SERVICE_ROLE_KEY`, bypasses RLS. NOT scoped to batchport schema. Every query must explicitly call `.schema("batchport")` on each query chain. Use only for privileged operations: inviting users, geocode_cache reads/writes, cover photo Storage cleanup, share settings uniqueness checks.
+3. **`utils/supabase/public.ts`:** Sessionless anon client, scoped to batchport, built on `@supabase/supabase-js` so it reads no cookies. Because it touches no Request-time API, its reads can run inside a cache scope (`unstable_cache`), which the cookie-backed server client cannot. RLS applies exactly as it does for a signed-out visitor, so it reaches only `is_shared()` data. Returns null when the Supabase env vars are absent. Used by the landing hero; do not reach for the admin client to do this job.
+
+4. **`utils/supabase/admin.ts`:** Service-role client, uses `SUPABASE_SERVICE_ROLE_KEY`, bypasses RLS. NOT scoped to batchport schema. Every query must explicitly call `.schema("batchport")` on each query chain. Use only for privileged operations: inviting users, geocode_cache reads/writes, cover photo Storage cleanup, share settings uniqueness checks.
 
 ### RLS Pattern
 
@@ -100,6 +102,15 @@ The convention for an entity delete action:
 3. Call `cleanupPhotosForOwners(owners)` after it. This is strictly best-effort and never throws: orphaned photos are recoverable (`scripts/cleanup-orphan-photos.ts`), a resurrected trip is not.
 
 `deletePhotosByIds` is the shared core. Order matters: clear cover pointers first (checked, since a dangling pointer would block the row delete and a trip's cover can reference a destination-owned photo), delete rows next (the source of truth), then best-effort Storage removal LAST. Only `source === "upload"` objects and their derived `{path}_thumb` are removed; Wikimedia cache files live at a shared `wikimedia/{hash}` path other rows may still reference, so they always stay.
+
+### Landing Hero Globe
+
+The landing page (`src/app/page.tsx`) renders the public demo account's real travel history, not mock data.
+
+- `getLandingGlobeData()` in `lib/landing-data.ts` reads the demo user through `createPublicClient()` (sessionless anon, gated by `is_shared()`), reusing `getDemoUserId()` and `getMapData()`. Both accept an optional client argument for exactly this purpose.
+- The read is wrapped in `unstable_cache` with a 1 hour revalidate and the `landing-globe` tag. **The route cannot be ISR:** the root layout exports `dynamic = "force-dynamic"` (it prevents a Next 16 Turbopack prerender crash on the internal `_not-found` and `_global-error` routes), and a page cannot loosen a parent's `force-dynamic`. Caching the data instead keeps Supabase off the hot path, which is what the render mode would have bought. This is also why the read must be cookie-free: `cookies()` is not allowed inside a cache scope.
+- Planned trips are filtered out of the hero. Their hollow pins and dashed arcs need the legend and trip list that only /demo has.
+- The fallback is `buildMockGlobeProps()` in `lib/mock-travel-data.ts`, a **generated** file. Do not hand-edit it: run `npm run generate-mock-globe`, which derives it from `scripts/demo-dataset.ts`, the same fixture `seed-demo.ts` writes. The fallback is chosen server-side in the same render as the live read, so there is never a client-side swap or a flash.
 
 ### Map Control Model
 
@@ -193,6 +204,7 @@ PostgREST can serialize numeric view columns as strings to preserve precision. T
 |---|---|
 | Browser Supabase client | `src/utils/supabase/client.ts` |
 | Server Supabase client | `src/utils/supabase/server.ts` |
+| Sessionless anon Supabase client (cache-safe) | `src/utils/supabase/public.ts` |
 | Admin (service-role) Supabase client | `src/utils/supabase/admin.ts` |
 | Session refresh and route protection | `src/proxy.ts` |
 | Domain types (mirrors Postgres schema) | `src/lib/types.ts` |
@@ -209,6 +221,8 @@ PostgREST can serialize numeric view columns as strings to preserve precision. T
 | Shared photo deletion and owner collection | `src/lib/photo-cleanup.ts` |
 | Photo map mode data layer | `src/lib/photo-map-data.ts` |
 | Globe data layer (getMapData) | `src/lib/map-data.ts` |
+| Landing hero globe data (cached anon demo read) | `src/lib/landing-data.ts` |
+| Landing hero static fallback (generated) | `src/lib/mock-travel-data.ts` |
 | Stats data layer (all views and RPC) | `src/lib/stats-data.ts` |
 | Public share data layer | `src/lib/share-data.ts` |
 | Share settings read side | `src/lib/share-settings.ts` |
@@ -233,6 +247,9 @@ PostgREST can serialize numeric view columns as strings to preserve precision. T
 | Rating input (half-star) | `src/components/rating-input.tsx` |
 | Shared profile view (demo and /share/[slug]) | `src/components/share/shared-profile-view.tsx` |
 | Seed script | `scripts/seed-trips.ts` |
+| Demo showcase fixture | `scripts/demo-dataset.ts` |
+| Demo reset and reseed | `scripts/seed-demo.ts` |
+| Landing fallback generator | `scripts/generate-mock-globe.ts` |
 | PWA icon generator | `scripts/generate-icons.mjs` |
 
 ## Testing

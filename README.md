@@ -14,6 +14,7 @@ BatchPort is a personal travel tracker and installable progressive web app built
 - Hover tooltips on pins (destination name) and countries (name plus destination count)
 - Stats overlay showing countries, trips, and destination counts
 - Auto-rotate while idle on the landing page hero; static on the dashboard
+- The landing hero renders the public demo account's real travel history, read through the anon path and cached for an hour, with a generated static snapshot of the same trips as the fallback so the hero is never an empty globe
 - Protomaps PMTiles dark raster basemap (optional, via NEXT_PUBLIC_PMTILES_URL); falls back to the bundled dark style at /styles/dark-style.json
 - Basemap style switcher: the keyless dark default plus MapTiler streets, satellite, and terrain when NEXT_PUBLIC_MAPTILER_KEY is set; each style carries its own overlay tint, pin halo, and zoom depth, and the choice persists per session
 - Fullscreen mode: the globe card swaps to a fixed full-viewport container with panel-first Escape handling
@@ -208,6 +209,10 @@ npm run seed             # Import seed trips for a user (requires the dev server
 # the demo account. Leaves user_settings intact. Requires the dev server.
 npm run seed-demo -- --reset
 
+# Rebuild the landing hero's static fallback (src/lib/mock-travel-data.ts) from
+# the demo fixture. Re-run it whenever scripts/demo-dataset.ts changes.
+npm run generate-mock-globe
+
 npm run backfill-photos  # Backfill Wikimedia cover photos for existing destinations
 npm run backfill-thumbnails  # Generate gallery thumbnails for photos uploaded before thumbnails existed
 npm run backfill-exif    # Backfill date_taken and GPS coordinates from stored originals
@@ -366,7 +371,8 @@ src/
     geocode.ts                   Geocoding cache helpers: readCache, writeCache, parsePhoton, parseNominatim
     wikimedia.ts                 Wikimedia P18 lookup: getWikimediaPhoto() with 90-day cache
     access-token.ts              HMAC-SHA256 token generation and verification for invite links
-    mock-travel-data.ts          Mock globe data for the landing page hero
+    landing-data.ts              Landing hero globe data: cached anon read of the demo account
+    mock-travel-data.ts          GENERATED static fallback for the landing hero (see generate-mock-globe.ts)
     actions/
       trips.ts                   Trip server actions
       destinations.ts            Destination server actions (triggers Wikimedia + bucket auto-fulfill)
@@ -377,6 +383,7 @@ src/
   utils/supabase/
     client.ts                    Browser Supabase client (batchport schema)
     server.ts                    Server Supabase client (batchport schema, async cookies())
+    public.ts                    Sessionless anon client (batchport schema, no cookies; usable inside a cache scope)
     admin.ts                     Service-role client (not schema-scoped; must call .schema("batchport") per query)
   proxy.ts                       Session refresh and route protection (Next.js 16 proxy convention)
 public/
@@ -388,6 +395,8 @@ scripts/
   generate-icons.mjs             Regenerates placeholder PWA icon PNGs
   seed-trips.ts                  Imports travel history for a user (idempotent per trip name + user_id)
   seed-demo.ts                   Resets the demo account and reseeds the fictional showcase dataset (--reset required)
+  demo-dataset.ts                The demo showcase fixture (trips, destinations, experiences, bucket items)
+  generate-mock-globe.ts         Regenerates src/lib/mock-travel-data.ts, the landing hero's static fallback
   backfill-photos.ts             Backfills Wikimedia cover photos for existing destinations
   backfill-thumbnails.ts         Generates {storage_path}_thumb thumbnails and sets photos.thumb_path
   backfill-exif.ts               Backfills date_taken and GPS from stored originals

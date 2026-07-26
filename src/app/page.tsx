@@ -1,16 +1,21 @@
 import { Globe } from "@/components/map/globe";
 import { LandingActions } from "@/components/auth/landing-actions";
+import { getLandingGlobeData } from "@/lib/landing-data";
 import { buildMockGlobeProps } from "@/lib/mock-travel-data";
 
-export default function Home() {
-  const mock = buildMockGlobeProps();
+export default async function Home() {
+  // The public demo account's real world, cached for an hour, with a bundled
+  // snapshot of the same trips behind it. Resolved here on the server so the
+  // globe mounts once with its final data: there is no client-side swap and so
+  // no flash between the two.
+  const globeData = (await getLandingGlobeData()) ?? buildMockGlobeProps();
 
   return (
     <section className="relative h-dvh w-full overflow-hidden">
       <Globe
-        visitedCountryCodes={mock.visitedCountryCodes}
-        destinations={mock.destinations}
-        arcs={mock.arcs}
+        visitedCountryCodes={globeData.visitedCountryCodes}
+        destinations={globeData.destinations}
+        arcs={globeData.arcs}
       />
 
       {/* Dark gradient backdrop so the hero copy stays readable over the map. */}

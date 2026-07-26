@@ -145,13 +145,26 @@ function byTripThenOrder(a: MapDestination, b: MapDestination): number {
   return a.orderIndex - b.orderIndex;
 }
 
+/** The Supabase client getMapData reads through. Defaults to the cookie-backed
+ * server client; callers in a cache scope pass the sessionless anon client
+ * instead, since cookies() cannot be read there. */
+export type MapDataClient = Awaited<ReturnType<typeof createClient>>;
+
 /**
  * Fetch everything the globe needs for a user. Without a userId, the
  * authenticated user is used; with one, that user's data is queried directly
  * (demo/public share), relying on RLS for access control.
+ *
+ * An explicit client can be supplied to read outside a request context (the
+ * landing hero caches the demo user's globe through the sessionless anon
+ * client). Passing one without a userId is meaningless: a sessionless client
+ * has no authenticated user to fall back to.
  */
-export async function getMapData(userId?: string): Promise<MapData> {
-  const supabase = await createClient();
+export async function getMapData(
+  userId?: string,
+  client?: MapDataClient,
+): Promise<MapData> {
+  const supabase = client ?? (await createClient());
 
   let resolvedUserId = userId ?? null;
   if (!resolvedUserId) {

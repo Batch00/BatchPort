@@ -1,5 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
-import { getMapData, type MapData } from "@/lib/map-data";
+import { getMapData, type MapData, type MapDataClient } from "@/lib/map-data";
 import { getPhotoMapData, type PhotoMapData } from "@/lib/photo-map-data";
 import { getSummaryStats, type SummaryStats } from "@/lib/stats-data";
 import { getSharedBucketList, type BucketItem } from "@/lib/bucket-list";
@@ -83,9 +83,11 @@ export async function getUserBySlug(slug: string): Promise<string | null> {
 }
 
 // The demo user id from user_settings (is_demo = true), falling back to the
-// constant if the row is missing.
-export async function getDemoUserId(): Promise<string> {
-  const supabase = await createClient();
+// constant if the row is missing. An explicit client lets callers outside a
+// request context (the cached landing hero) read through the sessionless anon
+// client instead of the cookie-backed one.
+export async function getDemoUserId(client?: MapDataClient): Promise<string> {
+  const supabase = client ?? (await createClient());
   const { data } = await supabase
     .from("user_settings")
     .select("user_id")
