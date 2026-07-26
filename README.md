@@ -202,6 +202,12 @@ npm run build            # Production build (type-checks the whole project)
 npm run start            # Serve the production build
 npm run lint             # Run ESLint
 npm run seed             # Import seed trips for a user (requires the dev server running at localhost:3000)
+
+# Wipe the public demo account and rebuild it from the fictional showcase
+# dataset. Refuses to run without --reset, and refuses any user id other than
+# the demo account. Leaves user_settings intact. Requires the dev server.
+npm run seed-demo -- --reset
+
 npm run backfill-photos  # Backfill Wikimedia cover photos for existing destinations
 npm run backfill-thumbnails  # Generate gallery thumbnails for photos uploaded before thumbnails existed
 npm run backfill-exif    # Backfill date_taken and GPS coordinates from stored originals
@@ -381,6 +387,7 @@ public/
 scripts/
   generate-icons.mjs             Regenerates placeholder PWA icon PNGs
   seed-trips.ts                  Imports travel history for a user (idempotent per trip name + user_id)
+  seed-demo.ts                   Resets the demo account and reseeds the fictional showcase dataset (--reset required)
   backfill-photos.ts             Backfills Wikimedia cover photos for existing destinations
   backfill-thumbnails.ts         Generates {storage_path}_thumb thumbnails and sets photos.thumb_path
   backfill-exif.ts               Backfills date_taken and GPS from stored originals
