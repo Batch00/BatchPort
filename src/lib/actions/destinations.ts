@@ -9,6 +9,10 @@ import { isDemoBlocked } from "@/lib/demo-guard";
 import { autoPopulateDestinationCover } from "@/lib/photos-data";
 import { autoFulfillBucketItems } from "@/lib/bucket-list";
 import {
+  cleanupPhotosForOwners,
+  ownersForDestination,
+} from "@/lib/photo-cleanup";
+import {
   createDestination,
   updateDestination,
   deleteDestination,
@@ -74,12 +78,19 @@ export async function updateDestinationAction(
   redirect(`/trips/${tripId}/destinations/${id}`);
 }
 
+// Photos are polymorphic, so the destination's own photos and its experiences'
+// photos have to be removed explicitly (see photo-cleanup). The owner list is
+// collected before the delete; the cleanup after it is best-effort and never
+// fails the delete. Clearing the parent trip's cover pointer, when it happened
+// to point at one of these photos, is part of the shared cleanup.
 export async function deleteDestinationAction(
   tripId: string,
   id: string,
 ): Promise<{ error: string } | void> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  const photoOwners = await ownersForDestination(id);
   await deleteDestination(id);
+  await cleanupPhotosForOwners(photoOwners);
   revalidateAppData();
   redirect(`/trips/${tripId}`);
 }

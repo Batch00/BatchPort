@@ -13,9 +13,26 @@ BatchPort is a personal travel tracker and installable progressive web app built
 - Country click drill-down: flies to the country and shows a side panel listing destinations grouped by trip
 - Hover tooltips on pins (destination name) and countries (name plus destination count)
 - Stats overlay showing countries, trips, and destination counts
-- Recenter button to fit the camera to all destinations
 - Auto-rotate while idle on the landing page hero; static on the dashboard
 - Protomaps PMTiles dark raster basemap (optional, via NEXT_PUBLIC_PMTILES_URL); falls back to the bundled dark style at /styles/dark-style.json
+- Basemap style switcher: the keyless dark default plus MapTiler streets, satellite, and terrain when NEXT_PUBLIC_MAPTILER_KEY is set; each style carries its own overlay tint, pin halo, and zoom depth, and the choice persists per session
+- Fullscreen mode: the globe card swaps to a fixed full-viewport container with panel-first Escape handling
+
+### Map Controls
+
+The floating control cluster follows a two-tier model, capped at four buttons plus the search icon on every surface.
+
+- **Modes** change what the map shows and get visible buttons that fill brand blue while active: photo map, replay, and attractions. A mode may surface its own chrome while running (replay swaps the cluster for a transport bar; photo mode adds a header pill).
+- **Utilities** adjust how the current view is drawn and all live in one settings popover: basemap swatches, recenter, globe/flat projection, fullscreen, and refresh.
+- Layout is a single bottom-right vertical column at every breakpoint. Search anchors top-right, so the two cannot collide: the cluster's height is bounded at four buttons and every globe surface is at least 300px tall.
+- Read-only surfaces (demo and /share/[slug]) render the same model minus the auth-gated pieces (no refresh, no attractions, no photo management actions).
+
+### Alternate Globe Modes
+
+- **Photo map:** every photo with a resolvable coordinate rendered as a clustered thumbnail marker; travel layers stand down. Coordinates resolve from EXIF GPS, then the owning experience, destination, or the trip's first destination. Photos with no location are counted in the header and viewable in an off-map grid, where they can be assigned to a destination.
+- **Replay:** timeline playback of travel history with a date and country readout, scrubber, speed toggle, and restart.
+- **Attractions:** viewport Wikipedia geosearch markers (via /api/discover/geo) that open in the discovery panel. Debounced, memoized per viewport cell, and gated to zoom 10 and above.
+- **Discovery:** clicking any country opens a panel with country facts (currency, languages, driving side, plug and voltage), climate lines, and top cities; POIs can be saved onto a trip as planned or done experiences.
 
 ### Trip, Destination, and Experience Management
 
@@ -46,6 +63,8 @@ BatchPort is a personal travel tracker and installable progressive web app built
 - Trip-level photo upload: photos can be retagged to a specific destination or experience after uploading
 - Cover photo management on trips and destinations: explicit picker with crop/zoom, or falls back to the first photo; galleries can set a photo as either the destination cover or the trip cover
 - Attribution stored on Wikimedia photos (artist and license from Commons extmetadata)
+- Manual location override: a mislocated photo can be pointed at one of your destinations, or cleared back to its owner's location
+- Deletion cascade: photos is polymorphic (owner_type and owner_id, no foreign key), so Postgres never cascades to it. Deleting a trip, destination, or experience removes the photos it owned (including its children's, for a trip) along with their upload Storage objects and thumbnails; shared Wikimedia cache files are kept, and any cover pointer on a surviving parent is cleared. Cleanup is best-effort after the entity delete succeeds, so a Storage hiccup can never resurrect a deleted trip. Historical orphans are recoverable with `npm run cleanup-orphan-photos`.
 
 ### Stats Dashboard
 
@@ -185,9 +204,15 @@ npm run lint             # Run ESLint
 npm run seed             # Import seed trips for a user (requires the dev server running at localhost:3000)
 npm run backfill-photos  # Backfill Wikimedia cover photos for existing destinations
 npm run backfill-thumbnails  # Generate gallery thumbnails for photos uploaded before thumbnails existed
+npm run backfill-exif    # Backfill date_taken and GPS coordinates from stored originals
 npm run seed-countries   # Populate the countries reference table
 npm run seed-cities      # Populate the cities table from GeoNames cities15000 (powers Discovery top cities)
 npm run setup-shares     # Initialize user_settings rows for existing users
+
+# Find photo rows whose owner entity no longer exists. Report only:
+npm run cleanup-orphan-photos -- --dry-run
+# Delete the rows and their upload Storage objects (idempotent):
+npm run cleanup-orphan-photos
 ```
 
 ## Project Structure
@@ -238,10 +263,28 @@ src/
     rating-display.tsx           Read-only half-star rating display
     category-icon.tsx            Category icon renderer
     map/
-      globe.tsx                  MapLibre GL JS globe: all layer setup and interaction
+      globe.tsx                  MapLibre GL JS globe: map lifecycle, interaction, mode wiring
+      globe-types.ts             Public data shapes (destinations, arcs, bucket places, selection)
+      globe-sources.ts           Pure GeoJSON builders and popup HTML helpers
+      globe-layers.ts            Every runtime overlay layer (fills, arcs, pins) plus sky
+      basemaps.ts                Basemap catalog, style resolution, per-style overlay themes
+      map-controls.tsx           Floating control cluster: mode buttons + settings popover
       dashboard-globe.tsx        Globe wrapper with stats overlay and country drill-down panel
-      projection-toggle.tsx      Globe/mercator toggle button and recenter control
+      country-drilldown.tsx      Side panel listing a country's destinations grouped by trip
+      replay-controls.tsx        Replay mode overlay: readout and transport bar
+      unlocated-photos-modal.tsx Off-map grid of photos with no resolvable location
+      use-replay.ts              Replay timeline engine
+      use-photo-mode.ts          Photo map mode: clustering, markers, enter/exit
+      use-attractions.ts         Wikipedia geosearch attraction markers
+      use-globe-fullscreen.ts    Fullscreen state with panel-first Escape handling
+      map-utils.ts               Brand colour, country match filters, feature bounds
       map.css                    MapLibre popup dark theme styles
+    discover/
+      discovery-host.tsx         Page-level discovery panel host and context
+      discovery-panel.tsx        Country, city, and POI views
+      globe-search.tsx           Collapsible search overlay for the globe
+      climate-line.tsx           Monthly climate line for a city
+      country-facts.tsx          Currency, languages, driving side, plug and voltage
     trips/
       dashboard-trip-card.tsx    Trip card for the dashboard list
       dashboard-trips.tsx        Trip list section with Add Trip link
@@ -304,7 +347,12 @@ src/
     bucket-format.ts             Bucket item display formatting helpers
     photos.ts                    Photo helpers: resizeImage, uploadPhoto, getPhotoUrl (client-safe)
     photos-data.ts               Server photo reads and autoPopulateDestinationCover()
+    photo-cleanup.ts             Shared photo deletion: rows, Storage, cover pointers, owner lists
+    photo-map-data.ts            Photo map mode data layer: coordinate resolution per photo
     map-data.ts                  Globe data layer: getMapData() fetching destinations, arcs, bucket codes
+    replay.ts                    Replay timeline construction from destinations
+    discover.ts                  Discovery data layer: countries, cities, POIs, climate
+    day-plan.ts                  Day assignment helpers for planned experiences
     stats-data.ts                Stats data layer: all SQL view queries and f_distance_traveled RPC
     stats-format.ts              Stats number formatting helpers
     share-data.ts                Public share data layer: getSharedProfile(), getProfileTrips()
@@ -335,8 +383,13 @@ scripts/
   seed-trips.ts                  Imports travel history for a user (idempotent per trip name + user_id)
   backfill-photos.ts             Backfills Wikimedia cover photos for existing destinations
   backfill-thumbnails.ts         Generates {storage_path}_thumb thumbnails and sets photos.thumb_path
+  backfill-exif.ts               Backfills date_taken and GPS from stored originals
+  fix-gps-signs.ts               Repairs EXIF GPS hemisphere signs on affected photos
+  cleanup-orphan-photos.ts       Finds and removes photo rows whose owner no longer exists (--dry-run)
   seed-countries.ts              Populates the countries reference table
+  seed-cities.ts                 Populates the cities table from GeoNames cities15000
   setup-share-settings.ts        Creates user_settings rows for existing users
+  sql/                           One-off migrations to run in the Supabase SQL editor
 ```
 
 ## Database Notes

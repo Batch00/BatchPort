@@ -14,7 +14,8 @@
     "backfill-thumbnails": "npx tsx scripts/backfill-thumbnails.ts",
     "seed-countries": "npx tsx scripts/seed-countries.ts",
     "seed-cities": "npx tsx scripts/seed-cities.ts",
-    "setup-shares": "npx tsx scripts/setup-share-settings.ts"
+    "setup-shares": "npx tsx scripts/setup-share-settings.ts",
+    "cleanup-orphan-photos": "npx tsx scripts/cleanup-orphan-photos.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

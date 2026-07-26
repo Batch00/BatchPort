@@ -89,9 +89,39 @@ POI search for experiences uses `GET /api/geocode/poi?q=...&lat=...&lng=...` (Ph
 
 Wikimedia auto-population on destination create: `createDestinationAction` calls `autoPopulateDestinationCover(destination)` after the insert. This calls `getWikimediaPhoto(destination.name)` using the destination name only (not "city, country"). It searches Wikidata for the entity, reads the P18 (image) claim, builds the canonical upload.wikimedia.org URL, fetches attribution from Commons extmetadata, caches the result in geocode_cache under provider="wikimedia" for 90 days, inserts a photo record, and sets it as the destination cover. Any failure is swallowed silently so it never blocks destination creation.
 
+### Photo Deletion Cascade
+
+`photos` is polymorphic (`owner_type` + `owner_id`, no foreign key), so Postgres cascades never touch it: deleting a trip cascades to its destinations and experiences but leaves every photo row behind as an invisible orphan. `src/lib/photo-cleanup.ts` owns the fix and is shared by the photo delete action and the three entity delete actions.
+
+The convention for an entity delete action:
+
+1. Collect the photo owners **before** the delete (`ownersForTrip`, `ownersForDestination`, `ownersForExperience`), while the child rows still exist to be listed. These collectors never throw; a failure degrades to the owners they resolved.
+2. Perform the entity delete.
+3. Call `cleanupPhotosForOwners(owners)` after it. This is strictly best-effort and never throws: orphaned photos are recoverable (`scripts/cleanup-orphan-photos.ts`), a resurrected trip is not.
+
+`deletePhotosByIds` is the shared core. Order matters: clear cover pointers first (checked, since a dangling pointer would block the row delete and a trip's cover can reference a destination-owned photo), delete rows next (the source of truth), then best-effort Storage removal LAST. Only `source === "upload"` objects and their derived `{path}_thumb` are removed; Wikimedia cache files live at a shared `wikimedia/{hash}` path other rows may still reference, so they always stay.
+
+### Map Control Model
+
+`src/components/map/map-controls.tsx` implements a two-tier model. Keep it:
+
+- **Modes** (photo map, replay, attractions) change what the map shows and earn visible buttons, filled brand blue when active. A mode may surface its own chrome while running.
+- **Utilities** (basemap, recenter, projection, fullscreen, refresh) adjust the view and all live in the single settings popover. Do not promote a utility to a visible button.
+- Resting state is at most four buttons plus search on any surface. Adding a fifth mode means rethinking the model, not appending a button.
+- The cluster is a bottom-right vertical column at every breakpoint; search anchors top-right. This is what makes the mobile collision structurally impossible (bounded cluster height, bottom-anchored, against a 300px minimum map height). Do not reintroduce a top-anchored phone column.
+
+Overlay corner system: top-left for status chrome (stats pill, photo-mode header, replay readout), top-right for search, bottom-right for the control cluster, bottom-centre for the transient style-loading pill, bottom-left for MapLibre attribution.
+
 ### Globe Rendering
 
-The globe is `src/components/map/globe.tsx`. It uses **MapLibre GL JS** native GeoJSON layers.
+The globe is `src/components/map/globe.tsx`, which owns the map lifecycle, interaction handlers, and mode wiring. Supporting modules:
+
+- `globe-types.ts`: the public data shapes (re-exported from `globe.tsx`, so existing imports keep working)
+- `globe-sources.ts`: pure GeoJSON builders and popup HTML helpers
+- `globe-layers.ts`: every runtime overlay layer plus `applySky`, called on first load and re-called after each basemap switch
+- `basemaps.ts`: the basemap catalog, style resolution, per-style overlay themes, zoom caps, and the countries GeoJSON cache
+
+It uses **MapLibre GL JS** native GeoJSON layers.
 
 Layer stack (bottom to top):
 - Dark base style (bundled JSON or PMTiles raster)
@@ -176,6 +206,8 @@ PostgREST can serialize numeric view columns as strings to preserve precision. T
 | Bucket list data layer and auto-fulfill | `src/lib/bucket-list.ts` |
 | Photo helpers (client-safe: resize, upload, URL) | `src/lib/photos.ts` |
 | Photo server reads and Wikimedia auto-populate | `src/lib/photos-data.ts` |
+| Shared photo deletion and owner collection | `src/lib/photo-cleanup.ts` |
+| Photo map mode data layer | `src/lib/photo-map-data.ts` |
 | Globe data layer (getMapData) | `src/lib/map-data.ts` |
 | Stats data layer (all views and RPC) | `src/lib/stats-data.ts` |
 | Public share data layer | `src/lib/share-data.ts` |
@@ -190,6 +222,10 @@ PostgREST can serialize numeric view columns as strings to preserve precision. T
 | Bucket list server actions | `src/lib/actions/bucket-list.ts` |
 | Share settings server action | `src/lib/actions/share-settings.ts` |
 | Globe rendering component | `src/components/map/globe.tsx` |
+| Globe overlay layers and sky | `src/components/map/globe-layers.ts` |
+| Globe GeoJSON source builders | `src/components/map/globe-sources.ts` |
+| Basemap catalog and style resolution | `src/components/map/basemaps.ts` |
+| Map control cluster (modes + settings popover) | `src/components/map/map-controls.tsx` |
 | Dashboard globe wrapper (overlay + drill-down) | `src/components/map/dashboard-globe.tsx` |
 | Photo upload component | `src/components/photos/photo-upload.tsx` |
 | Location search (geocoding typeahead) | `src/components/location-search.tsx` |

@@ -3,6 +3,10 @@
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { revalidateAppData } from "@/lib/revalidate";
 import { isDemoBlocked } from "@/lib/demo-guard";
+import {
+  cleanupPhotosForOwners,
+  ownersForExperience,
+} from "@/lib/photo-cleanup";
 import type { ActionResult } from "@/lib/action-result";
 import type { ExperienceStatus } from "@/lib/types";
 import {
@@ -147,6 +151,10 @@ export async function addPoiExperienceAction(input: {
   return { ok: true };
 }
 
+// The experience's photos go with it (photos are polymorphic, so nothing in
+// Postgres cascades them). Best-effort after the delete succeeds; any cover
+// pointer on the parent trip or destination that referenced one of these
+// photos is cleared by the shared cleanup.
 export async function deleteExperienceAction(
   tripId: string,
   destinationId: string,
@@ -154,6 +162,7 @@ export async function deleteExperienceAction(
 ): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   await deleteExperience(id);
+  await cleanupPhotosForOwners(ownersForExperience(id));
   revalidateAppData();
   return { ok: true };
 }

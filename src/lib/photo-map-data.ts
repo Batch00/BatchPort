@@ -71,8 +71,12 @@ const PHOTO_COLUMNS_BASE =
   "id, owner_type, owner_id, source, storage_path, external_url, attribution, date_taken, thumb_path";
 const PHOTO_COLUMNS_GPS = `${PHOTO_COLUMNS_BASE}, gps_lat, gps_lng`;
 
-// Dated photos first in chronological order, undated ones after.
-function byDateTaken(a: GlobePhoto, b: GlobePhoto): number {
+// Dated photos first in chronological order, undated ones after. Shared by the
+// mapped and unlocated lists so both read chronologically.
+function byDateTaken(
+  a: { dateTaken: string | null },
+  b: { dateTaken: string | null },
+): number {
   if (a.dateTaken && b.dateTaken && a.dateTaken !== b.dateTaken) {
     return a.dateTaken < b.dateTaken ? -1 : 1;
   }
@@ -213,14 +217,6 @@ export async function getPhotoMapData(userId?: string): Promise<PhotoMapData> {
   }
 
   photos.sort(byDateTaken);
-  // Dated unlocated photos first too, so the off-map grid reads chronologically.
-  unlocated.sort((a, b) => {
-    if (a.dateTaken && b.dateTaken && a.dateTaken !== b.dateTaken) {
-      return a.dateTaken < b.dateTaken ? -1 : 1;
-    }
-    if (a.dateTaken && !b.dateTaken) return -1;
-    if (!a.dateTaken && b.dateTaken) return 1;
-    return 0;
-  });
+  unlocated.sort(byDateTaken);
   return { photos, unlocatedCount: unlocated.length, unlocated };
 }

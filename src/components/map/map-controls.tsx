@@ -1,0 +1,358 @@
+"use client";
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Globe2,
+  ImageIcon,
+  LandmarkIcon,
+  LocateFixedIcon,
+  Map as MapIcon,
+  Maximize2Icon,
+  Minimize2Icon,
+  PlayIcon,
+  RefreshCwIcon,
+  SlidersHorizontalIcon,
+} from "lucide-react";
+
+import { cn } from "@/lib/utils";
+
+// The globe's floating control cluster, built on a two-tier model.
+//
+// MODES change what the map shows (photos, replay, attractions). They earn a
+// visible button and read as filled brand blue while active; entering one lets
+// that mode surface its own chrome (replay swaps this cluster for its transport
+// bar, photo mode adds a header pill).
+//
+// UTILITIES adjust how the current view is drawn (basemap style, projection,
+// fullscreen, recenter, refresh). They are not worth permanent buttons, so all
+// five live in one settings popover behind a single control.
+//
+// That caps the resting cluster at four buttons on every surface: three modes
+// plus settings, and fewer wherever a mode is not wired (the landing hero and
+// the destination picker show settings alone).
+//
+// Layout: one bottom-right vertical column at every breakpoint. The search
+// overlay hosts anchor to the top-right, so the two cannot collide by
+// construction rather than by tuning: the cluster's height is bounded at four
+// buttons (about 190px on phones including the bottom inset) and the search
+// button occupies the top 60px, so any map at least ~254px tall keeps them
+// apart. Every globe surface is at least 300px tall (min-h-[300px]) or
+// fullscreen.
+
+/** One selectable basemap style for the switcher swatches. */
+export interface BasemapOption {
+  id: string;
+  label: string;
+}
+
+interface MapControlsProps {
+  // --- Modes -------------------------------------------------------------
+  /** When provided, shows a photos toggle that enters/exits photo map mode. */
+  onPhotoToggle?: () => void;
+  photoModeActive?: boolean;
+  /** When provided, shows a replay button that starts timeline playback. */
+  onReplay?: () => void;
+  /** When provided, shows the "Show attractions" explore layer toggle. */
+  onAttractionsToggle?: () => void;
+  attractionsActive?: boolean;
+
+  // --- Utilities (all inside the settings popover) ------------------------
+  projection: "globe" | "mercator";
+  onToggleProjection: () => void;
+  /** When provided, offers a recenter action that snaps back to the data. */
+  onRecenter?: () => void;
+  /** When provided, offers a refresh action that re-fetches the map data. */
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  /** When provided (two or more options), shows the basemap swatch row. */
+  basemaps?: BasemapOption[];
+  activeBasemap?: string;
+  onBasemapChange?: (id: string) => void;
+  /** When provided, offers an expand/collapse fullscreen action. */
+  onFullscreenToggle?: () => void;
+  fullscreen?: boolean;
+}
+
+// Touch-sized on phones, a little larger from sm up where the map is taller.
+const BUTTON_CLASS =
+  "flex size-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-foreground/80 shadow-lg backdrop-blur-md transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 sm:size-11";
+
+// Active mode: solid brand blue, so "this mode owns the map" is unmistakable
+// next to the inert utility button.
+const BUTTON_ACTIVE_CLASS =
+  "border-brand bg-brand text-brand-foreground hover:bg-brand/90 hover:text-brand-foreground";
+
+const ICON_CLASS = "size-[18px] sm:size-5";
+
+const MENU_ITEM_CLASS =
+  "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-foreground/80 transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-50";
+
+// Swatch fills that read as the style they switch to, without shipping preview
+// tiles. Unknown ids fall back to the dark treatment.
+const SWATCH_FILLS: Record<string, string> = {
+  dark: "linear-gradient(135deg, #16181d 0%, #0a0a0a 100%)",
+  streets: "linear-gradient(135deg, #2b3340 0%, #12161d 100%)",
+  satellite: "linear-gradient(135deg, #1d3b2a 0%, #10293f 100%)",
+  terrain: "linear-gradient(135deg, #7f8a5c 0%, #4a5638 100%)",
+};
+
+/** Closes the popover on any pointerdown outside its wrapper element. */
+function useDismissOnOutsidePointer(
+  open: boolean,
+  wrapperRef: React.RefObject<HTMLDivElement | null>,
+  close: () => void,
+) {
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: PointerEvent) {
+      if (!wrapperRef.current?.contains(event.target as Node)) close();
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") close();
+    }
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+    // close and wrapperRef are stable per render usage here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+}
+
+function ModeButton({
+  label,
+  active = false,
+  icon,
+  onClick,
+}: {
+  label: string;
+  active?: boolean;
+  icon: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      className={cn(BUTTON_CLASS, active && BUTTON_ACTIVE_CLASS)}
+    >
+      {icon}
+    </button>
+  );
+}
+
+export function MapControls({
+  onPhotoToggle,
+  photoModeActive = false,
+  onReplay,
+  onAttractionsToggle,
+  attractionsActive = false,
+  projection,
+  onToggleProjection,
+  onRecenter,
+  onRefresh,
+  refreshing = false,
+  basemaps,
+  activeBasemap,
+  onBasemapChange,
+  onFullscreenToggle,
+  fullscreen = false,
+}: MapControlsProps) {
+  const isGlobe = projection === "globe";
+  const projectionLabel = isGlobe ? "Switch to flat map" : "Switch to globe";
+  const showBasemaps = Boolean(
+    basemaps && basemaps.length > 1 && onBasemapChange,
+  );
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement | null>(null);
+  useDismissOnOutsidePointer(settingsOpen, settingsRef, () =>
+    setSettingsOpen(false),
+  );
+
+  // Utility rows, in the order they appear under the basemap swatches.
+  const utilities: {
+    key: string;
+    label: string;
+    icon: ReactNode;
+    onSelect: () => void;
+    disabled?: boolean;
+  }[] = [];
+  if (onRecenter) {
+    utilities.push({
+      key: "recenter",
+      label: "Recenter on your travels",
+      icon: <LocateFixedIcon className="size-4" />,
+      onSelect: onRecenter,
+    });
+  }
+  utilities.push({
+    key: "projection",
+    label: projectionLabel,
+    icon: isGlobe ? (
+      <MapIcon className="size-4" />
+    ) : (
+      <Globe2 className="size-4" />
+    ),
+    onSelect: onToggleProjection,
+  });
+  if (onFullscreenToggle) {
+    utilities.push({
+      key: "fullscreen",
+      label: fullscreen ? "Exit fullscreen" : "Fullscreen",
+      icon: fullscreen ? (
+        <Minimize2Icon className="size-4" />
+      ) : (
+        <Maximize2Icon className="size-4" />
+      ),
+      onSelect: onFullscreenToggle,
+    });
+  }
+  if (onRefresh) {
+    utilities.push({
+      key: "refresh",
+      label: refreshing ? "Refreshing" : "Refresh data",
+      icon: (
+        <RefreshCwIcon className={cn("size-4", refreshing && "animate-spin")} />
+      ),
+      onSelect: onRefresh,
+      disabled: refreshing,
+    });
+  }
+
+  return (
+    <div
+      className={cn(
+        // Bottom-anchored on every surface, so the top-right search corner is
+        // structurally out of reach.
+        "absolute z-20 flex flex-col items-center gap-2",
+        fullscreen
+          ? "bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(0.75rem,env(safe-area-inset-right))] sm:bottom-[max(2rem,env(safe-area-inset-bottom))] sm:right-[max(1.25rem,env(safe-area-inset-right))]"
+          : "bottom-4 right-4 sm:bottom-8 sm:right-5",
+      )}
+    >
+      {onPhotoToggle ? (
+        <ModeButton
+          label={photoModeActive ? "Exit photo map" : "Show photos on the map"}
+          active={photoModeActive}
+          icon={<ImageIcon className={ICON_CLASS} />}
+          onClick={onPhotoToggle}
+        />
+      ) : null}
+      {onReplay ? (
+        <ModeButton
+          label="Replay your travel history"
+          icon={<PlayIcon className={cn(ICON_CLASS, "translate-x-px")} />}
+          onClick={onReplay}
+        />
+      ) : null}
+      {onAttractionsToggle ? (
+        <ModeButton
+          label={attractionsActive ? "Hide attractions" : "Show attractions"}
+          active={attractionsActive}
+          icon={<LandmarkIcon className={ICON_CLASS} />}
+          onClick={onAttractionsToggle}
+        />
+      ) : null}
+
+      <div className="relative" ref={settingsRef}>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((open) => !open)}
+          aria-label="Map settings"
+          title="Map settings"
+          aria-haspopup="menu"
+          aria-expanded={settingsOpen}
+          className={cn(
+            BUTTON_CLASS,
+            settingsOpen && "bg-white/15 text-foreground",
+          )}
+        >
+          <SlidersHorizontalIcon className={ICON_CLASS} />
+        </button>
+        {settingsOpen ? (
+          <div
+            role="menu"
+            aria-label="Map settings"
+            className="absolute bottom-full right-0 mb-2 w-56 overflow-hidden rounded-xl border border-white/10 bg-black/85 p-1.5 shadow-2xl backdrop-blur-md"
+          >
+            {showBasemaps ? (
+              <div className="px-1 pb-1.5 pt-1">
+                <div className="px-1 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-foreground/40">
+                  Basemap
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {basemaps!.map((option) => {
+                    const active = option.id === activeBasemap;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={active}
+                        title={option.label}
+                        onClick={() => {
+                          onBasemapChange!(option.id);
+                          setSettingsOpen(false);
+                        }}
+                        className="group flex flex-col items-center gap-1 focus-visible:outline-none"
+                      >
+                        <span
+                          aria-hidden
+                          style={{
+                            backgroundImage:
+                              SWATCH_FILLS[option.id] ?? SWATCH_FILLS.dark,
+                          }}
+                          className={cn(
+                            "h-8 w-full rounded-md border transition-colors",
+                            active
+                              ? "border-brand ring-2 ring-brand/50"
+                              : "border-white/15 group-hover:border-white/35 group-focus-visible:border-white/35",
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "w-full truncate text-center text-[10px] leading-tight",
+                            active ? "text-foreground" : "text-foreground/50",
+                          )}
+                        >
+                          {option.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {showBasemaps ? (
+              <div className="my-1 h-px bg-white/10" />
+            ) : null}
+
+            {utilities.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={() => {
+                  setSettingsOpen(false);
+                  item.onSelect();
+                }}
+                className={MENU_ITEM_CLASS}
+              >
+                <span className="shrink-0 text-foreground/50">{item.icon}</span>
+                {item.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}

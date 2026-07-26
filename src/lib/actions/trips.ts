@@ -9,6 +9,7 @@ import { isDemoBlocked } from "@/lib/demo-guard";
 import { createTrip, updateTrip, deleteTrip, type TripInput } from "@/lib/trips";
 import { createDestination } from "@/lib/destinations";
 import { autoPopulateDestinationCover } from "@/lib/photos-data";
+import { cleanupPhotosForOwners, ownersForTrip } from "@/lib/photo-cleanup";
 
 // Server actions for trip mutations. Each checks the demo guard first, performs
 // the operation, revalidates affected paths, then redirects. They return an
@@ -107,11 +108,20 @@ export async function startTripFromCityAction(
   redirect(`/trips/${trip.id}`);
 }
 
+// Deleting a trip cascades to its destinations and experiences in Postgres,
+// but photos are polymorphic (owner_type + owner_id, no foreign key) so they
+// would survive as invisible orphans. The owner list is collected BEFORE the
+// delete, while the child rows still exist to be listed, and the photo cleanup
+// runs after: it is best-effort and never fails the delete, since orphaned
+// photos are recoverable (scripts/cleanup-orphan-photos.ts) and a resurrected
+// trip is not.
 export async function deleteTripAction(
   id: string,
 ): Promise<{ error: string } | void> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  const photoOwners = await ownersForTrip(id);
   await deleteTrip(id);
+  await cleanupPhotosForOwners(photoOwners);
   revalidateAppData();
   redirect("/dashboard");
 }
