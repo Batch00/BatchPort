@@ -37,8 +37,13 @@ export default async function AppLayout({
 
       {demo ? (
         <div className="border-b border-brand/20 bg-brand/10 px-4 py-2 text-center text-xs text-foreground/70 sm:px-6">
-          You are viewing a demo. Data is read-only. Request access at
-          batch-apps.com
+          You are viewing a demo. Data is read-only. Request access at{" "}
+          <a
+            href="https://www.batch-apps.com"
+            className="font-medium text-brand underline underline-offset-4 transition-colors hover:text-brand/80"
+          >
+            batch-apps.com
+          </a>
         </div>
       ) : null}
 

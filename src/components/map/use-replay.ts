@@ -26,6 +26,17 @@ import {
 type Projection = "globe" | "mercator";
 export type ReplaySpeed = 1 | 2;
 
+/**
+ * Camera follow state.
+ *
+ * - "on": the camera moves to each new trip as playback reaches it.
+ * - "paused": a manual pan/zoom interrupted following. The camera stays put,
+ *   but the next trip boundary re-engages it automatically.
+ * - "off": the viewer turned following off from the transport control. It
+ *   stays off across trip boundaries until they turn it back on.
+ */
+export type ReplayFollow = "on" | "paused" | "off";
+
 // Normal globe layers that step aside while the replay tells its story.
 const HIDDEN_LAYERS = TRAVEL_LAYERS;
 
@@ -107,10 +118,12 @@ export interface ReplayHandle {
   playing: boolean;
   ended: boolean;
   speed: ReplaySpeed;
+  follow: ReplayFollow;
   enter: () => void;
   exit: () => void;
   togglePlay: () => void;
   toggleSpeed: () => void;
+  toggleFollow: () => void;
   restart: () => void;
   scrubStart: () => void;
   scrubMove: (fraction: number) => void;
@@ -130,6 +143,7 @@ export function useReplay({
   const [playing, setPlaying] = useState(false);
   const [ended, setEnded] = useState(false);
   const [speed, setSpeed] = useState<ReplaySpeed>(1);
+  const [follow, setFollow] = useState<ReplayFollow>("on");
 
   const timelineRef = useRef<ReplayTimeline | null>(timeline);
   timelineRef.current = timeline;
@@ -141,7 +155,7 @@ export function useReplay({
   const speedRef = useRef<ReplaySpeed>(1);
   const scrubbingRef = useRef(false);
   const wasPlayingRef = useRef(false);
-  const followRef = useRef(true);
+  const followRef = useRef<ReplayFollow>("on");
   const prevProjectionRef = useRef<Projection>("globe");
   const brandHexRef = useRef("#2563eb");
 
@@ -184,9 +198,29 @@ export function useReplay({
     [],
   );
 
-  function stopFollow() {
-    followRef.current = false;
+  function setFollowState(next: ReplayFollow) {
+    if (followRef.current === next) return;
+    followRef.current = next;
+    setFollow(next);
   }
+
+  // A manual pan/zoom suspends following so the camera never fights the
+  // viewer, but only as a pause: the next trip boundary re-engages it. An
+  // explicit "off" from the control is left alone.
+  function pauseFollow() {
+    if (followRef.current === "on") setFollowState("paused");
+  }
+
+  // Stable identities for map.on/map.off. Recreating the handler each render
+  // would leave the enter() listeners attached after exit().
+  const pauseFollowRef = useRef(pauseFollow);
+  pauseFollowRef.current = pauseFollow;
+  const onUserInteraction = useMemo(
+    () => () => {
+      pauseFollowRef.current();
+    },
+    [],
+  );
 
   function resetDiffCaches() {
     revealedKeyRef.current = "";
@@ -394,13 +428,16 @@ export function useReplay({
     if (els.thumb) els.thumb.style.left = `${pct}%`;
 
     // Camera: fit the active (or, during a gap, the upcoming) trip once per
-    // trip change. Seeks never move the camera; a manual map interaction
-    // disables following for the rest of the replay session.
+    // trip change. Seeks never move the camera. A trip boundary is also the
+    // natural place to recover from a pause, so following re-engages here
+    // unless the viewer turned it off explicitly.
     if (state.tripIndex !== lastTripIndexRef.current) {
-      const shouldFly =
-        !instant && followRef.current && lastTripIndexRef.current !== -1;
+      const first = lastTripIndexRef.current === -1;
       lastTripIndexRef.current = state.tripIndex;
-      if (shouldFly) flyToTrip(state.tripIndex);
+      if (!instant && !first && followRef.current !== "off") {
+        setFollowState("on");
+        flyToTrip(state.tripIndex);
+      }
     }
   }
 
@@ -582,11 +619,12 @@ export function useReplay({
     }
     addReplayLayers(map);
 
-    followRef.current = true;
-    map.on("mousedown", stopFollow);
-    map.on("wheel", stopFollow);
-    map.on("touchstart", stopFollow);
-    map.on("dragstart", stopFollow);
+    followRef.current = "on";
+    setFollow("on");
+    map.on("mousedown", onUserInteraction);
+    map.on("wheel", onUserInteraction);
+    map.on("touchstart", onUserInteraction);
+    map.on("dragstart", onUserInteraction);
 
     activeRef.current = true;
     tRef.current = 0;
@@ -610,10 +648,10 @@ export function useReplay({
 
     const map = mapRef.current;
     if (map) {
-      map.off("mousedown", stopFollow);
-      map.off("wheel", stopFollow);
-      map.off("touchstart", stopFollow);
-      map.off("dragstart", stopFollow);
+      map.off("mousedown", onUserInteraction);
+      map.off("wheel", onUserInteraction);
+      map.off("touchstart", onUserInteraction);
+      map.off("dragstart", onUserInteraction);
       removeReplayLayers(map);
       for (const id of HIDDEN_LAYERS) {
         if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", "visible");
@@ -634,8 +672,10 @@ export function useReplay({
     tRef.current = 0;
     resetDiffCaches();
     setEnded(false);
+    // A fresh run always starts following, whatever the previous run ended on.
+    setFollowState("on");
     applyFrame(replayStateAt(tl, 0), true);
-    if (followRef.current) flyToTrip(0);
+    flyToTrip(0);
     startPlaying();
   }
 
@@ -649,6 +689,18 @@ export function useReplay({
     } else {
       startPlaying();
     }
+  }
+
+  // Turning following back on catches the camera up to where playback
+  // actually is, easing rather than snapping.
+  function toggleFollow() {
+    if (!activeRef.current) return;
+    if (followRef.current === "on") {
+      setFollowState("off");
+      return;
+    }
+    setFollowState("on");
+    if (lastTripIndexRef.current !== -1) flyToTrip(lastTripIndexRef.current);
   }
 
   function toggleSpeed() {
@@ -696,10 +748,12 @@ export function useReplay({
     playing,
     ended,
     speed,
+    follow,
     enter,
     exit,
     togglePlay,
     toggleSpeed,
+    toggleFollow,
     restart,
     scrubStart,
     scrubMove,

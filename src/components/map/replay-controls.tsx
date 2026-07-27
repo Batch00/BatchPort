@@ -6,18 +6,31 @@
 // the replay engine through refs, so nothing here re-renders per frame.
 
 import { useRef } from "react";
-import { PauseIcon, PlayIcon, RotateCcwIcon, XIcon } from "lucide-react";
+import {
+  LocateFixedIcon,
+  LocateOffIcon,
+  PauseIcon,
+  PlayIcon,
+  RotateCcwIcon,
+  XIcon,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { ReplayOverlayAttach, ReplaySpeed } from "./use-replay";
+import type {
+  ReplayFollow,
+  ReplayOverlayAttach,
+  ReplaySpeed,
+} from "./use-replay";
 
 interface ReplayControlsProps {
   playing: boolean;
   ended: boolean;
   speed: ReplaySpeed;
+  follow: ReplayFollow;
   attach: ReplayOverlayAttach;
   onTogglePlay: () => void;
   onToggleSpeed: () => void;
+  onToggleFollow: () => void;
   onRestart: () => void;
   onExit: () => void;
   onScrubStart: () => void;
@@ -28,13 +41,40 @@ interface ReplayControlsProps {
 const TRANSPORT_BUTTON =
   "flex size-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-foreground/80 shadow-lg backdrop-blur-md transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60";
 
+// The three follow states read as three distinct fills: solid brand while the
+// camera is tracking, a soft brand tint while it is paused and waiting for the
+// next trip, and the plain transport treatment once it is off for good.
+const FOLLOW_STATES: Record<
+  ReplayFollow,
+  { label: string; title: string; className: string }
+> = {
+  on: {
+    label: "Following",
+    title: "Camera is following playback. Tap to stop.",
+    className:
+      "border-brand bg-brand text-brand-foreground hover:bg-brand/90 hover:text-brand-foreground",
+  },
+  paused: {
+    label: "Paused",
+    title: "Following paused by your pan or zoom. Resumes at the next trip, or tap to catch up now.",
+    className: "border-brand/40 bg-brand/15 text-brand hover:bg-brand/25",
+  },
+  off: {
+    label: "Free",
+    title: "Camera is free. Tap to follow playback again.",
+    className: "",
+  },
+};
+
 export function ReplayControls({
   playing,
   ended,
   speed,
+  follow,
   attach,
   onTogglePlay,
   onToggleSpeed,
+  onToggleFollow,
   onRestart,
   onExit,
   onScrubStart,
@@ -123,7 +163,7 @@ export function ReplayControls({
       {/* Transport bar with the scrubber. Safe-area padding keeps it clear of
           home indicators on installed mobile PWAs. */}
       <div className="absolute inset-x-0 bottom-0 z-30 px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-8">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
             type="button"
             onClick={onTogglePlay}
@@ -161,6 +201,30 @@ export function ReplayControls({
               style={{ left: "0%" }}
             />
           </div>
+
+          {/* Camera follow. Icon only on phones, icon plus state label from
+              sm up, so the current state reads at a glance either way. */}
+          <button
+            type="button"
+            onClick={onToggleFollow}
+            aria-pressed={follow === "on"}
+            aria-label={`Camera follow: ${FOLLOW_STATES[follow].label}`}
+            title={FOLLOW_STATES[follow].title}
+            className={cn(
+              TRANSPORT_BUTTON,
+              "gap-1.5 sm:w-auto sm:px-3",
+              FOLLOW_STATES[follow].className,
+            )}
+          >
+            {follow === "off" ? (
+              <LocateOffIcon className="size-4" />
+            ) : (
+              <LocateFixedIcon className="size-4" />
+            )}
+            <span className="hidden text-xs font-medium sm:inline">
+              {FOLLOW_STATES[follow].label}
+            </span>
+          </button>
 
           <button
             type="button"

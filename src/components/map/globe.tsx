@@ -1101,9 +1101,11 @@ export function Globe({
           playing={replay.playing}
           ended={replay.ended}
           speed={replay.speed}
+          follow={replay.follow}
           attach={replay.attach}
           onTogglePlay={replay.togglePlay}
           onToggleSpeed={replay.toggleSpeed}
+          onToggleFollow={replay.toggleFollow}
           onRestart={replay.restart}
           onExit={replay.exit}
           onScrubStart={replay.scrubStart}

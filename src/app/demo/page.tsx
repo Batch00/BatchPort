@@ -36,8 +36,13 @@ export default async function DemoPage() {
       </header>
 
       <div className="border-b border-brand/20 bg-brand/10 px-4 py-2 text-center text-xs text-foreground/70 sm:px-6">
-        You are viewing a demo of BatchPort. Request your own account at
-        batch-apps.com
+        You are viewing a demo of BatchPort. Request your own account at{" "}
+        <a
+          href="https://www.batch-apps.com"
+          className="font-medium text-brand underline underline-offset-4 transition-colors hover:text-brand/80"
+        >
+          batch-apps.com
+        </a>
       </div>
 
       <main className="flex-1">
