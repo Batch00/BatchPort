@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ActionTip } from "@/components/ui/info-tip";
 import type {
   ReplayFollow,
   ReplayOverlayAttach,
@@ -203,28 +204,31 @@ export function ReplayControls({
           </div>
 
           {/* Camera follow. Icon only on phones, icon plus state label from
-              sm up, so the current state reads at a glance either way. */}
-          <button
-            type="button"
-            onClick={onToggleFollow}
-            aria-pressed={follow === "on"}
-            aria-label={`Camera follow: ${FOLLOW_STATES[follow].label}`}
-            title={FOLLOW_STATES[follow].title}
-            className={cn(
-              TRANSPORT_BUTTON,
-              "gap-1.5 sm:w-auto sm:px-3",
-              FOLLOW_STATES[follow].className,
-            )}
-          >
-            {follow === "off" ? (
-              <LocateOffIcon className="size-4" />
-            ) : (
-              <LocateFixedIcon className="size-4" />
-            )}
-            <span className="hidden text-xs font-medium sm:inline">
-              {FOLLOW_STATES[follow].label}
-            </span>
-          </button>
+              sm up, so the current state reads at a glance either way. The
+              longer explanation rides in the aria-label as well as the tip, so
+              touch users (who get no tip on an action button) still have it. */}
+          <ActionTip tip={FOLLOW_STATES[follow].title}>
+            <button
+              type="button"
+              onClick={onToggleFollow}
+              aria-pressed={follow === "on"}
+              aria-label={`Camera follow: ${FOLLOW_STATES[follow].label}. ${FOLLOW_STATES[follow].title}`}
+              className={cn(
+                TRANSPORT_BUTTON,
+                "gap-1.5 sm:w-auto sm:px-3",
+                FOLLOW_STATES[follow].className,
+              )}
+            >
+              {follow === "off" ? (
+                <LocateOffIcon className="size-4" />
+              ) : (
+                <LocateFixedIcon className="size-4" />
+              )}
+              <span className="hidden text-xs font-medium sm:inline">
+                {FOLLOW_STATES[follow].label}
+              </span>
+            </button>
+          </ActionTip>
 
           <button
             type="button"

@@ -12,7 +12,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { AnimatedNumber, CountUpGroup } from "@/components/stats/count-up";
-import { CountryFlag } from "@/components/country-flag";
+import { CountryFlag, countryName } from "@/components/country-flag";
+import { InfoTip } from "@/components/ui/info-tip";
 import { funDistanceComparison, lapProgress } from "@/lib/stats-format";
 import { cn } from "@/lib/utils";
 import type { TravelSummary } from "@/lib/stats-data";
@@ -75,8 +76,17 @@ function FlagStrip({
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
+      {/* The only flag row with no country name beside it, so each flag carries
+          a tip. Tappable on touch, where a native title showed nothing. */}
       {shown.map((code) => (
-        <CountryFlag key={code} code={code} />
+        <InfoTip
+          key={code}
+          tip={countryName(code)}
+          label={countryName(code)}
+          className="inline-flex items-center"
+        >
+          <CountryFlag code={code} />
+        </InfoTip>
       ))}
       {!expanded && codes.length > MAX_FLAGS ? (
         <button

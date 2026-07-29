@@ -127,7 +127,7 @@ export function DestinationForm({
               variant="outline"
               onClick={() => setPickerOpen(true)}
               disabled={submitting}
-              title="Pick on map"
+              aria-label="Pick on map"
             >
               <MapIcon />
               <span className="hidden sm:inline">Pick on map</span>

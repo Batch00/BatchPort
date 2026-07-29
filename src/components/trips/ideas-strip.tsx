@@ -18,6 +18,7 @@ import {
 import { addPoiExperienceAction } from "@/lib/actions/experiences";
 import { useDiscovery } from "@/components/discover/discovery-host";
 import { SafeImage } from "@/components/photos/safe-image";
+import { InfoTip } from "@/components/ui/info-tip";
 import { cn } from "@/lib/utils";
 import type { DiscoverCityDetail, DiscoverPoi, PoiCategory } from "@/lib/discover";
 
@@ -90,9 +91,13 @@ function IdeaCard({
         </button>
       </div>
       <div className="px-2 py-1.5">
-        <p className="truncate text-xs text-foreground/85" title={poi.name}>
+        <InfoTip
+          tip={poi.name}
+          label={`Full name: ${poi.name}`}
+          className="block w-full truncate text-xs text-foreground/85"
+        >
           {poi.name}
-        </p>
+        </InfoTip>
         <p className="flex items-center gap-1 text-[10px] text-foreground/40">
           <Icon className="size-2.5" />
           {poi.category}

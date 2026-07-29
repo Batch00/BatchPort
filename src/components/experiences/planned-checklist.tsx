@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { RatingInput } from "@/components/rating-input";
 import { CategoryIcon } from "@/components/category-icon";
+import { InfoTip } from "@/components/ui/info-tip";
 import { markExperienceDoneAction } from "@/lib/actions/experiences";
 import { cn } from "@/lib/utils";
 
@@ -232,13 +233,16 @@ export function PlannedExperienceRowReadOnly({
         {name}
       </span>
       {categoryLabel ? (
-        <span
+        <InfoTip
+          tip={categoryLabel}
+          label={`Category: ${categoryLabel}`}
+          side="left"
           className="flex size-5 shrink-0 items-center justify-center rounded bg-white/5"
-          style={categoryColor ? { color: categoryColor } : undefined}
-          title={categoryLabel}
         >
-          <CategoryIcon icon={categoryIcon} className="size-3" />
-        </span>
+          <span style={categoryColor ? { color: categoryColor } : undefined}>
+            <CategoryIcon icon={categoryIcon} className="size-3" />
+          </span>
+        </InfoTip>
       ) : null}
     </li>
   );

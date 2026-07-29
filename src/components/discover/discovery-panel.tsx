@@ -581,14 +581,20 @@ function CityBody({
           <Button
             onClick={handleStartTrip}
             disabled={starting || !hasCoords}
-            title={
-              hasCoords ? undefined : "This place was saved without coordinates"
-            }
             className="bg-brand text-brand-foreground hover:bg-brand/90"
           >
             <PlaneIcon />
             {starting ? "Creating..." : "Start a trip"}
           </Button>
+          {!hasCoords ? (
+            // A disabled button cannot host a tooltip (no pointer events reach
+            // it), and the reason a control is dead should not be hidden behind
+            // an interaction anyway. Shown inline under the pair instead.
+            <p className="col-span-2 text-xs text-foreground/45">
+              This place was saved without coordinates, so a trip cannot be
+              started from it.
+            </p>
+          ) : null}
         </div>
       )}
 

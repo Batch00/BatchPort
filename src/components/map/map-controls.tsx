@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { ActionTip } from "@/components/ui/info-tip";
 
 // The globe's floating control cluster, built on a two-tier model.
 //
@@ -290,49 +291,51 @@ export function MapControls({
                   {basemaps!.map((option) => {
                     const active = option.id === activeBasemap;
                     return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={active}
-                        title={option.label}
-                        onClick={() => {
-                          onBasemapChange!(option.id);
-                          setSettingsOpen(false);
-                        }}
-                        className="group flex flex-col items-center gap-1 focus-visible:outline-none"
-                      >
-                        <span
-                          aria-hidden
-                          style={{
-                            backgroundImage:
-                              SWATCH_FILLS[option.id] ?? SWATCH_FILLS.dark,
+                      // The visible label is truncated in this narrow grid
+                      // cell, so the full name rides in the tip and in the
+                      // aria-label (which touch users get instead of a tip).
+                      <ActionTip key={option.id} tip={option.label}>
+                        <button
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={active}
+                          aria-label={option.label}
+                          onClick={() => {
+                            onBasemapChange!(option.id);
+                            setSettingsOpen(false);
                           }}
-                          className={cn(
-                            "h-8 w-full rounded-md border transition-colors",
-                            active
-                              ? "border-brand ring-2 ring-brand/50"
-                              : "border-white/15 group-hover:border-white/35 group-focus-visible:border-white/35",
-                          )}
-                        />
-                        <span
-                          className={cn(
-                            "w-full truncate text-center text-[10px] leading-tight",
-                            active ? "text-foreground" : "text-foreground/50",
-                          )}
+                          className="group flex flex-col items-center gap-1 focus-visible:outline-none"
                         >
-                          {option.label}
-                        </span>
-                      </button>
+                          <span
+                            aria-hidden
+                            style={{
+                              backgroundImage:
+                                SWATCH_FILLS[option.id] ?? SWATCH_FILLS.dark,
+                            }}
+                            className={cn(
+                              "h-8 w-full rounded-md border transition-colors",
+                              active
+                                ? "border-brand ring-2 ring-brand/50"
+                                : "border-white/15 group-hover:border-white/35 group-focus-visible:border-white/35",
+                            )}
+                          />
+                          <span
+                            className={cn(
+                              "w-full truncate text-center text-[10px] leading-tight",
+                              active ? "text-foreground" : "text-foreground/50",
+                            )}
+                          >
+                            {option.label}
+                          </span>
+                        </button>
+                      </ActionTip>
                     );
                   })}
                 </div>
               </div>
             ) : null}
 
-            {showBasemaps ? (
-              <div className="my-1 h-px bg-white/10" />
-            ) : null}
+            {showBasemaps ? <div className="my-1 h-px bg-white/10" /> : null}
 
             {utilities.map((item) => (
               <button

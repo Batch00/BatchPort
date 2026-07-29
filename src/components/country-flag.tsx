@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
 // at worst the two-letter code.
 
 let regionNames: Intl.DisplayNames | null = null;
-function countryName(code: string): string {
+/** "DK" -> "Denmark". Falls back to the code when Intl cannot resolve it. */
+export function countryName(code: string): string {
   try {
     regionNames ??= new Intl.DisplayNames(["en"], { type: "region" });
     return regionNames.of(code.toUpperCase()) ?? code;
@@ -32,9 +33,14 @@ export function CountryFlag({
   if (!code || !/^[A-Za-z]{2}$/.test(code)) return null;
   const name = countryName(code);
 
+  // No `title` on either branch. In almost every call site the country name is
+  // already visible next to the flag, so a tip would just repeat it, and making
+  // every flag in a combobox or search list a focusable tip trigger would bury
+  // keyboard users in tab stops. `alt` still names it for screen readers; the
+  // one place a flag stands alone (the stats flag row) wraps it in an InfoTip.
   if (failed) {
     return (
-      <span title={name} className={className}>
+      <span aria-label={name} role="img" className={className}>
         {flagEmoji(code) || code.toUpperCase()}
       </span>
     );
@@ -45,7 +51,6 @@ export function CountryFlag({
     <img
       src={`https://flagcdn.com/${code.toLowerCase()}.svg`}
       alt={name}
-      title={name}
       loading="lazy"
       onError={() => setFailed(true)}
       className={cn(
