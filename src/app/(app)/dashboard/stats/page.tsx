@@ -15,7 +15,12 @@ import { YearlyChart } from "@/components/stats/yearly-chart";
 import { CategoryChart } from "@/components/stats/category-chart";
 import { CountryChart } from "@/components/stats/country-chart";
 import { TravelMapStats } from "@/components/stats/travel-map-stats";
+import {
+  SuperlativesHeading,
+  SuperlativesSection,
+} from "@/components/stats/superlatives";
 import { BucketProgress } from "@/components/stats/bucket-progress";
+import { hasSuperlatives } from "@/lib/superlatives";
 
 export const metadata = { title: "Travel Stats" };
 
@@ -71,7 +76,19 @@ export default async function StatsPage() {
         description={countryInsight(stats.countries)}
       />
 
-      <TravelMapStats extremes={stats.extremes} />
+      {/* Superlatives sit after the aggregate charts and before the extremes:
+          the charts answer "how much", this answers "which one". */}
+      {hasSuperlatives(stats.superlatives) ? (
+        <div className="flex flex-col gap-3">
+          <SuperlativesHeading />
+          <SuperlativesSection superlatives={stats.superlatives} />
+        </div>
+      ) : null}
+
+      <TravelMapStats
+        extremes={stats.extremes}
+        furthestFromHome={stats.furthestFromHome}
+      />
 
       {stats.bucket ? <BucketProgress bucket={stats.bucket} /> : null}
     </div>

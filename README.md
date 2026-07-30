@@ -103,10 +103,42 @@ The floating control cluster follows a two-tier model, capped at four buttons pl
 - Open Graph and Twitter card metadata generated dynamically per slug (title and description include country and trip counts)
 - The /demo page uses the same SharedProfileView component, sessionlessly
 
+### Global Search
+
+- Search icon in the app nav on every authenticated page, plus Cmd+K / Ctrl+K
+- Matches your own trip, destination, experience, and bucket list names and notes (a note-only hit shows the matching excerpt)
+- Results grouped by type with context (an experience shows its destination and trip) and a rating where there is one; each row navigates to the right page
+- Keyboard navigable: arrow keys move across group boundaries, Enter opens, Escape closes
+- Debounced and server-side via `/api/search`, session-scoped so RLS is the access boundary
+- Distinct from the globe's geocode search, which finds places in the world; this finds things you have already logged, and the copy in both says so
+
+### Home Location and Distance
+
+- Set a home city in Settings with the same location typeahead used for destinations; stored as `user_settings.home_geom` via the EWKT convention
+- Unlocks distance from home on destination pages, the furthest stop on trip pages, and a furthest-from-home entry in the travel extremes panel
+- Trip planning picks up a time difference chip in the country facts strip, derived from the `utc_offset_seconds` the existing Open-Meteo climate lookup already returns (no new API, no new cache provider)
+- Every one of these is absent when no home is set: no empty states, no prompts
+
+### Superlatives
+
+- Top 10 rated experiences all time, with destination, trip, and rating
+- Best in category: the highest rated experience in each category that has one
+- "Did not quite land": the lowest rated entries, shown only when ratings are genuinely low (2 stars or below) and there are at least five rated experiences to rank
+- Per-trip bests on trip pages, derived from rows the page already fetched
+- All of it comes from one query for the whole stats page; planned experiences and planned trips are excluded
+
+### Data Export
+
+- JSON archive: every trip with nested destinations and experiences, plus the bucket list, photo metadata with absolute URLs, and settings
+- GeoJSON: destinations as Point features (trip, experience, and rating properties) and trips as LineString routes, so it opens in geojson.io or any GIS tool
+- Server-side generation at `/api/export?format=json|geojson`, downloaded with a dated filename; the builders take no user parameter, so a request can only ever return the caller's own data
+
 ### Settings
 
+- Set or clear your home city
 - Toggle public sharing on/off
 - Set a custom public slug (3 to 30 characters, lowercase letters, numbers, and hyphens; reserved slugs are blocked; must be unique across users)
+- Download your data as JSON or GeoJSON
 
 ### PWA
 
@@ -160,7 +192,7 @@ trips
 
 **geocode_cache:** Cached API responses keyed by provider (photon, photon_poi, nominatim, wikimedia) and query_norm. TTL: 30 days for geocoding responses, 90 days for Wikimedia responses.
 
-**user_settings:** Per-user configuration: public_share_enabled, public_slug, and is_demo.
+**user_settings:** Per-user configuration: public_share_enabled, public_slug, is_demo, and the home location (`home_geom geography(Point,4326)` plus the `home_name` and `home_country_code` labels).
 
 ## Metrics Layer
 
@@ -445,6 +477,18 @@ driving side, plug/voltage from Wikidata) need no schema change; climate uses
 the Open-Meteo ERA5 archive and caches under the `discover_climate` provider,
 and the facts ride along in the existing `discover_country` aggregate (its
 cache key was bumped so stale pre-facts payloads refresh).
+
+The home location needs the `home_name` and `home_country_code` label columns
+on `user_settings` (and `home_geom`, if the column is missing). Run
+`scripts/sql/2026-07-29-home-location.sql` in the Supabase SQL editor. Until it
+runs the feature degrades: saving a home retries without the label columns, so
+the point is still stored and every distance feature works, but Settings shows
+coordinates instead of a city name.
+
+Global search works with no migration at all. When the tables grow, run
+`scripts/sql/2026-07-29-search-indexes.sql` to add the pg_trgm GIN indexes that
+serve its unanchored ILIKE matching; without them the same rows come back via a
+sequential scan.
 
 ## Development Setup
 

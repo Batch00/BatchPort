@@ -3,6 +3,7 @@
 import {
   BanknoteIcon,
   CarIcon,
+  ClockIcon,
   LanguagesIcon,
   PlugIcon,
   type LucideIcon,
@@ -62,11 +63,30 @@ function FactChip({
   );
 }
 
+// "3 hours ahead of home" / "45 minutes behind home". Only rendered when a
+// home location is set and both timezones resolved, so there is no "same as
+// home, probably" hedging to write.
+function timezoneChipText(offsetHours: number): string {
+  if (offsetHours === 0) return "Same time as home";
+  const direction = offsetHours > 0 ? "ahead of" : "behind";
+  const total = Math.abs(offsetHours);
+  const whole = Math.floor(total);
+  const minutes = Math.round((total - whole) * 60);
+  const parts: string[] = [];
+  if (whole > 0) parts.push(`${whole} ${whole === 1 ? "hour" : "hours"}`);
+  if (minutes > 0) parts.push(`${minutes} min`);
+  return `${parts.join(" ")} ${direction} home`;
+}
+
 export function CountryFactsRow({
   facts,
+  timezoneOffsetHours,
   className,
 }: {
   facts: CountryFacts | null | undefined;
+  /** Hours ahead of the user's home. Undefined or null renders no chip, which
+   * covers both "no home set" and "could not resolve". */
+  timezoneOffsetHours?: number | null;
   className?: string;
 }) {
   if (!facts) return null;
@@ -107,10 +127,20 @@ export function CountryFactsRow({
           .join(" · ")
       : undefined;
 
-  if (!currency && !languages && !driving && !plug) return null;
+  const timezone =
+    typeof timezoneOffsetHours === "number"
+      ? timezoneChipText(timezoneOffsetHours)
+      : null;
+
+  if (!currency && !languages && !driving && !plug && !timezone) return null;
 
   return (
     <div className={cn("flex flex-wrap gap-1.5", className)}>
+      {timezone ? (
+        <FactChip icon={ClockIcon} label="Time difference">
+          {timezone}
+        </FactChip>
+      ) : null}
       {currency ? (
         <FactChip icon={BanknoteIcon} label="Currency" tip={currencyTip}>
           {currency}

@@ -176,6 +176,29 @@ All stats come from SQL views and the `f_distance_traveled` RPC in the batchport
 
 PostgREST can serialize numeric view columns as strings to preserve precision. The `num()` helper in `stats-data.ts` coerces them defensively before passing to charts.
 
+### Search, Export, and Home Location
+
+Three surfaces read the current user's own rows and must never take a userId
+argument. `searchUserData()`, the export builders in `export-data.ts`, and
+their API routes all read through `requireUser()`'s session-scoped client, so
+RLS is the access boundary and no request can name another account. Adding a
+userId parameter to any of them, or switching them to the admin client, would
+turn them into a data leak. `getHomeLocation(userId)` is the exception and
+takes one, because it uses the admin client for the same reason
+`getShareSettings` does (the user_settings row may not exist yet); its callers
+pass the id from `requireUser()`.
+
+Search builds a PostgREST `.or()` filter by hand. Values are double quoted so
+a typed comma or parenthesis cannot break out of the term, and every wildcard
+character (`%`, `_`, `*`, `\`) is mapped to `_`. Backslash escaping does not
+work here: PostgREST unquotes the value before it becomes a LIKE pattern and
+separately translates `*` to `%`, so an escaped wildcard reaches Postgres as a
+live one. See `orTerm()` in `search.ts`.
+
+Everything downstream of the home location degrades to absent, never to an
+empty state: no home means no distance lines, no furthest-from-home tile, and
+no timezone chip. Nothing in the app prompts the user to set one.
+
 ## Common Gotchas
 
 - **proxy.ts not middleware.ts:** Next.js 16 renamed the middleware file convention to "proxy". The session refresh and route guard live in `src/proxy.ts`. Creating a `src/middleware.ts` file would have no effect.
@@ -223,6 +246,13 @@ PostgREST can serialize numeric view columns as strings to preserve precision. T
 | Globe data layer (getMapData) | `src/lib/map-data.ts` |
 | Landing hero globe data (cached anon demo read) | `src/lib/landing-data.ts` |
 | Landing hero static fallback (generated) | `src/lib/mock-travel-data.ts` |
+| Home location read side and distance helpers | `src/lib/home-location.ts` |
+| Home location server action | `src/lib/actions/home-location.ts` |
+| Global search data layer (server) | `src/lib/search.ts` |
+| Global search client-safe shapes | `src/lib/search-types.ts` |
+| Global search command palette | `src/components/search/global-search.tsx` |
+| Data export builders (JSON and GeoJSON) | `src/lib/export-data.ts` |
+| Superlatives derivation (pure) | `src/lib/superlatives.ts` |
 | Stats data layer (all views and RPC) | `src/lib/stats-data.ts` |
 | Public share data layer | `src/lib/share-data.ts` |
 | Share settings read side | `src/lib/share-settings.ts` |

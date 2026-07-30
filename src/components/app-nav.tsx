@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { MenuIcon, SettingsIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { GlobalSearch } from "@/components/search/global-search";
 import { cn } from "@/lib/utils";
 
 // Links shown in the full mobile menu. The desktop bar shows the first three
@@ -69,6 +70,9 @@ export function AppNav({ email, signOut }: AppNavProps) {
           <span className="hidden text-sm text-foreground/60 lg:inline">
             {email}
           </span>
+          {/* Sits outside the hamburger so search is one tap from every page
+              on a phone, not two. */}
+          <GlobalSearch />
           <Link
             href="/dashboard/settings"
             aria-label="Settings"

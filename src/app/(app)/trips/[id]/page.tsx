@@ -9,6 +9,10 @@ import { getBucketList, getCountries } from "@/lib/bucket-list";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
 import { placeKey } from "@/lib/geo";
+import { furthestFrom, getHomeLocation } from "@/lib/home-location";
+import { tripHighlights } from "@/lib/superlatives";
+import { formatKm } from "@/lib/stats-format";
+import { TripHighlights } from "@/components/trips/trip-highlights";
 import { coverImageStyle, getPhotoUrl, resolveCoverPhoto } from "@/lib/photos";
 import { Card, CardContent } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
@@ -68,10 +72,28 @@ export default async function TripDetailPage({
   const experienceIds = trip.destinations.flatMap((destination) =>
     destination.experiences.map((experience) => experience.id),
   );
-  const [destPhotos, expPhotos] = await Promise.all([
+  const [destPhotos, expPhotos, home] = await Promise.all([
     getPhotosForOwners("destination", destIds),
     getPhotosForOwners("experience", experienceIds),
+    getHomeLocation(user.id),
   ]);
+
+  // Distance from home is the trip's furthest stop. With no home set, or no
+  // located stop, this is null and the banner line simply omits it.
+  const furthest = furthestFrom(
+    home,
+    trip.destinations.map((destination) => ({
+      lat: destination.latitude,
+      lng: destination.longitude,
+    })),
+  );
+  const locatedCount = trip.destinations.filter(
+    (destination) => destination.latitude !== null,
+  ).length;
+
+  // Best of this trip: derived from the experiences already fetched above, so
+  // it costs nothing extra.
+  const tripBests = tripHighlights(trip.destinations);
 
   // Group each destination's photos so we can resolve per-card covers.
   const photosByDestination = new Map<string, Photo[]>();
@@ -164,6 +186,13 @@ export default async function TripDetailPage({
               <span className="text-white/50"> · {formatDuration(days)}</span>
             ) : null;
           })()}
+          {furthest ? (
+            <span className="text-white/50">
+              {" "}
+              · {locatedCount > 1 ? "furthest point " : ""}
+              {formatKm(furthest.distanceKm)} from home
+            </span>
+          ) : null}
         </p>
       </PhotoBanner>
 
@@ -179,7 +208,12 @@ export default async function TripDetailPage({
         <TripCountryFacts
           countries={(() => {
             const seen = new Set<string>();
-            const list: { code: string; name: string }[] = [];
+            const list: {
+              code: string;
+              name: string;
+              lat: number | null;
+              lng: number | null;
+            }[] = [];
             for (const destination of trip.destinations) {
               const code = destination.country_code;
               if (!code || seen.has(code)) continue;
@@ -187,12 +221,16 @@ export default async function TripDetailPage({
               list.push({
                 code,
                 name: countryNameByCode.get(code) ?? code,
+                lat: destination.latitude,
+                lng: destination.longitude,
               });
             }
             return list;
           })()}
         />
       ) : null}
+
+      <TripHighlights highlights={tripBests} />
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-medium text-foreground/80">Destinations</h2>

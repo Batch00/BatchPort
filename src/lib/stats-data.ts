@@ -1,4 +1,11 @@
 import { createClient } from "@/utils/supabase/server";
+import { getHomeLocation, type HomeLocation } from "@/lib/home-location";
+import { haversineKm } from "@/lib/geo";
+import {
+  buildSuperlatives,
+  type RatedExperience,
+  type Superlatives,
+} from "@/lib/superlatives";
 
 // The server Supabase client is scoped to the batchport schema, so derive the
 // parameter type from it rather than the default (public-schema) SupabaseClient.
@@ -67,6 +74,14 @@ export interface TravelExtremes {
   west: ExtremeEntry;
 }
 
+// The destination furthest from the user's home city. Null whenever no home
+// location is set, which is the default state.
+export interface FurthestFromHome {
+  name: string;
+  distanceKm: number;
+  homeLabel: string | null;
+}
+
 export interface StatsData {
   summary: TravelSummary | null;
   categories: CategoryStat[];
@@ -75,6 +90,8 @@ export interface StatsData {
   bucket: BucketCompletion | null;
   extremes: TravelExtremes;
   distanceKm: number;
+  furthestFromHome: FurthestFromHome | null;
+  superlatives: Superlatives;
 }
 
 // The subset of stats the dashboard, demo, and share pages actually render
@@ -355,6 +372,106 @@ async function getExtremeNames(
   return { north, south, east, west };
 }
 
+// The stop furthest from home, by great-circle distance. Returns null without
+// a home location, so the caller renders nothing rather than an empty state.
+// Planned-trip stops are excluded, matching the compass extremes.
+async function getFurthestFromHome(
+  supabase: StatsClient,
+  userId: string,
+  home: HomeLocation | null,
+): Promise<FurthestFromHome | null> {
+  if (!home) return null;
+
+  const { data, error } = await supabase
+    .from("destinations")
+    .select("name, latitude, longitude, trips!inner(status)")
+    .eq("user_id", userId)
+    .neq("trips.status", "planned")
+    .not("latitude", "is", null);
+  if (error || !data) return null;
+
+  let best: { name: string; distanceKm: number } | null = null;
+  for (const row of data as { name: string; latitude: number | null; longitude: number | null }[]) {
+    if (row.latitude === null || row.longitude === null) continue;
+    const distanceKm = haversineKm(
+      home.lat,
+      home.lng,
+      row.latitude,
+      row.longitude,
+    );
+    if (!best || distanceKm > best.distanceKm) {
+      best = { name: row.name, distanceKm };
+    }
+  }
+  if (!best) return null;
+  return { ...best, homeLabel: home.name };
+}
+
+// Every rated experience the user has logged, flattened for the superlatives
+// derivation. One query: the top-N-per-category grouping is done in JS over
+// these rows rather than in a view, because the row count is small and a view
+// would be one more thing to keep in sync by hand.
+async function getRatedExperiences(
+  supabase: StatsClient,
+  userId: string,
+): Promise<RatedExperience[]> {
+  // select * on the experience columns so a missing status column (migration
+  // not yet run) does not error the query; status then reads as undefined and
+  // normalizes to "done" below.
+  const { data, error } = await supabase
+    .from("experiences")
+    .select(
+      "*, categories(slug, label, color, icon), destinations!inner(id, name, trips!inner(id, name, status))",
+    )
+    .eq("user_id", userId)
+    .not("rating", "is", null)
+    .order("visited_date", { ascending: false, nullsFirst: false });
+  if (error || !data) return [];
+
+  const rows = data as unknown as {
+    id: string;
+    name: string;
+    rating: number | null;
+    status?: string | null;
+    visited_date: string | null;
+    categories: {
+      slug: string;
+      label: string;
+      color: string | null;
+      icon: string | null;
+    } | null;
+    destinations: {
+      id: string;
+      name: string;
+      trips: { id: string; name: string; status: string } | null;
+    } | null;
+  }[];
+
+  const rated: RatedExperience[] = [];
+  for (const row of rows) {
+    if (row.rating === null) continue;
+    // A planned idea carries no verdict, and a planned trip has not happened.
+    if (row.status === "planned") continue;
+    const trip = row.destinations?.trips;
+    if (!row.destinations || !trip || trip.status === "planned") continue;
+    rated.push({
+      id: row.id,
+      name: row.name,
+      rating: num(row.rating),
+      categorySlug: row.categories?.slug ?? null,
+      categoryLabel: row.categories?.label ?? null,
+      categoryColor: row.categories?.color ?? null,
+      categoryIcon: row.categories?.icon ?? null,
+      destinationId: row.destinations.id,
+      destinationName: row.destinations.name,
+      tripId: trip.id,
+      tripName: trip.name,
+      visitedDate: row.visited_date,
+    });
+  }
+  return rated;
+}
+
 // --- Aggregate -------------------------------------------------------------
 
 // Summary cards, distance, and bucket completion only: everything the
@@ -397,6 +514,8 @@ export async function getAllStats(userId?: string): Promise<StatsData> {
     distanceKm,
     names,
     adjustments,
+    home,
+    ratedExperiences,
   ] = await Promise.all([
     getTravelSummary(supabase, uid),
     getExperiencesByCategory(supabase, uid),
@@ -407,7 +526,12 @@ export async function getAllStats(userId?: string): Promise<StatsData> {
     getDistanceTraveled(supabase, uid),
     getExtremeNames(supabase, uid),
     getPlannedAdjustments(supabase, uid),
+    getHomeLocation(uid),
+    getRatedExperiences(supabase, uid),
   ]);
+
+  // Needs the home row, so it runs after the parallel batch rather than in it.
+  const furthestFromHome = await getFurthestFromHome(supabase, uid, home);
 
   const extremes: TravelExtremes = {
     north: { name: names.north, value: extremesRow?.northernmost_lat ?? null },
@@ -424,5 +548,7 @@ export async function getAllStats(userId?: string): Promise<StatsData> {
     bucket,
     extremes,
     distanceKm,
+    furthestFromHome,
+    superlatives: buildSuperlatives(ratedExperiences),
   };
 }

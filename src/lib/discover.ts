@@ -1072,6 +1072,10 @@ export interface DiscoverClimate {
   high: number;
   low: number;
   wetDays: number;
+  /** The location's UTC offset in seconds, as Open-Meteo resolved it for these
+   * coordinates. Rides along on the climate payload so a timezone lookup costs
+   * no extra request; null on rows cached before the field existed. */
+  utcOffsetSeconds: number | null;
 }
 
 // Endpoint choice: the archive API (ERA5 reanalysis, real observed weather)
@@ -1087,8 +1091,11 @@ const WET_DAY_MM = 1;
 
 // One decimal degree of rounding (~11 km): climate does not vary within a city,
 // and nearby lookups share cache rows.
+//
+// The v2 suffix bumps the key so rows cached before utcOffsetSeconds existed
+// are ignored and refetched, the same trick the country aggregate uses.
 function climateKey(lat: number, lng: number, month: number): string {
-  return `${lat.toFixed(1)},${lng.toFixed(1)}|${month}`;
+  return `${lat.toFixed(1)},${lng.toFixed(1)}|${month}|v2`;
 }
 
 export async function getDiscoverClimate(
@@ -1097,7 +1104,10 @@ export async function getDiscoverClimate(
   month: number,
 ): Promise<DiscoverClimate | null> {
   const cached = await readCache(CLIMATE_PROVIDER, climateKey(lat, lng, month));
-  if (cached) return cached as DiscoverClimate;
+  if (cached) {
+    const row = cached as DiscoverClimate;
+    return { ...row, utcOffsetSeconds: row.utcOffsetSeconds ?? null };
+  }
 
   // Fetch with the key-rounded coordinates so every lookup that shares a cache
   // key is backed by identical upstream data.
@@ -1107,6 +1117,7 @@ export async function getDiscoverClimate(
     temperature_2m_min?: (number | null)[];
     precipitation_sum?: (number | null)[];
   };
+  let utcOffsetSeconds: number | null = null;
   try {
     const url = new URL("https://archive-api.open-meteo.com/v1/archive");
     url.searchParams.set("latitude", lat.toFixed(1));
@@ -1117,7 +1128,12 @@ export async function getDiscoverClimate(
       "daily",
       "temperature_2m_max,temperature_2m_min,precipitation_sum",
     );
-    url.searchParams.set("timezone", "UTC");
+    // "auto" rather than "UTC": it buckets daily values in the location's own
+    // local time (marginally more correct for a climatology) and, more to the
+    // point, makes the response report utc_offset_seconds for these
+    // coordinates. That is the whole timezone lookup, for free, on a request
+    // the app already makes.
+    url.searchParams.set("timezone", "auto");
     const response = await fetch(url, {
       headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
       // The decade of daily values is a large payload; give it more room than
@@ -1125,7 +1141,15 @@ export async function getDiscoverClimate(
       signal: AbortSignal.timeout(12000),
     });
     if (!response.ok) return null;
-    daily = ((await response.json()) as { daily?: typeof daily }).daily ?? {};
+    const payload = (await response.json()) as {
+      daily?: typeof daily;
+      utc_offset_seconds?: number;
+    };
+    daily = payload.daily ?? {};
+    utcOffsetSeconds =
+      typeof payload.utc_offset_seconds === "number"
+        ? payload.utc_offset_seconds
+        : null;
   } catch {
     return null;
   }
@@ -1165,6 +1189,7 @@ export async function getDiscoverClimate(
       high: Math.round(bucket.high / bucket.count),
       low: Math.round(bucket.low / bucket.count),
       wetDays: Math.round(bucket.wet / CLIMATE_YEARS),
+      utcOffsetSeconds,
     });
   }
   if (months.length === 0) return null;
@@ -1177,4 +1202,21 @@ export async function getDiscoverClimate(
     ),
   );
   return months.find((entry) => entry.month === month) ?? null;
+}
+
+/** The UTC offset in seconds at a set of coordinates, piggybacked on the
+ * climate lookup above: no new provider, no new endpoint, and the answer is
+ * cached under the same rows the climate line already warms.
+ *
+ * The offset is whatever Open-Meteo reports for the location now, so it
+ * follows daylight saving at request time. That is right for a "how far off
+ * local time is" chip and wrong for date arithmetic; do not use it for the
+ * latter. Null whenever the lookup fails, which callers treat as "no chip". */
+export async function getLocationUtcOffsetSeconds(
+  lat: number,
+  lng: number,
+): Promise<number | null> {
+  const month = new Date().getUTCMonth() + 1;
+  const climate = await getDiscoverClimate(lat, lng, month);
+  return climate?.utcOffsetSeconds ?? null;
 }

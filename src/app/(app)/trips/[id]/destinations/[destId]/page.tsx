@@ -9,6 +9,8 @@ import { getPhotos, getPhotosForOwners } from "@/lib/photos-data";
 import { resolveCoverPhoto } from "@/lib/photos";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
+import { distanceFromHome, getHomeLocation } from "@/lib/home-location";
+import { formatKm } from "@/lib/stats-format";
 import { buttonVariants } from "@/components/ui/button";
 import { DeleteDestinationButton } from "@/components/destinations/delete-destination-button";
 import { ExperiencesSection } from "@/components/experiences/experiences-section";
@@ -46,7 +48,17 @@ export default async function DestinationDetailPage({
   }
 
   const experienceIds = destination.experiences.map((experience) => experience.id);
-  const experiencePhotos = await getPhotosForOwners("experience", experienceIds);
+  const [experiencePhotos, home] = await Promise.all([
+    getPhotosForOwners("experience", experienceIds),
+    getHomeLocation(user.id),
+  ]);
+  // Null whenever no home is set or the stop has no coordinates; the line is
+  // then simply absent.
+  const homeDistanceKm = distanceFromHome(
+    home,
+    destination.latitude,
+    destination.longitude,
+  );
   // The explicit cover can be an experience-owned photo, so it resolves by id
   // across every photo on the page; the crop position applies only to it.
   const photoById = new Map(
@@ -118,6 +130,12 @@ export default async function DestinationDetailPage({
               <span className="text-white/50"> · {formatDuration(days)}</span>
             ) : null;
           })()}
+          {homeDistanceKm !== null ? (
+            <span className="text-white/50">
+              {" "}
+              · {formatKm(homeDistanceKm)} from home
+            </span>
+          ) : null}
         </p>
       </PhotoBanner>
 
