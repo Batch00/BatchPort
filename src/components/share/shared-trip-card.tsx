@@ -7,6 +7,8 @@ import { StatusBadge } from "@/components/trips/status-badge";
 import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
 import { PlannedExperienceRowReadOnly } from "@/components/experiences/planned-checklist";
+import { StoryLauncher } from "@/components/trips/story-launcher";
+import { hasStory, storyTripFromProfile } from "@/lib/story";
 import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
 import { groupByPlanDay, planDayCount, planDayLabel } from "@/lib/day-plan";
 import { CountryFlag } from "@/components/country-flag";
@@ -91,7 +93,15 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
     trip.status === "planned" ? daysUntil(trip.start_date) : null;
 
   return (
-    <div className="isolate overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+    <div className="relative isolate overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+      {/* Outside the expand button, not inside it: a button cannot nest. The
+          story is read-only, so it belongs on the public surfaces too. */}
+      {hasStory(trip) ? (
+        <StoryLauncher
+          trip={storyTripFromProfile(trip)}
+          className="absolute right-3 top-3 z-10 px-2.5 py-1 text-xs"
+        />
+      ) : null}
       <button
         type="button"
         onClick={() => setExpanded((open) => !open)}

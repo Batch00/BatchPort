@@ -4,6 +4,11 @@ import { ArrowLeftIcon, ImageIcon, PencilIcon, PlusIcon } from "lucide-react";
 
 import { getTrip, getTripDestinationOptions } from "@/lib/trips";
 import { getPhotos, getPhotosForOwners } from "@/lib/photos-data";
+import { getJournalEntries, journalAvailable } from "@/lib/journal-data";
+import { journalDays, journalingApplies } from "@/lib/journal";
+import { TripJournal } from "@/components/trips/trip-journal";
+import { StoryLauncher } from "@/components/trips/story-launcher";
+import { hasStory, type StoryPhoto, type StoryTrip } from "@/lib/story";
 import { getCategories } from "@/lib/experiences";
 import { getBucketList, getCountries } from "@/lib/bucket-list";
 import { requireUser } from "@/lib/current-user";
@@ -72,11 +77,17 @@ export default async function TripDetailPage({
   const experienceIds = trip.destinations.flatMap((destination) =>
     destination.experiences.map((experience) => experience.id),
   );
-  const [destPhotos, expPhotos, home] = await Promise.all([
-    getPhotosForOwners("destination", destIds),
-    getPhotosForOwners("experience", experienceIds),
-    getHomeLocation(user.id),
-  ]);
+  // journalEntries and journalReady ride in the same batch: the availability
+  // probe is what lets the section render read-only with an explanation on a
+  // database where the migration has not run, instead of failing on save.
+  const [destPhotos, expPhotos, home, journalEntries, journalReady] =
+    await Promise.all([
+      getPhotosForOwners("destination", destIds),
+      getPhotosForOwners("experience", experienceIds),
+      getHomeLocation(user.id),
+      getJournalEntries(id),
+      journalAvailable(),
+    ]);
 
   // Distance from home is the trip's furthest stop. With no home set, or no
   // located stop, this is null and the banner line simply omits it.
@@ -142,6 +153,89 @@ export default async function TripDetailPage({
     ? (trip.cover_position ?? null)
     : null;
 
+  // --- Journal and story --------------------------------------------------
+  // Journaling is retrospective or in-the-moment writing, so it applies to
+  // completed and ongoing trips. A planned trip's day structure already
+  // belongs to the planner; adding a second writing surface to it would just
+  // compete with the ideas checklist.
+  const showJournal = journalingApplies(trip.status);
+  const journalDayRows = showJournal
+    ? journalDays(trip, trip.destinations, journalEntries)
+    : [];
+
+  // The story reads exactly the rows this page already fetched, mapped into
+  // the shape lib/story.ts folds into slides. No extra query.
+  const categoryById = new Map(
+    categories.map((category) => [category.id, category]),
+  );
+  const destinationOfExperience = new Map<string, string>();
+  for (const destination of trip.destinations) {
+    for (const experience of destination.experiences) {
+      destinationOfExperience.set(experience.id, destination.id);
+    }
+  }
+  const toStoryPhoto = (
+    photo: Photo,
+    destinationId: string | null,
+  ): StoryPhoto => ({
+    id: photo.id,
+    url: getPhotoUrl(photo),
+    thumbUrl: getPhotoUrl(photo, "thumb"),
+    dateTaken: photo.date_taken,
+    attribution: photo.attribution,
+    destinationId,
+  });
+  const storyTrip: StoryTrip = {
+    id: trip.id,
+    name: trip.name,
+    status: trip.status,
+    startDate: trip.start_date,
+    endDate: trip.end_date,
+    notes: trip.notes,
+    coverUrl: bannerPhoto ? getPhotoUrl(bannerPhoto) : null,
+    journal: Object.fromEntries(
+      journalEntries.map((entry) => [entry.entry_date.slice(0, 10), entry.body]),
+    ),
+    photos: [
+      ...tripPhotos.map((photo) => toStoryPhoto(photo, null)),
+      ...destPhotos.map((photo) => toStoryPhoto(photo, photo.owner_id)),
+      ...expPhotos.map((photo) =>
+        toStoryPhoto(photo, destinationOfExperience.get(photo.owner_id) ?? null),
+      ),
+    ],
+    destinations: trip.destinations.map((destination) => ({
+      id: destination.id,
+      name: destination.name,
+      countryCode: destination.country_code,
+      arrivalDate: destination.arrival_date,
+      departureDate: destination.departure_date,
+      latitude: destination.latitude,
+      longitude: destination.longitude,
+      coverUrl: (() => {
+        const cover = destinationCovers.get(destination.id);
+        return cover ? getPhotoUrl(cover.photo) : null;
+      })(),
+      // Planned ideas are not part of the record of what happened.
+      experiences: destination.experiences
+        .filter((experience) => experience.status !== "planned")
+        .map((experience) => {
+          const category = experience.category_id
+            ? categoryById.get(experience.category_id)
+            : undefined;
+          return {
+            id: experience.id,
+            name: experience.name,
+            rating: experience.rating,
+            visitedDate: experience.visited_date,
+            notes: experience.notes,
+            categoryLabel: category?.label ?? null,
+            categoryIcon: category?.icon ?? null,
+            categoryColor: category?.color ?? null,
+          };
+        }),
+    })),
+  };
+
   return (
     <DiscoveryProvider
       bucketCountryCodes={bucketCountryCodes}
@@ -158,7 +252,8 @@ export default async function TripDetailPage({
       </Link>
 
       <PhotoBanner photo={bannerPhoto} coverPosition={bannerPosition} className="mb-8">
-        <div className="absolute right-4 top-4 flex items-center gap-2">
+        <div className="absolute right-4 top-4 flex flex-wrap items-center justify-end gap-2">
+          {hasStory(trip) ? <StoryLauncher trip={storyTrip} /> : null}
           <Link
             href={`/trips/${trip.id}/edit`}
             className={cn(
@@ -359,6 +454,19 @@ export default async function TripDetailPage({
           })}
         </ol>
       )}
+
+      {showJournal ? (
+        <TripJournal
+          tripId={trip.id}
+          days={journalDayRows}
+          disabled={isDemo || !journalReady}
+          disabledReason={
+            journalReady
+              ? null
+              : "Journaling is not set up on this database yet."
+          }
+        />
+      ) : null}
 
       <TripPhotosSection
         tripId={trip.id}

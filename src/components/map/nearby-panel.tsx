@@ -31,8 +31,13 @@ import {
 import type { NearbyStatus } from "./use-nearby";
 import type { GlobeDestination } from "./globe-types";
 
+// No width of its own: the host positions the card with both a left and a
+// right inset, so the map's own edges size it and it cannot spill past them.
+// (A `w-full` here resolved against the map container, not against the space
+// between the insets, which is what pushed the card past the right edge on a
+// phone.) max-w-sm only caps it once the map is wide enough to matter.
 const CARD_CLASS =
-  "pointer-events-auto w-full max-w-sm rounded-2xl border border-white/10 bg-black/80 p-3.5 text-sm shadow-2xl backdrop-blur-md";
+  "pointer-events-auto max-w-sm rounded-2xl border border-white/10 bg-black/80 p-3.5 text-sm shadow-2xl backdrop-blur-md";
 
 const ACTION_CLASS =
   "inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-foreground/80 transition-colors hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50";
@@ -209,10 +214,10 @@ export function NearbyPanel({
           <>
             <Link
               href={`/trips/${destination.tripId}/destinations/${destination.id}`}
-              className={ACTION_CLASS}
+              className={cn(ACTION_CLASS, "max-w-full")}
             >
-              <MapPinIcon className="size-3.5" />
-              {destination.name}
+              <MapPinIcon className="size-3.5 shrink-0" />
+              <span className="truncate">{destination.name}</span>
             </Link>
             <Link
               href={`/trips/${destination.tripId}`}

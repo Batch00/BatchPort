@@ -3,8 +3,11 @@ import { getMapData, type MapData, type MapDataClient } from "@/lib/map-data";
 import { getPhotoMapData, type PhotoMapData } from "@/lib/photo-map-data";
 import { getSummaryStats, type SummaryStats } from "@/lib/stats-data";
 import { getSharedBucketList, type BucketItem } from "@/lib/bucket-list";
+import { getSharedJournalByTrip } from "@/lib/journal-data";
 import { getPhotoUrl, resolveCoverPhoto } from "@/lib/photos";
 import { DEMO_USER_ID } from "@/lib/constants";
+import type { JournalEntry } from "@/lib/journal";
+import type { StoryPhoto } from "@/lib/story";
 import type { CoverPosition, PhotoSource } from "@/lib/types";
 
 // Data layer for the public share and demo surfaces. Everything here uses the
@@ -16,6 +19,9 @@ export interface ProfileExperience {
   id: string;
   name: string;
   rating: number | null;
+  /** The day it happened, which is what puts it on a story slide. */
+  visited_date: string | null;
+  notes: string | null;
   // "planned" ideas render as a read-only checklist row; "done" as a normal
   // logged experience. Rows predating the status column read as "done".
   status: "planned" | "done";
@@ -53,6 +59,10 @@ export interface ProfileTrip {
   cover_photo_id: string | null;
   cover_position: { x: number; y: number } | null;
   destinations: ProfileDestination[];
+  /** Story payload, only populated when getProfileTrips is asked for it (see
+   * the `story` option). Empty arrays otherwise, so callers never branch. */
+  journal: JournalEntry[];
+  photos: StoryPhoto[];
 }
 
 /** A fulfilled item's trip cover on the read-only bucket grid. */
@@ -121,6 +131,7 @@ interface ExperienceRow {
   name: string;
   rating: number | null;
   visited_date: string | null;
+  notes: string | null;
   created_at: string;
   // Absent until the status column migration runs; missing means "done".
   status?: string | null;
@@ -170,6 +181,18 @@ interface PhotoRow {
 interface FallbackPhotoRow extends PhotoRow {
   owner_type: string;
   owner_id: string;
+  // Only selected when the story payload was asked for.
+  date_taken?: string | null;
+  attribution?: string | null;
+}
+
+/** Options for getProfileTrips. `story` adds the journal entries and the full
+ * photo list the trip story view interleaves. It is off by default because
+ * the dashboard and the share trip cards render neither, and a story's worth
+ * of photo rows and journal prose is not worth shipping to a page that only
+ * needs cover thumbnails. */
+export interface ProfileTripsOptions {
+  story?: boolean;
 }
 
 // Highest-rated experiences first, then alphabetical, for a tidy showcase.
@@ -182,8 +205,12 @@ function sortExperiences(a: ExperienceRow, b: ExperienceRow): number {
 
 // Read-only trips with their destinations and experiences for the share view.
 // Anon client plus an explicit user filter, gated by is_shared() RLS.
-export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
+export async function getProfileTrips(
+  userId: string,
+  options: ProfileTripsOptions = {},
+): Promise<ProfileTrip[]> {
   const supabase = await createClient();
+  const wantStory = options.story === true;
 
   const [tripsResult, destsResult] = await Promise.all([
     supabase
@@ -223,7 +250,18 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       ].filter((id): id is string => Boolean(id)),
     ),
   );
-  const [coversResult, fallbacksResult] = await Promise.all([
+  // The story reads photos at every level (an experience's photos are part of
+  // that day) and needs the capture date to place them, so it widens both the
+  // owner filter and the column list. Without it the query stays exactly as
+  // narrow as the covers need.
+  const fallbackColumns = wantStory
+    ? "id, owner_type, owner_id, source, storage_path, external_url, thumb_path, date_taken, attribution"
+    : "id, owner_type, owner_id, source, storage_path, external_url, thumb_path";
+  const fallbackOwnerTypes = wantStory
+    ? ["trip", "destination", "experience"]
+    : ["trip", "destination"];
+
+  const [coversResult, fallbacksResult, journalByTrip] = await Promise.all([
     coverIds.length > 0
       ? supabase
           .from("photos")
@@ -233,19 +271,20 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       : Promise.resolve({ data: [] as PhotoRow[] }),
     supabase
       .from("photos")
-      .select(
-        "id, owner_type, owner_id, source, storage_path, external_url, thumb_path",
-      )
+      .select(fallbackColumns)
       .eq("user_id", userId)
-      .in("owner_type", ["trip", "destination"])
+      .in("owner_type", fallbackOwnerTypes)
       .order("order_index", { ascending: true })
       .order("created_at", { ascending: true }),
+    wantStory
+      ? getSharedJournalByTrip(userId)
+      : Promise.resolve(new Map<string, JournalEntry[]>()),
   ]);
 
   const photoById = new Map<string, PhotoRow>();
   // First photo per owner, in gallery order, keyed by "type:id".
   const firstByOwner = new Map<string, PhotoRow>();
-  for (const row of (fallbacksResult.data ?? []) as FallbackPhotoRow[]) {
+  for (const row of (fallbacksResult.data ?? []) as unknown as FallbackPhotoRow[]) {
     photoById.set(row.id, row);
     const key = `${row.owner_type}:${row.owner_id}`;
     if (!firstByOwner.has(key)) firstByOwner.set(key, row);
@@ -267,6 +306,8 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
         id: exp.id,
         name: exp.name,
         rating: exp.rating,
+        visited_date: exp.visited_date,
+        notes: exp.notes ?? null,
         status: (exp.status === "planned" ? "planned" : "done") as
           | "planned"
           | "done",
@@ -303,6 +344,47 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
     destsByTrip.set(dest.trip_id, list);
   }
 
+  // Story photos, resolved to the stop that owns them. An experience-owned
+  // photo resolves through its experience, which is why the destination embed
+  // above is the only place that mapping has to exist.
+  const storyPhotosByTrip = new Map<string, StoryPhoto[]>();
+  if (wantStory) {
+    const tripByDestination = new Map<string, string>();
+    const destinationByExperience = new Map<string, string>();
+    for (const dest of destRows) {
+      tripByDestination.set(dest.id, dest.trip_id);
+      for (const exp of dest.experiences ?? []) {
+        destinationByExperience.set(exp.id, dest.id);
+      }
+    }
+    for (const row of (fallbacksResult.data ?? []) as unknown as FallbackPhotoRow[]) {
+      let destinationId: string | null = null;
+      let tripId: string | null = null;
+      if (row.owner_type === "trip") {
+        tripId = row.owner_id;
+      } else if (row.owner_type === "destination") {
+        destinationId = row.owner_id;
+        tripId = tripByDestination.get(row.owner_id) ?? null;
+      } else {
+        destinationId = destinationByExperience.get(row.owner_id) ?? null;
+        tripId = destinationId
+          ? tripByDestination.get(destinationId) ?? null
+          : null;
+      }
+      if (!tripId) continue;
+      const list = storyPhotosByTrip.get(tripId) ?? [];
+      list.push({
+        id: row.id,
+        url: getPhotoUrl(row),
+        thumbUrl: getPhotoUrl(row, "thumb"),
+        dateTaken: row.date_taken ?? null,
+        attribution: row.attribution ?? null,
+        destinationId,
+      });
+      storyPhotosByTrip.set(tripId, list);
+    }
+  }
+
   return tripRows.map((trip) => {
     const destinations = destsByTrip.get(trip.id) ?? [];
     // Same order as the trip detail banner: explicit trip cover, then the
@@ -324,6 +406,8 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       cover_photo_id: trip.cover_photo_id,
       cover_position: explicit ? (trip.cover_position ?? null) : null,
       destinations,
+      journal: journalByTrip.get(trip.id) ?? [],
+      photos: storyPhotosByTrip.get(trip.id) ?? [],
     };
   });
 }
@@ -374,7 +458,8 @@ export async function getSharedProfile(userId: string): Promise<SharedProfile> {
     getSummaryStats(userId),
     getMapData(userId),
     getPhotoMapData(userId),
-    getProfileTrips(userId),
+    // The read-only surfaces offer the story, so they ask for its payload.
+    getProfileTrips(userId, { story: true }),
     getSharedBucketList(userId),
   ]);
   const bucketTripCovers = await getBucketTripCovers(userId, bucketItems);

@@ -9,6 +9,8 @@ import { getSummaryStats } from "@/lib/stats-data";
 import { getBucketList, getCountries } from "@/lib/bucket-list";
 import { getCategories } from "@/lib/experiences";
 import { getPlannedExperiencePoints } from "@/lib/nearby-data";
+import { getOnThisDay } from "@/lib/on-this-day";
+import { OnThisDaySection } from "@/components/dashboard/on-this-day";
 import { getTripDestinationOptions, getTripOptions } from "@/lib/trips";
 import { placeKey } from "@/lib/geo";
 import { DashboardGlobe } from "@/components/map/dashboard-globe";
@@ -39,6 +41,7 @@ export default async function DashboardPage() {
     tripDestinationOptions,
     categories,
     plannedPoints,
+    memories,
   ] = await Promise.all([
     getProfileTrips(user.id),
     getMapData(user.id),
@@ -52,6 +55,10 @@ export default async function DashboardPage() {
     // prompt's "you are near something you planned" match.
     getCategories(),
     getPlannedExperiencePoints(),
+    // Two narrow anniversary-date queries, and only when they match does it
+    // look up any context. Returns null on a day with nothing, which is what
+    // keeps the section absent rather than empty.
+    getOnThisDay(),
   ]);
 
   const toVisit = bucketItems.filter((item) => !item.fulfilled_at);
@@ -90,6 +97,8 @@ export default async function DashboardPage() {
             flagCodes={mapData.visitedCountryCodes}
           />
         </section>
+
+        {memories ? <OnThisDaySection memories={memories} /> : null}
 
         <DashboardTrips trips={trips} />
 

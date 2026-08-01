@@ -1214,7 +1214,15 @@ export function Globe({
 
       {/* Nearby's status card sits in the top-left status corner, the same rail
           the stats pill and photo header use, and hosts hide those while it
-          runs. z-30 keeps it above the stats pills on hosts that do not. */}
+          runs. z-30 keeps it above the stats pills on hosts that do not.
+          Both insets are set and the card carries no width of its own, so the
+          map's edges size it. The right inset clears the control column (a
+          size-10 button at right-4, so 56px used) rather than stopping at the
+          map edge: the cluster is bottom-anchored and the card is
+          top-anchored, but on a 340px-tall map a tall card and a five-button
+          column do overlap vertically, so the clearance has to be horizontal.
+          From sm up the map is wide enough that max-w-sm caps the card long
+          before it reaches the cluster. */}
       {nearby && nearbyMode.active ? (
         <NearbyPanel
           status={nearbyMode.status}
@@ -1222,8 +1230,10 @@ export function Globe({
           plannedNear={plannedNear}
           checkingOff={checkingOff}
           className={cn(
-            "absolute left-4 right-4 z-30 sm:right-auto",
-            fullscreen ? "top-[max(1rem,env(safe-area-inset-top))]" : "top-4",
+            "absolute left-4 z-30 sm:right-auto",
+            fullscreen
+              ? "right-[calc(4.5rem+env(safe-area-inset-right))] top-[max(1rem,env(safe-area-inset-top))]"
+              : "right-[4.5rem] top-4",
           )}
           onLogHere={() => setLogOpen(true)}
           onCheckoff={() => void handleCheckoff()}

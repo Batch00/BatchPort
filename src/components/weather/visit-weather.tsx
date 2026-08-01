@@ -45,13 +45,20 @@ function dayLabel(date: string): string {
   });
 }
 
+// Both units per row, matching the summary line above the expander. The
+// Fahrenheit pair is dimmer and wraps to its own line when the row runs out of
+// width, so a narrow phone never clips the reading it came for.
 function DayRow({ day }: { day: VisitWeatherDay }) {
   return (
-    <li className="flex items-center justify-between gap-3 py-1 text-xs">
+    <li className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 py-1 text-xs">
       <span className="text-foreground/60">{dayLabel(day.date)}</span>
-      <span className="flex items-center gap-2 tabular-nums text-foreground/70">
+      <span className="flex flex-wrap items-center justify-end gap-x-2 tabular-nums text-foreground/70">
         <span>
           {day.low}° to {day.high}°C
+          <span className="text-foreground/40">
+            {" "}
+            ({toF(day.low)} to {toF(day.high)}°F)
+          </span>
         </span>
         {day.precipMm >= 1 ? (
           <span className="flex items-center gap-1 text-brand">
@@ -156,7 +163,7 @@ export function VisitWeatherLine({
         ) : null}
       </div>
       {expanded ? (
-        <ul className="mt-1.5 max-w-xs divide-y divide-white/5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1">
+        <ul className="mt-1.5 w-full max-w-sm divide-y divide-white/5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1">
           {weather.days.map((day) => (
             <DayRow key={day.date} day={day} />
           ))}

@@ -231,6 +231,50 @@ Everything degrades to absent. No dates, no coordinates, a planned trip, a
 window inside the lag, or an upstream failure all mean no line, never an empty
 state.
 
+### Journal, Story, and On This Day
+
+Three surfaces that read the trip rather than edit it. The rules that hold
+them together:
+
+- **A journal entry is keyed by a date, never by a destination.** Which stop a
+  day belongs to is already fully determined by the destination
+  arrival/departure ranges, so `destinationForDate()` derives it on read. A
+  `destination_id` column would be a second copy that drifts the first time a
+  stop's dates are edited. If a future change needs the stop pinned (a stop
+  the user deliberately overrides), that is a new decision, not a column to
+  add quietly.
+- **A blank body is not stored.** Clearing the text deletes the row, so "has
+  an entry" is a row check everywhere and never a length check.
+- **Only the flushing save revalidates.** `saveJournalEntryAction` takes
+  `{ final }`; the debounced autosaves pass false. An app-wide
+  `revalidateAppData()` mid-typing would re-render the trip page under the
+  caret. Blur, the Done button, and closing the row pass true.
+- **Journaling applies to completed and ongoing trips only** (`journalingApplies`).
+  A planned trip's day structure already belongs to the planner.
+
+`lib/story.ts` is pure and takes a `StoryTrip` the caller assembles from rows
+it already has. That is what lets the trip page, /demo, and /share/[slug]
+render the same component with no second data layer, and why the story costs
+no extra query anywhere. `getProfileTrips(userId, { story: true })` is the
+read-only path's assembler; the option exists because the dashboard renders
+neither journal prose nor a full photo list and should not ship them.
+
+The composition rule, in one sentence: a slide is a day, a day belongs to the
+stop whose stay contains it, and everything dated that day lands on it. Days
+with nothing are skipped. Undated photos and experiences ride their stop's
+first slide, and a stop with no dated day gets one slide of its own, so
+nothing silently disappears.
+
+`TripStory` renders through `createPortal` into `document.body`. Its launch
+points sit inside cards that create their own stacking context (the share card
+is `isolate`), and a `fixed z-50` element inside one of those cannot rise above
+the cards after it. Do not "simplify" the portal away.
+
+`getOnThisDay()` enumerates concrete anniversary dates rather than filtering
+on `date_part`, because Postgres cannot index the latter and this app is not
+adding an index for a thumbnail strip. It returns null when nothing matched;
+callers render nothing. There is no empty state.
+
 ### Search, Export, and Home Location
 
 Three surfaces read the current user's own rows and must never take a userId
@@ -302,6 +346,15 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Nearby proximity helpers and radii (pure) | `src/lib/nearby.ts` |
 | Nearby planned-experience points (server read) | `src/lib/nearby-data.ts` |
 | Observed weather at time of visit | `src/lib/weather.ts` |
+| Journal day derivation and helpers (pure) | `src/lib/journal.ts` |
+| Journal server reads | `src/lib/journal-data.ts` |
+| Journal server action | `src/lib/actions/journal.ts` |
+| Trip story slide builder (pure) | `src/lib/story.ts` |
+| Trip story full-screen view | `src/components/trips/trip-story.tsx` |
+| Trip story entry point | `src/components/trips/story-launcher.tsx` |
+| Trip journal editor | `src/components/trips/trip-journal.tsx` |
+| On this day data layer | `src/lib/on-this-day.ts` |
+| On this day dashboard strip | `src/components/dashboard/on-this-day.tsx` |
 | Landing hero globe data (cached anon demo read) | `src/lib/landing-data.ts` |
 | Landing hero static fallback (generated) | `src/lib/mock-travel-data.ts` |
 | Home location read side and distance helpers | `src/lib/home-location.ts` |

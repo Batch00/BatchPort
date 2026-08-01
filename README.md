@@ -121,6 +121,33 @@ The floating control cluster follows a two-tier model, capped at five buttons pl
 - Absent, never empty: no dates, no coordinates, a planned trip, or an upstream miss all mean the line does not render
 - Shown on destination pages and on the read-only demo and share surfaces alike, since it is reference data keyed by a coordinate and a past date range with no user state in it
 
+### Travel Journal
+
+- One freeform entry per day of a trip, distinct from an experience's notes: an experience note describes a place, a journal entry describes a day
+- Appears on completed and ongoing trips only. A planned trip's days already belong to the planner, and there is nothing to look back on yet
+- Days come from the trip's own dates (or the span its stops cover), and each day derives the stop it falls in from the destination date ranges; nothing about the stop is stored on the entry
+- Low friction writing: tap a day, type, and it autosaves. A failed save never clears what was typed, closing the editor flushes immediately, and an unsaved change warns before the tab closes
+- Clearing an entry deletes it, so a day either has writing or it does not
+- Entries render on the trip page and feed the trip story
+
+### Trip Story
+
+- A full-screen, chronological reading of one trip, opened from a "Story" action on completed and ongoing trips
+- Slides are days: the journal entry, the photos taken that day (by `date_taken`), the experiences logged that day with their ratings, and the observed weather line on the slide that opens each stop. Days with nothing in them are skipped, which is what keeps it a story
+- Undated things do not disappear: a photo or experience without a date rides on its stop's first slide, and a stop that produced no dated day gets a single slide of its own
+- Opens on a title slide (cover, dates, route, country flags) and closes on a scoreboard (days, stops, countries, experiences, photos, distance, best-rated)
+- Photos are the visual backbone: one fills the frame, two to four tile, the rest are counted. Where a day has none, the stop's cover carries the slide and the writing takes the foreground
+- Navigation: swipe on touch (horizontal only, so a long entry still scrolls), arrow keys and click zones on desktop, Escape closes, a segmented progress bar tracks position
+- Loads lazily: only the slides adjacent to the current one are mounted, and only the next slide's lead image is preloaded
+- Read-only by construction, so /demo and /share/[slug] offer the same story
+
+### On This Day
+
+- A dashboard strip of photos taken and experiences logged on today's month and day in earlier years
+- Renders only when there is something to show. There is no "no memories today" card
+- Cheap by design: rather than a `date_part` filter Postgres cannot index, two queries ask for the handful of concrete anniversary dates in a 25 year look-back, and the context lookups that follow run only for rows that actually matched
+- Tapping a photo opens the lightbox with a link into its destination; tapping an experience opens its destination page
+
 ### Home Location and Distance
 
 - Set a home city in Settings with the same location typeahead used for destinations; stored as `user_settings.home_geom` via the EWKT convention
@@ -200,6 +227,8 @@ trips
 **photos:** Owner_type (trip/destination/experience), owner_id, source (upload/wikimedia/url), storage_path (for uploads), external_url (for wikimedia and url sources), attribution, and order_index.
 
 **geocode_cache:** Cached API responses keyed by provider (photon, photon_poi, nominatim, wikimedia, the discover_* family, weather_visit) and query_norm. TTL: 30 days for geocoding responses, 90 days for Wikimedia and discovery responses, 365 days for observed weather (past observations are immutable).
+
+**journal_entries:** One freeform entry per (user_id, trip_id, entry_date). Body text plus timestamps, with a unique constraint on the three-column key. Deliberately carries no destination_id: which stop a day belongs to is already determined by the destination arrival/departure ranges, so it is derived on read rather than stored where it could drift.
 
 **user_settings:** Per-user configuration: public_share_enabled, public_slug, is_demo, and the home location (`home_geom geography(Point,4326)` plus the `home_name` and `home_country_code` labels).
 
@@ -509,6 +538,15 @@ The observed-weather line needs the `weather_visit` cache provider allowed on
 Supabase SQL editor (it supersedes `2026-07-22-discover-geo-provider.sql`,
 widening the same constraint). Until it runs the line still renders correctly,
 but nothing caches: every view re-hits the Open-Meteo archive.
+
+The travel journal needs the `journal_entries` table, its RLS policies (which
+include an `is_shared()` SELECT so the story renders on /demo and /share), and
+its updated_at trigger. Run `scripts/sql/2026-08-02-journal.sql` in the
+Supabase SQL editor. Until it runs the app degrades: the journal section
+renders read-only with a one-line note, saving reports "Journaling is not set
+up on this database yet" rather than pretending to have saved, and the story
+view simply has no journal text to interleave. The trip story and On This Day
+need no migration of their own.
 
 Nearby mode needs no migration. It reads the destinations the globe already has
 and the planned experiences that carry a `geom`, so it works as soon as the
