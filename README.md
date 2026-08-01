@@ -21,18 +21,19 @@ BatchPort is a personal travel tracker and installable progressive web app built
 
 ### Map Controls
 
-The floating control cluster follows a two-tier model, capped at four buttons plus the search icon on every surface.
+The floating control cluster follows a two-tier model, capped at five buttons plus the search icon on the fullest surface and fewer everywhere else.
 
-- **Modes** change what the map shows and get visible buttons that fill brand blue while active: photo map, replay, and attractions. A mode may surface its own chrome while running (replay swaps the cluster for a transport bar; photo mode adds a header pill).
+- **Modes** change what the map shows and get visible buttons that fill brand blue while active: photo map, replay, attractions, and nearby. A mode may surface its own chrome while running (replay swaps the cluster for a transport bar; photo mode adds a header pill; nearby adds a status card). Nearby is the fourth mode and the last one this layout carries; a fifth would mean rethinking the model, not appending a button.
 - **Utilities** adjust how the current view is drawn and all live in one settings popover: basemap swatches, recenter, globe/flat projection, fullscreen, and refresh.
-- Layout is a single bottom-right vertical column at every breakpoint. Search anchors top-right, so the two cannot collide: the cluster's height is bounded at four buttons and every globe surface is at least 300px tall.
-- Read-only surfaces (demo and /share/[slug]) render the same model minus the auth-gated pieces (no refresh, no attractions, no photo management actions).
+- Layout is a single bottom-right vertical column at every breakpoint. Search anchors top-right, so the two cannot collide: the cluster's height is bounded at five buttons (about 264px on phones) and the dashboard globe, the only surface that wires all four modes, is at least 340px tall. Every other globe surface is at least 300px.
+- Read-only surfaces (demo and /share/[slug]) render the same model minus the auth-gated pieces (no refresh, no attractions, no nearby, no photo management actions).
 
 ### Alternate Globe Modes
 
 - **Photo map:** every photo with a resolvable coordinate rendered as a clustered thumbnail marker; travel layers stand down. Coordinates resolve from EXIF GPS, then the owning experience, destination, or the trip's first destination. Photos with no location are counted in the header and viewable in an off-map grid, where they can be assigned to a destination.
 - **Replay:** timeline playback of travel history with a date and country readout, scrubber, speed toggle, and restart.
 - **Attractions:** viewport Wikipedia geosearch markers (via /api/discover/geo) that open in the discovery panel. Debounced, memoized per viewport cell, and gated to zoom 10 and above.
+- **Nearby:** the app's present tense, built for standing somewhere. Tapping the mode (and only tapping it) asks the browser for a location; the map flies to it, drops a pulsing emerald you-are-here marker, and switches the attractions layer on around you. The card names the stop you are in when one is within 50km, links into that destination and its trip plan, offers a one-tap checkoff when you are within 250m of something you planned, and opens a compact sheet that logs an experience at your coordinates (name prefilled from an attraction within 150m, destination defaulted to the stop you are in). The position is held in memory for the life of the mode and never stored or transmitted; the only coordinate that leaves the session is the one on a record you create. A denial states the problem once and offers an exit, and never re-asks on its own.
 - **Discovery:** clicking any country opens a panel with country facts (currency, languages, driving side, plug and voltage), climate lines, and top cities; POIs can be saved onto a trip as planned or done experiences.
 
 ### Trip, Destination, and Experience Management
@@ -112,6 +113,14 @@ The floating control cluster follows a two-tier model, capped at four buttons pl
 - Debounced and server-side via `/api/search`, session-scoped so RLS is the access boundary
 - Distinct from the globe's geocode search, which finds places in the world; this finds things you have already logged, and the copy in both says so
 
+### Weather at Time of Visit
+
+- One quiet line on any dated stop with coordinates: "While you were here: 12 to 19°C (54 to 66°F), rain on 2 of 4 days", with a "By day" expander showing each day's high, low, and precipitation
+- Observed daily values from the Open-Meteo ERA5 archive, the same source behind the planner's climate lines, served by `/api/weather/visit` and cached in geocode_cache under the `weather_visit` provider for a year (past observations do not change)
+- ERA5 runs several days behind real time, so the window is truncated to what the archive can answer: an ongoing trip resolves as far as it can and says "(so far)", and a stop that ended in the last few days simply has no line yet
+- Absent, never empty: no dates, no coordinates, a planned trip, or an upstream miss all mean the line does not render
+- Shown on destination pages and on the read-only demo and share surfaces alike, since it is reference data keyed by a coordinate and a past date range with no user state in it
+
 ### Home Location and Distance
 
 - Set a home city in Settings with the same location typeahead used for destinations; stored as `user_settings.home_geom` via the EWKT convention
@@ -190,7 +199,7 @@ trips
 
 **photos:** Owner_type (trip/destination/experience), owner_id, source (upload/wikimedia/url), storage_path (for uploads), external_url (for wikimedia and url sources), attribution, and order_index.
 
-**geocode_cache:** Cached API responses keyed by provider (photon, photon_poi, nominatim, wikimedia) and query_norm. TTL: 30 days for geocoding responses, 90 days for Wikimedia responses.
+**geocode_cache:** Cached API responses keyed by provider (photon, photon_poi, nominatim, wikimedia, the discover_* family, weather_visit) and query_norm. TTL: 30 days for geocoding responses, 90 days for Wikimedia and discovery responses, 365 days for observed weather (past observations are immutable).
 
 **user_settings:** Per-user configuration: public_share_enabled, public_slug, is_demo, and the home location (`home_geom geography(Point,4326)` plus the `home_name` and `home_country_code` labels).
 
@@ -292,6 +301,8 @@ src/
         search/route.ts          Photon typeahead proxy with geocode_cache
         lookup/route.ts          Nominatim reverse lookup proxy with geocode_cache
         poi/route.ts             Photon POI search proxy with geocode_cache
+      weather/
+        visit/route.ts           Observed daily weather for a coordinate and past date range
       photos/
         wikimedia/route.ts       Wikimedia metadata lookup (server-side)
         wikimedia/proxy/route.ts Image proxy to avoid CORS when displaying Wikimedia photos
@@ -319,6 +330,9 @@ src/
       use-replay.ts              Replay timeline engine
       use-photo-mode.ts          Photo map mode: clustering, markers, enter/exit
       use-attractions.ts         Wikipedia geosearch attraction markers
+      use-nearby.ts              Nearby mode: device fix, you-are-here marker, enter/exit
+      nearby-panel.tsx           Nearby status card: context, checkoff prompt, actions
+      log-here-sheet.tsx         Compact sheet that logs an experience at your coordinates
       use-globe-fullscreen.ts    Fullscreen state with panel-first Escape handling
       map-utils.ts               Brand colour, country match filters, feature bounds
       map.css                    MapLibre popup dark theme styles
@@ -340,6 +354,8 @@ src/
     experiences/
       experience-dialog.tsx      Modal dialog for create/edit experiences with POI search
       experiences-section.tsx    Destination page section listing all experiences
+    weather/
+      visit-weather.tsx          "While you were here" observed-weather line and day expander
     photos/
       photo-upload.tsx           File picker with client-side resize and Storage upload
       photo-gallery.tsx          Grid gallery with lightbox
@@ -400,6 +416,9 @@ src/
     stats-format.ts              Stats number formatting helpers
     share-data.ts                Public share data layer: getSharedProfile(), getProfileTrips()
     share-settings.ts            getShareSettings() read side using admin client
+    weather.ts                   Observed weather at time of visit (ERA5 archive, cached)
+    nearby.ts                    Nearby proximity helpers and radii (client-safe, pure)
+    nearby-data.ts               Planned experiences with coordinates, for the checkoff prompt
     geocode.ts                   Geocoding cache helpers: readCache, writeCache, parsePhoton, parseNominatim
     wikimedia.ts                 Wikimedia P18 lookup: getWikimediaPhoto() with 90-day cache
     access-token.ts              HMAC-SHA256 token generation and verification for invite links
@@ -484,6 +503,17 @@ on `user_settings` (and `home_geom`, if the column is missing). Run
 runs the feature degrades: saving a home retries without the label columns, so
 the point is still stored and every distance feature works, but Settings shows
 coordinates instead of a city name.
+
+The observed-weather line needs the `weather_visit` cache provider allowed on
+`geocode_cache`. Run `scripts/sql/2026-08-01-weather-visit-provider.sql` in the
+Supabase SQL editor (it supersedes `2026-07-22-discover-geo-provider.sql`,
+widening the same constraint). Until it runs the line still renders correctly,
+but nothing caches: every view re-hits the Open-Meteo archive.
+
+Nearby mode needs no migration. It reads the destinations the globe already has
+and the planned experiences that carry a `geom`, so it works as soon as the
+experience status column exists (`2026-07-18-experience-status.sql`); before
+that every experience reads as done and the checkoff prompt simply never fires.
 
 Global search works with no migration at all. When the tables grow, run
 `scripts/sql/2026-07-29-search-indexes.sql` to add the pg_trgm GIN indexes that

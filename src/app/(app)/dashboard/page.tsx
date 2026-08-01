@@ -7,6 +7,8 @@ import { getMapData } from "@/lib/map-data";
 import { getPhotoMapData } from "@/lib/photo-map-data";
 import { getSummaryStats } from "@/lib/stats-data";
 import { getBucketList, getCountries } from "@/lib/bucket-list";
+import { getCategories } from "@/lib/experiences";
+import { getPlannedExperiencePoints } from "@/lib/nearby-data";
 import { getTripDestinationOptions, getTripOptions } from "@/lib/trips";
 import { placeKey } from "@/lib/geo";
 import { DashboardGlobe } from "@/components/map/dashboard-globe";
@@ -35,6 +37,8 @@ export default async function DashboardPage() {
     countries,
     tripOptions,
     tripDestinationOptions,
+    categories,
+    plannedPoints,
   ] = await Promise.all([
     getProfileTrips(user.id),
     getMapData(user.id),
@@ -44,6 +48,10 @@ export default async function DashboardPage() {
     getCountries(),
     getTripOptions(),
     getTripDestinationOptions(),
+    // Both feed Nearby mode: the log sheet's category picker and the checkoff
+    // prompt's "you are near something you planned" match.
+    getCategories(),
+    getPlannedExperiencePoints(),
   ]);
 
   const toVisit = bucketItems.filter((item) => !item.fulfilled_at);
@@ -61,6 +69,8 @@ export default async function DashboardPage() {
         <DashboardGlobe
           data={mapData}
           photoData={photoMapData}
+          categories={categories}
+          plannedPoints={plannedPoints}
           isDemo={isDemoUser(user.id)}
         />
 

@@ -29,6 +29,10 @@ function isPublicRoute(pathname: string): boolean {
   // Discovery endpoints serve reference data only (country info, top cities)
   // and back the demo/landing surfaces eventually, so they need no session.
   if (pathname.startsWith("/api/discover/")) return true;
+  // Observed weather is reference data for a coordinate and a past date range,
+  // with no user state in the request or the response. It has to be public for
+  // the demo and share surfaces to render the same "while you were here" line.
+  if (pathname.startsWith("/api/weather/")) return true;
   // Public share profiles (read-only, RLS-gated by is_shared) need no session.
   if (pathname.startsWith("/share")) return true;
   return PUBLIC_ROUTES.includes(pathname);

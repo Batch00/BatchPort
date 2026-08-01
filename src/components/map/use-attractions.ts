@@ -29,8 +29,15 @@ export interface AttractionPoi {
 export interface AttractionsHandle {
   active: boolean;
   toggle: () => void;
-  /** Turn the layer off (mode changes: photo map, replay). */
+  /** Turn the layer on without recording a preference. Nearby mode borrows the
+   * layer for the duration of the mode; that is not the user choosing to keep
+   * attractions on everywhere. */
+  enable: () => void;
+  /** Turn the layer off (mode changes: photo map, replay, nearby exit). */
   disable: () => void;
+  /** The attractions currently on screen. Nearby mode reads these to prefill
+   * the name of something logged where you are standing. */
+  pois: AttractionPoi[];
 }
 
 // Inline landmark glyph so the marker needs no icon font at runtime.
@@ -48,6 +55,7 @@ export function useAttractions({
   onOpen: (poi: AttractionPoi) => void;
 }): AttractionsHandle {
   const [active, setActive] = useState(false);
+  const [pois, setPois] = useState<AttractionPoi[]>([]);
   const activeRef = useRef(false);
   const markersRef = useRef<MlMarker[]>([]);
   const debounceRef = useRef(0);
@@ -81,13 +89,14 @@ export function useAttractions({
     return el;
   }
 
-  async function renderMarkers(pois: AttractionPoi[]) {
+  async function renderMarkers(list: AttractionPoi[]) {
     const map = mapRef.current;
     if (!map || !activeRef.current) return;
     const ml = await import("maplibre-gl");
     if (!activeRef.current) return;
     clearMarkers();
-    for (const poi of pois) {
+    setPois(list);
+    for (const poi of list) {
       const marker = new ml.Marker({ element: markerElement(poi) })
         .setLngLat([poi.lng, poi.lat])
         .addTo(map);
@@ -101,6 +110,7 @@ export function useAttractions({
     const zoom = map.getZoom();
     if (zoom < MIN_ZOOM) {
       clearMarkers();
+      setPois([]);
       lastKeyRef.current = "";
       return;
     }
@@ -142,15 +152,17 @@ export function useAttractions({
     debounceRef.current = window.setTimeout(fetchForViewport, DEBOUNCE_MS);
   }
 
-  function start() {
+  function start(persist: boolean) {
     const map = mapRef.current;
     if (!map || activeRef.current) return;
     activeRef.current = true;
     setActive(true);
-    try {
-      sessionStorage.setItem(STORAGE_KEY, "1");
-    } catch {
-      // Non-fatal.
+    if (persist) {
+      try {
+        sessionStorage.setItem(STORAGE_KEY, "1");
+      } catch {
+        // Non-fatal.
+      }
     }
     map.on("moveend", onMoveEnd);
     fetchForViewport();
@@ -173,11 +185,12 @@ export function useAttractions({
     abortRef.current?.abort();
     lastKeyRef.current = "";
     clearMarkers();
+    setPois([]);
   }
 
   function toggle() {
     if (activeRef.current) stop(true);
-    else start();
+    else start(true);
   }
 
   // Restore the per-session choice once the surface offers the feature. The
@@ -195,7 +208,7 @@ export function useAttractions({
     const timer = window.setInterval(() => {
       if (mapRef.current) {
         window.clearInterval(timer);
-        start();
+        start(true);
       }
     }, 400);
     return () => window.clearInterval(timer);
@@ -212,5 +225,11 @@ export function useAttractions({
     };
   }, []);
 
-  return { active, toggle, disable: () => stop(false) };
+  return {
+    active,
+    toggle,
+    enable: () => start(false),
+    disable: () => stop(false),
+    pois,
+  };
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./map.css";
@@ -17,7 +18,17 @@ import type {
 } from "maplibre-gl";
 
 import { formatDateRange } from "@/lib/format";
-import { boundsOfPoints } from "@/lib/geo";
+import { boundsOfPoints, haversineKm } from "@/lib/geo";
+import {
+  CONTEXT_RADIUS_KM,
+  PLANNED_RADIUS_KM,
+  PREFILL_RADIUS_KM,
+  localToday,
+  nearestWithin,
+  type PlannedExperiencePoint,
+} from "@/lib/nearby";
+import { markExperienceDoneAction } from "@/lib/actions/experiences";
+import type { Category } from "@/lib/types";
 import { buildReplayTimeline } from "@/lib/replay";
 import { cn } from "@/lib/utils";
 import { Lightbox } from "@/components/photos/lightbox";
@@ -37,6 +48,9 @@ import { ReplayControls } from "./replay-controls";
 import { useReplay } from "./use-replay";
 import { usePhotoMode, type GlobePhoto } from "./use-photo-mode";
 import { useAttractions, type AttractionPoi } from "./use-attractions";
+import { useNearby } from "./use-nearby";
+import { NearbyPanel } from "./nearby-panel";
+import { LogHereSheet, type LogHereDestination } from "./log-here-sheet";
 import {
   BASEMAP_STORAGE_KEY,
   availableBasemaps,
@@ -127,6 +141,18 @@ export interface GlobeProps {
   /** When provided, enables the "Show attractions" explore layer: viewport
    * Wikipedia geosearch markers that open in the host's discovery panel. */
   onOpenAttraction?: (poi: AttractionPoi) => void;
+  /** When provided, enables Nearby mode: the device's own position, the
+   * attraction layer around it, the stop and planned experience it lands in,
+   * and logging an experience at those coordinates. Authenticated surfaces
+   * only, since the whole point is writing to the user's own travel record. */
+  nearby?: {
+    categories: Category[];
+    /** Planned experiences with saved coordinates, for the checkoff prompt. */
+    plannedPoints: PlannedExperiencePoint[];
+    isDemo: boolean;
+  };
+  /** Fired when nearby mode starts or ends, so hosts can hide their overlays. */
+  onNearbyActiveChange?: (active: boolean) => void;
   /** When provided, shows the fullscreen toggle in the control cluster. The
    * host owns the fullscreen state and container styling. */
   onFullscreenToggle?: () => void;
@@ -165,6 +191,8 @@ export function Globe({
   onPhotoModeActiveChange,
   photoManagement,
   onOpenAttraction,
+  nearby,
+  onNearbyActiveChange,
   onFullscreenToggle,
   fullscreen = false,
 }: GlobeProps) {
@@ -256,12 +284,141 @@ export function Globe({
     onOpen: (poi) => onOpenAttraction?.(poi),
   });
   const attractionsDisableRef = useRef(attractions.disable);
+  const attractionsEnableRef = useRef(attractions.enable);
   useEffect(() => {
     attractionsDisableRef.current = attractions.disable;
+    attractionsEnableRef.current = attractions.enable;
   });
   useEffect(() => {
     if (photoMode.active || replay.active) attractionsDisableRef.current();
   }, [photoMode.active, replay.active]);
+
+  // --- Nearby mode -------------------------------------------------------
+  //
+  // The device position lives in this hook for the life of the mode and is
+  // never stored or sent anywhere. The only coordinate that leaves the session
+  // is the one attached to an experience the user explicitly creates in the
+  // log sheet, or to the checkoff they explicitly tap.
+  const [logOpen, setLogOpen] = useState(false);
+  const [checkingOff, setCheckingOff] = useState(false);
+  // Planned experiences the user has waved off this session, so a "not yet"
+  // stays waved off while they are still standing next to the thing.
+  const [dismissedPlanned, setDismissedPlanned] = useState<string[]>([]);
+
+  const nearbyMode = useNearby({
+    mapRef,
+    enabled: Boolean(nearby),
+    onActiveChange: (active) => {
+      onNearbyActiveChange?.(active);
+      if (!active) {
+        setLogOpen(false);
+        setDismissedPlanned([]);
+      }
+    },
+  });
+
+  // Nearby borrows the attractions layer: standing somewhere, "what is around
+  // me" is the whole question. It is handed back on exit unless the user had it
+  // on already, and it is only switched on once a fix actually arrives, so a
+  // denial never leaves markers behind.
+  const attractionsWereOnRef = useRef(false);
+  useEffect(() => {
+    if (nearbyMode.status === "active") attractionsEnableRef.current();
+  }, [nearbyMode.status]);
+
+  function enterNearby() {
+    attractionsWereOnRef.current = attractions.active;
+    // Only one mode owns the globe at a time.
+    photoMode.exit();
+    nearbyMode.enter();
+  }
+
+  function exitNearby() {
+    nearbyMode.exit();
+    if (!attractionsWereOnRef.current) attractionsDisableRef.current();
+  }
+
+  function toggleNearby() {
+    if (nearbyMode.active) exitNearby();
+    else enterNearby();
+  }
+
+  // The stop the fix landed in, if any: "You are in Kyoto".
+  const nearbyContext = useMemo(() => {
+    if (!nearbyMode.position) return null;
+    const match = nearestWithin(
+      nearbyMode.position,
+      destinations,
+      CONTEXT_RADIUS_KM,
+    );
+    return match ? { destination: match.item, km: match.km } : null;
+  }, [nearbyMode.position, destinations]);
+
+  // The planner's payoff: a saved plan item within arm's reach.
+  const plannedNear = useMemo(() => {
+    if (!nearbyMode.position || !nearby) return null;
+    const candidates = nearby.plannedPoints.filter(
+      (point) => !dismissedPlanned.includes(point.id),
+    );
+    const match = nearestWithin(
+      nearbyMode.position,
+      candidates,
+      PLANNED_RADIUS_KM,
+    );
+    return match ? { point: match.item, km: match.km } : null;
+  }, [nearbyMode.position, nearby, dismissedPlanned]);
+
+  // Name prefill for the log sheet, from the attraction markers already loaded
+  // around the user. Only when one is close enough to plausibly be it.
+  const nearbyPrefillName = useMemo(() => {
+    if (!nearbyMode.position) return "";
+    const match = nearestWithin(
+      nearbyMode.position,
+      attractions.pois,
+      PREFILL_RADIUS_KM,
+    );
+    return match?.item.name ?? "";
+  }, [nearbyMode.position, attractions.pois]);
+
+  // Every stop, nearest first, so the log sheet's picker opens on the likely
+  // answer even when the fix landed outside the context radius.
+  const nearbyDestinationOptions = useMemo<LogHereDestination[]>(() => {
+    const position = nearbyMode.position;
+    return destinations
+      .map((destination) => ({
+        id: destination.id,
+        name: destination.name,
+        tripId: destination.tripId,
+        tripName: destination.tripName,
+        km: position
+          ? haversineKm(
+              position.lat,
+              position.lng,
+              destination.lat,
+              destination.lng,
+            )
+          : null,
+      }))
+      .sort((a, b) => (a.km ?? Infinity) - (b.km ?? Infinity));
+  }, [destinations, nearbyMode.position]);
+
+  async function handleCheckoff() {
+    const target = plannedNear;
+    if (!target || checkingOff) return;
+    setCheckingOff(true);
+    const result = await markExperienceDoneAction(target.point.id, {
+      rating: null,
+      visitedDate: localToday(),
+    });
+    setCheckingOff(false);
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(`Marked ${target.point.name} as done`);
+    setDismissedPlanned((ids) => [...ids, target.point.id]);
+    onRefresh?.();
+  }
 
   // Lightbox keyboard handling lives with the host (the Lightbox component is
   // presentation-only): Escape closes, arrows step through the stack.
@@ -1055,6 +1212,46 @@ export function Globe({
         </div>
       ) : null}
 
+      {/* Nearby's status card sits in the top-left status corner, the same rail
+          the stats pill and photo header use, and hosts hide those while it
+          runs. z-30 keeps it above the stats pills on hosts that do not. */}
+      {nearby && nearbyMode.active ? (
+        <NearbyPanel
+          status={nearbyMode.status}
+          context={nearbyContext}
+          plannedNear={plannedNear}
+          checkingOff={checkingOff}
+          className={cn(
+            "absolute left-4 right-4 z-30 sm:right-auto",
+            fullscreen ? "top-[max(1rem,env(safe-area-inset-top))]" : "top-4",
+          )}
+          onLogHere={() => setLogOpen(true)}
+          onCheckoff={() => void handleCheckoff()}
+          onDismissCheckoff={() =>
+            plannedNear
+              ? setDismissedPlanned((ids) => [...ids, plannedNear.point.id])
+              : undefined
+          }
+          onRetry={nearbyMode.refresh}
+          onRefresh={nearbyMode.refresh}
+          onExit={exitNearby}
+        />
+      ) : null}
+
+      {nearby && nearbyMode.position ? (
+        <LogHereSheet
+          open={logOpen}
+          onOpenChange={setLogOpen}
+          position={nearbyMode.position}
+          categories={nearby.categories}
+          destinations={nearbyDestinationOptions}
+          defaultDestinationId={nearbyContext?.destination.id ?? null}
+          defaultName={nearbyPrefillName}
+          isDemo={nearby.isDemo}
+          onLogged={() => onRefresh?.()}
+        />
+      ) : null}
+
       {photoMode.active && unlocatedOpen && unlocatedPhotos.length > 0 ? (
         <UnlocatedPhotosModal
           photos={unlocatedPhotos}
@@ -1066,23 +1263,35 @@ export function Globe({
       ) : null}
       {!replay.active ? (
         <MapControls
-          onPhotoToggle={photos.length > 0 ? photoMode.toggle : undefined}
+          onPhotoToggle={
+            photos.length > 0
+              ? () => {
+                  if (!photoMode.active) exitNearby();
+                  photoMode.toggle();
+                }
+              : undefined
+          }
           photoModeActive={photoMode.active}
           onReplay={
             replayTimeline
               ? () => {
                   // Only one mode owns the globe at a time.
                   photoMode.exit();
+                  exitNearby();
                   replay.enter();
                 }
               : undefined
           }
           onAttractionsToggle={
-            onOpenAttraction && !photoMode.active
+            // Nearby owns the attractions layer while it runs, so the standalone
+            // toggle stands down alongside photo mode's.
+            onOpenAttraction && !photoMode.active && !nearbyMode.active
               ? attractions.toggle
               : undefined
           }
           attractionsActive={attractions.active}
+          onNearbyToggle={nearby ? toggleNearby : undefined}
+          nearbyActive={nearbyMode.active}
           projection={projection}
           onToggleProjection={handleToggle}
           onRecenter={

@@ -116,10 +116,10 @@ The landing page (`src/app/page.tsx`) renders the public demo account's real tra
 
 `src/components/map/map-controls.tsx` implements a two-tier model. Keep it:
 
-- **Modes** (photo map, replay, attractions) change what the map shows and earn visible buttons, filled brand blue when active. A mode may surface its own chrome while running.
+- **Modes** (photo map, replay, attractions, nearby) change what the map shows and earn visible buttons, filled brand blue when active. A mode may surface its own chrome while running.
 - **Utilities** (basemap, recenter, projection, fullscreen, refresh) adjust the view and all live in the single settings popover. Do not promote a utility to a visible button.
-- Resting state is at most four buttons plus search on any surface. Adding a fifth mode means rethinking the model, not appending a button.
-- The cluster is a bottom-right vertical column at every breakpoint; search anchors top-right. This is what makes the mobile collision structurally impossible (bounded cluster height, bottom-anchored, against a 300px minimum map height). Do not reintroduce a top-anchored phone column.
+- Resting state is at most five buttons plus search, and only on the dashboard, which is the one surface wiring all four modes. Adding a fifth mode means rethinking the model, not appending a button.
+- The cluster is a bottom-right vertical column at every breakpoint; search anchors top-right. This is what makes the mobile collision structurally impossible (bounded cluster height, bottom-anchored, against a 340px minimum map height on the dashboard and 300px elsewhere). Do not reintroduce a top-anchored phone column, and do not lower the dashboard globe's min-height back to 300px while five buttons stack there.
 
 Overlay corner system: top-left for status chrome (stats pill, photo-mode header, replay readout), top-right for search, bottom-right for the control cluster, bottom-centre for the transient style-loading pill, bottom-left for MapLibre attribution.
 
@@ -175,6 +175,61 @@ Demo user: the UUID `703fbe07-db8a-41bd-bdee-928c2fa88107` is hardcoded in `lib/
 All stats come from SQL views and the `f_distance_traveled` RPC in the batchport schema. `getAllStats(userId)` in `lib/stats-data.ts` fires eight parallel queries and returns a `StatsData` object. Components receive data as props; there is no client-side aggregation.
 
 PostgREST can serialize numeric view columns as strings to preserve precision. The `num()` helper in `stats-data.ts` coerces them defensively before passing to charts.
+
+### Nearby Mode and Device Location
+
+Nearby is the only feature that touches the user's live position, and it is
+built around one rule: **the position is session state, never data.** Concretely:
+
+- `navigator.geolocation.getCurrentPosition` is called only from an explicit
+  tap (entering the mode, or the panel's refresh/retry). Nothing prompts on page
+  load, and there is no `watchPosition`, so there is no background tracking.
+- The fix lives in `useNearby`'s React state for the life of the mode and is
+  dropped on exit. It is never written to storage, never sent to an API, and
+  never included in a server action payload. The single exception is the
+  experience the user deliberately creates in the log sheet (and its `geom`),
+  plus the checkoff they deliberately tap.
+- A denial is terminal for the session: the panel explains itself once and
+  offers an exit. Only another explicit tap re-asks.
+
+If a future change needs the position anywhere else, that is a new decision,
+not an implementation detail. Do not add a persistence layer, a "last known
+location" cache, or an analytics event carrying coordinates.
+
+The proximity radii live in `lib/nearby.ts` with the reasoning attached:
+50km for "which of my stops am I in", 250m for "am I at the thing I planned",
+150m for "is this geosearch result what I am looking at". `lib/nearby.ts` is
+pure and client-safe; `lib/nearby-data.ts` is the server read and, like search
+and export, takes no userId so RLS is the boundary.
+
+Nearby borrows the attractions layer rather than duplicating it
+(`useAttractions().enable()` starts it without recording a preference), and
+hands it back on exit unless the user already had it on.
+
+### Historical Weather
+
+`lib/weather.ts` answers "what was it like the days you were there" from the
+same Open-Meteo ERA5 archive that backs the discovery climate line. Two things
+shape the design:
+
+- **ERA5 lags real time by several days.** The requested window is truncated to
+  `today - 6 days` before the fetch, and the cache key uses the truncated end
+  date. A window that was still partly in the future when it was cached simply
+  misses tomorrow and refetches a longer one, so ongoing trips fill in by
+  themselves. `partial` is recomputed per request, never trusted from the cache.
+- **Past observations do not change**, so the TTL is a year, far longer than the
+  30 and 90 day geocoding TTLs.
+
+The route (`/api/weather/visit`) is public in `proxy.ts` because it carries no
+user state (a coordinate and a date range in, daily numbers out), which is what
+lets /demo and /share render the same line. It returns 204, not 404, when there
+is nothing to say: the caller's answer is "omit the line".
+
+The component fetches client-side for the same reason the climate line does: a
+cache miss goes out to Open-Meteo, and no page should block its render on that.
+Everything degrades to absent. No dates, no coordinates, a planned trip, a
+window inside the lag, or an upstream failure all mean no line, never an empty
+state.
 
 ### Search, Export, and Home Location
 
@@ -244,6 +299,9 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Shared photo deletion and owner collection | `src/lib/photo-cleanup.ts` |
 | Photo map mode data layer | `src/lib/photo-map-data.ts` |
 | Globe data layer (getMapData) | `src/lib/map-data.ts` |
+| Nearby proximity helpers and radii (pure) | `src/lib/nearby.ts` |
+| Nearby planned-experience points (server read) | `src/lib/nearby-data.ts` |
+| Observed weather at time of visit | `src/lib/weather.ts` |
 | Landing hero globe data (cached anon demo read) | `src/lib/landing-data.ts` |
 | Landing hero static fallback (generated) | `src/lib/mock-travel-data.ts` |
 | Home location read side and distance helpers | `src/lib/home-location.ts` |
@@ -270,6 +328,10 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Globe GeoJSON source builders | `src/components/map/globe-sources.ts` |
 | Basemap catalog and style resolution | `src/components/map/basemaps.ts` |
 | Map control cluster (modes + settings popover) | `src/components/map/map-controls.tsx` |
+| Nearby mode hook (geolocation, marker) | `src/components/map/use-nearby.ts` |
+| Nearby status card | `src/components/map/nearby-panel.tsx` |
+| Nearby "log something here" sheet | `src/components/map/log-here-sheet.tsx` |
+| Observed-weather line | `src/components/weather/visit-weather.tsx` |
 | Dashboard globe wrapper (overlay + drill-down) | `src/components/map/dashboard-globe.tsx` |
 | Photo upload component | `src/components/photos/photo-upload.tsx` |
 | Location search (geocoding typeahead) | `src/components/location-search.tsx` |

@@ -14,6 +14,8 @@ import { CountryDrilldown, groupByTrip, type TripGroup } from "./country-drilldo
 import { useGlobeFullscreen } from "./use-globe-fullscreen";
 import type { MapData } from "@/lib/map-data";
 import type { PhotoMapData } from "@/lib/photo-map-data";
+import type { PlannedExperiencePoint } from "@/lib/nearby";
+import type { Category } from "@/lib/types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDiscovery } from "@/components/discover/discovery-host";
@@ -25,12 +27,18 @@ import {
 interface DashboardGlobeProps {
   data: MapData;
   photoData?: PhotoMapData;
+  /** Category list for Nearby mode's log sheet. */
+  categories: Category[];
+  /** Planned experiences with coordinates, for Nearby mode's checkoff prompt. */
+  plannedPoints: PlannedExperiencePoint[];
   isDemo?: boolean;
 }
 
 export function DashboardGlobe({
   data,
   photoData,
+  categories,
+  plannedPoints,
   isDemo = false,
 }: DashboardGlobeProps) {
   const {
@@ -64,6 +72,10 @@ export function DashboardGlobe({
   const [replayActive, setReplayActive] = useState(false);
   // Photo map mode hides the same chrome (its own header pill takes over).
   const [photoActive, setPhotoActive] = useState(false);
+  // Nearby mode does too: its status card owns the top-left corner and the
+  // phone screen it was built for has no room to share.
+  const [nearbyActive, setNearbyActive] = useState(false);
+  const chromeHidden = replayActive || photoActive || nearbyActive;
   // Fullscreen: the card swaps to a fixed full-viewport container. Escape is
   // panel-first: with a drill-down or discovery panel open it walks that up
   // instead of collapsing the globe.
@@ -154,7 +166,10 @@ export function DashboardGlobe({
         // (z-40) so the panel still layers above it.
         fullscreen
           ? "fixed inset-0 z-30"
-          : "relative h-[45vh] min-h-[300px] w-full rounded-2xl border border-white/10 sm:h-[60vh] sm:min-h-[380px]",
+          // 340px, not 300: this surface wires four modes, so the control
+          // column is five buttons tall and needs the extra room to stay clear
+          // of the search button in the opposite corner. See map-controls.tsx.
+          : "relative h-[45vh] min-h-[340px] w-full rounded-2xl border border-white/10 sm:h-[60vh] sm:min-h-[380px]",
       )}
     >
       <Globe
@@ -232,6 +247,14 @@ export function DashboardGlobe({
             closeDiscover();
           }
         }}
+        nearby={{ categories, plannedPoints, isDemo }}
+        onNearbyActiveChange={(active) => {
+          setNearbyActive(active);
+          if (active) {
+            setSelected(null);
+            closeDiscover();
+          }
+        }}
         onFullscreenToggle={toggleFullscreen}
         fullscreen={fullscreen}
       />
@@ -239,7 +262,7 @@ export function DashboardGlobe({
       {/* Stats overlay. Wraps within the card on narrow screens so the pills
           never push past the globe's edge. Hidden during replay and photo
           mode, which bring their own readouts. */}
-      {!isEmpty && !replayActive && !photoActive ? (
+      {!isEmpty && !chromeHidden ? (
         <div
           className={cn(
             "absolute left-4 right-4 z-20 flex flex-wrap items-center gap-2 pr-14",
@@ -300,7 +323,7 @@ export function DashboardGlobe({
 
       {/* Search: explore any city or country by name. z-30 keeps the expanded
           dropdown above the stats pills. Hidden during replay and photo mode. */}
-      {replayActive || photoActive ? null : (
+      {chromeHidden ? null : (
         <div
           className={cn(
             "absolute right-4 z-30 flex justify-end",

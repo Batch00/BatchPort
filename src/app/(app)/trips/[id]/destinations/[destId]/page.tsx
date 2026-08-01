@@ -17,6 +17,7 @@ import { ExperiencesSection } from "@/components/experiences/experiences-section
 import { DestinationPhotos } from "@/components/photos/destination-photos";
 import { PhotoBanner } from "@/components/photos/photo-banner";
 import { CountryFlag } from "@/components/country-flag";
+import { VisitWeatherLine } from "@/components/weather/visit-weather";
 import {
   durationDays,
   formatDateRange,
@@ -138,6 +139,19 @@ export default async function DestinationDetailPage({
           ) : null}
         </p>
       </PhotoBanner>
+
+      {/* What the weather actually did while you were here. Absent without
+          dates or coordinates, and skipped outright on planned trips (whose
+          dates are in the future, so the archive has nothing to say). */}
+      {tripStatus !== "planned" ? (
+        <VisitWeatherLine
+          lat={destination.latitude}
+          lng={destination.longitude}
+          start={destination.arrival_date}
+          end={destination.departure_date}
+          className="-mt-4 mb-8"
+        />
+      ) : null}
 
       {destination.notes ? (
         <p className="mb-8 max-w-prose whitespace-pre-line text-sm text-foreground/70">

@@ -6,6 +6,7 @@ import {
   ImageIcon,
   LandmarkIcon,
   LocateFixedIcon,
+  NavigationIcon,
   Map as MapIcon,
   Maximize2Icon,
   Minimize2Icon,
@@ -28,17 +29,22 @@ import { ActionTip } from "@/components/ui/info-tip";
 // fullscreen, recenter, refresh). They are not worth permanent buttons, so all
 // five live in one settings popover behind a single control.
 //
-// That caps the resting cluster at four buttons on every surface: three modes
-// plus settings, and fewer wherever a mode is not wired (the landing hero and
-// the destination picker show settings alone).
+// That caps the resting cluster at five buttons on the fullest surface (the
+// dashboard: photos, replay, attractions, nearby, settings) and fewer wherever
+// a mode is not wired: read-only surfaces drop attractions and nearby, and the
+// landing hero and the destination picker show settings alone.
+//
+// Nearby is the fourth mode and the last one this layout can carry. A sixth
+// button would mean rethinking the model (grouping modes, or retiring one), not
+// appending another.
 //
 // Layout: one bottom-right vertical column at every breakpoint. The search
 // overlay hosts anchor to the top-right, so the two cannot collide by
-// construction rather than by tuning: the cluster's height is bounded at four
-// buttons (about 190px on phones including the bottom inset) and the search
-// button occupies the top 60px, so any map at least ~254px tall keeps them
-// apart. Every globe surface is at least 300px tall (min-h-[300px]) or
-// fullscreen.
+// construction rather than by tuning: the cluster's height is bounded at five
+// buttons (about 264px on phones including the bottom inset) and the search
+// button occupies the top 56px, so any map at least ~320px tall keeps them
+// apart. Every globe surface that wires more than three modes is at least
+// 340px tall, and the rest are at least 300px, or fullscreen.
 
 /** One selectable basemap style for the switcher swatches. */
 export interface BasemapOption {
@@ -56,6 +62,10 @@ interface MapControlsProps {
   /** When provided, shows the "Show attractions" explore layer toggle. */
   onAttractionsToggle?: () => void;
   attractionsActive?: boolean;
+  /** When provided, shows the Nearby toggle. Tapping it is what asks the
+   * browser for location permission; nothing here prompts on its own. */
+  onNearbyToggle?: () => void;
+  nearbyActive?: boolean;
 
   // --- Utilities (all inside the settings popover) ------------------------
   projection: "globe" | "mercator";
@@ -153,6 +163,8 @@ export function MapControls({
   onReplay,
   onAttractionsToggle,
   attractionsActive = false,
+  onNearbyToggle,
+  nearbyActive = false,
   projection,
   onToggleProjection,
   onRecenter,
@@ -258,6 +270,15 @@ export function MapControls({
           active={attractionsActive}
           icon={<LandmarkIcon className={ICON_CLASS} />}
           onClick={onAttractionsToggle}
+        />
+      ) : null}
+
+        {onNearbyToggle ? (
+        <ModeButton
+          label={nearbyActive ? "Exit nearby" : "Show what is around you"}
+          active={nearbyActive}
+          icon={<NavigationIcon className={ICON_CLASS} />}
+          onClick={onNearbyToggle}
         />
       ) : null}
 

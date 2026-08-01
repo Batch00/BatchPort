@@ -31,6 +31,10 @@ export interface ProfileDestination {
   country_code: string | null;
   arrival_date: string | null;
   departure_date: string | null;
+  /** Generated from geom. Null on stops saved without a location; the
+   * observed-weather line is simply absent for those. */
+  latitude: number | null;
+  longitude: number | null;
   coverUrl: string | null;
   cover_position: { x: number; y: number } | null;
   experiences: ProfileExperience[];
@@ -134,6 +138,8 @@ interface DestinationRow {
   trip_id: string;
   name: string;
   country_code: string | null;
+  latitude: number | null;
+  longitude: number | null;
   arrival_date: string | null;
   departure_date: string | null;
   order_index: number;
@@ -191,7 +197,7 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       .select(
         // The experiences embed selects * so a missing status column (before
         // the migration) degrades to undefined instead of erroring.
-        "id, trip_id, name, country_code, arrival_date, departure_date, order_index, cover_photo_id, cover_position, experiences ( *, categories ( label, icon, color ) )",
+        "id, trip_id, name, country_code, latitude, longitude, arrival_date, departure_date, order_index, cover_photo_id, cover_position, experiences ( *, categories ( label, icon, color ) )",
       )
       .eq("user_id", userId)
       .order("order_index", { ascending: true }),
@@ -287,6 +293,8 @@ export async function getProfileTrips(userId: string): Promise<ProfileTrip[]> {
       country_code: dest.country_code,
       arrival_date: dest.arrival_date,
       departure_date: dest.departure_date,
+      latitude: dest.latitude,
+      longitude: dest.longitude,
       coverUrl: thumbUrl(cover?.photo),
       // The stored crop position describes the explicit cover only.
       cover_position: cover?.explicit ? (dest.cover_position ?? null) : null,

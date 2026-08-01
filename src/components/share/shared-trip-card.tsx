@@ -10,6 +10,7 @@ import { PlannedExperienceRowReadOnly } from "@/components/experiences/planned-c
 import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
 import { groupByPlanDay, planDayCount, planDayLabel } from "@/lib/day-plan";
 import { CountryFlag } from "@/components/country-flag";
+import { VisitWeatherLine } from "@/components/weather/visit-weather";
 import {
   daysUntil,
   durationDays,
@@ -203,6 +204,18 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
                         destination.departure_date,
                       )}
                     </p>
+                    {/* Observed weather is public reference data keyed by
+                        coordinates and past dates, so the read-only surfaces
+                        show it too. Planned trips have nothing to observe. */}
+                    {trip.status !== "planned" ? (
+                      <VisitWeatherLine
+                        lat={destination.latitude}
+                        lng={destination.longitude}
+                        start={destination.arrival_date}
+                        end={destination.departure_date}
+                        className="mt-1"
+                      />
+                    ) : null}
 
                     {destination.experiences.length > 0 ? (
                       <>
