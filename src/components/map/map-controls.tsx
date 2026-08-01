@@ -18,33 +18,37 @@ import {
 import { cn } from "@/lib/utils";
 import { ActionTip } from "@/components/ui/info-tip";
 
-// The globe's floating control cluster, built on a two-tier model.
+// The globe's floating control cluster, ranked by how often a control is
+// actually reached for rather than by what kind of thing it is.
 //
-// MODES change what the map shows (photos, replay, attractions). They earn a
-// visible button and read as filled brand blue while active; entering one lets
-// that mode surface its own chrome (replay swaps this cluster for its transport
-// bar, photo mode adds a header pill).
+// VISIBLE BUTTONS are the frequent four: photo map, replay, recenter, and the
+// settings popover. Recenter earns its place by sheer frequency (every stray
+// drag or zoom on a globe ends in wanting the data back on screen), which is
+// why it sits out here next to two modes rather than three clicks deep.
 //
-// UTILITIES adjust how the current view is drawn (basemap style, projection,
-// fullscreen, recenter, refresh). They are not worth permanent buttons, so all
-// five live in one settings popover behind a single control.
+// THE POPOVER holds everything occasional, modes included: nearby and show
+// attractions at the top, then the basemap swatches, projection, fullscreen,
+// and refresh. Nearby and attractions are genuine modes, but they are entered
+// once and lived in, so a permanent button spends resting-state room on a tap
+// most sessions never make.
 //
-// That caps the resting cluster at five buttons on the fullest surface (the
-// dashboard: photos, replay, attractions, nearby, settings) and fewer wherever
-// a mode is not wired: read-only surfaces drop attractions and nearby, and the
-// landing hero and the destination picker show settings alone.
+// Because two modes now live behind the popover, the trigger has to say so: it
+// takes a brand tint and a small brand dot whenever a mode inside it is
+// running, so the user is never in a mode with no visible signal. The dot is
+// deliberately not a count; which mode it is belongs to the menu row, which
+// reads as active too.
 //
-// Nearby is the fourth mode and the last one this layout can carry. A sixth
-// button would mean rethinking the model (grouping modes, or retiring one), not
-// appending another.
+// That caps the resting cluster at four buttons on the fullest surface (the
+// dashboard) and fewer wherever a mode is not wired: read-only surfaces drop
+// attractions and nearby entirely, and the landing hero and the destination
+// picker show settings alone.
 //
 // Layout: one bottom-right vertical column at every breakpoint. The search
 // overlay hosts anchor to the top-right, so the two cannot collide by
-// construction rather than by tuning: the cluster's height is bounded at five
-// buttons (about 264px on phones including the bottom inset) and the search
-// button occupies the top 56px, so any map at least ~320px tall keeps them
-// apart. Every globe surface that wires more than three modes is at least
-// 340px tall, and the rest are at least 300px, or fullscreen.
+// construction rather than by tuning: the cluster's height is bounded at four
+// buttons (about 220px on phones including the bottom inset) and the search
+// button occupies the top 56px, so any map at least ~280px tall keeps them
+// apart. Every globe surface here is at least 300px tall, or fullscreen.
 
 /** One selectable basemap style for the switcher swatches. */
 export interface BasemapOption {
@@ -53,25 +57,27 @@ export interface BasemapOption {
 }
 
 interface MapControlsProps {
-  // --- Modes -------------------------------------------------------------
+  // --- Visible buttons ----------------------------------------------------
   /** When provided, shows a photos toggle that enters/exits photo map mode. */
   onPhotoToggle?: () => void;
   photoModeActive?: boolean;
   /** When provided, shows a replay button that starts timeline playback. */
   onReplay?: () => void;
-  /** When provided, shows the "Show attractions" explore layer toggle. */
+  /** When provided, shows the recenter button that snaps back to the data. */
+  onRecenter?: () => void;
+
+  // --- Popover: occasional modes -----------------------------------------
+  /** When provided, offers the "Show attractions" explore layer toggle. */
   onAttractionsToggle?: () => void;
   attractionsActive?: boolean;
-  /** When provided, shows the Nearby toggle. Tapping it is what asks the
+  /** When provided, offers the Nearby toggle. Tapping it is what asks the
    * browser for location permission; nothing here prompts on its own. */
   onNearbyToggle?: () => void;
   nearbyActive?: boolean;
 
-  // --- Utilities (all inside the settings popover) ------------------------
+  // --- Popover: utilities -------------------------------------------------
   projection: "globe" | "mercator";
   onToggleProjection: () => void;
-  /** When provided, offers a recenter action that snaps back to the data. */
-  onRecenter?: () => void;
   /** When provided, offers a refresh action that re-fetches the map data. */
   onRefresh?: () => void;
   refreshing?: boolean;
@@ -188,6 +194,36 @@ export function MapControls({
     setSettingsOpen(false),
   );
 
+  // The occasional modes, at the top of the popover: entering one is a
+  // deliberate act, and each row reads as active while its mode runs.
+  const modes: {
+    key: string;
+    label: string;
+    icon: ReactNode;
+    active: boolean;
+    onSelect: () => void;
+  }[] = [];
+  if (onNearbyToggle) {
+    modes.push({
+      key: "nearby",
+      label: nearbyActive ? "Exit nearby" : "Show what is around you",
+      icon: <NavigationIcon className="size-4" />,
+      active: nearbyActive,
+      onSelect: onNearbyToggle,
+    });
+  }
+  if (onAttractionsToggle) {
+    modes.push({
+      key: "attractions",
+      label: attractionsActive ? "Hide attractions" : "Show attractions",
+      icon: <LandmarkIcon className="size-4" />,
+      active: attractionsActive,
+      onSelect: onAttractionsToggle,
+    });
+  }
+  // A mode is running out of sight, so the trigger has to carry the signal.
+  const modeActive = modes.some((mode) => mode.active);
+
   // Utility rows, in the order they appear under the basemap swatches.
   const utilities: {
     key: string;
@@ -196,14 +232,6 @@ export function MapControls({
     onSelect: () => void;
     disabled?: boolean;
   }[] = [];
-  if (onRecenter) {
-    utilities.push({
-      key: "recenter",
-      label: "Recenter on your travels",
-      icon: <LocateFixedIcon className="size-4" />,
-      onSelect: onRecenter,
-    });
-  }
   utilities.push({
     key: "projection",
     label: projectionLabel,
@@ -264,21 +292,11 @@ export function MapControls({
           onClick={onReplay}
         />
       ) : null}
-      {onAttractionsToggle ? (
+      {onRecenter ? (
         <ModeButton
-          label={attractionsActive ? "Hide attractions" : "Show attractions"}
-          active={attractionsActive}
-          icon={<LandmarkIcon className={ICON_CLASS} />}
-          onClick={onAttractionsToggle}
-        />
-      ) : null}
-
-        {onNearbyToggle ? (
-        <ModeButton
-          label={nearbyActive ? "Exit nearby" : "Show what is around you"}
-          active={nearbyActive}
-          icon={<NavigationIcon className={ICON_CLASS} />}
-          onClick={onNearbyToggle}
+          label="Recenter on your travels"
+          icon={<LocateFixedIcon className={ICON_CLASS} />}
+          onClick={onRecenter}
         />
       ) : null}
 
@@ -286,16 +304,28 @@ export function MapControls({
         <button
           type="button"
           onClick={() => setSettingsOpen((open) => !open)}
-          aria-label="Map settings"
+          // The label says what is running, so a screen reader gets the same
+          // signal the dot gives everyone else.
+          aria-label={
+            modeActive ? "Map settings, a mode is on" : "Map settings"
+          }
           title="Map settings"
           aria-haspopup="menu"
           aria-expanded={settingsOpen}
           className={cn(
             BUTTON_CLASS,
+            "relative",
             settingsOpen && "bg-white/15 text-foreground",
+            modeActive && "border-brand/70 bg-brand/15 text-foreground",
           )}
         >
           <SlidersHorizontalIcon className={ICON_CLASS} />
+          {modeActive ? (
+            <span
+              aria-hidden
+              className="absolute right-1 top-1 size-2 rounded-full bg-brand ring-2 ring-black/60"
+            />
+          ) : null}
         </button>
         {settingsOpen ? (
           <div
@@ -303,6 +333,44 @@ export function MapControls({
             aria-label="Map settings"
             className="absolute bottom-full right-0 mb-2 w-56 overflow-hidden rounded-xl border border-white/10 bg-black/85 p-1.5 shadow-2xl backdrop-blur-md"
           >
+            {modes.length > 0 ? (
+              <>
+                {modes.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={item.active}
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      item.onSelect();
+                    }}
+                    className={cn(
+                      MENU_ITEM_CLASS,
+                      item.active && "bg-brand/15 text-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "shrink-0",
+                        item.active ? "text-brand" : "text-foreground/50",
+                      )}
+                    >
+                      {item.icon}
+                    </span>
+                    {item.label}
+                    {item.active ? (
+                      <span
+                        aria-hidden
+                        className="ml-auto size-1.5 shrink-0 rounded-full bg-brand"
+                      />
+                    ) : null}
+                  </button>
+                ))}
+                <div className="my-1 h-px bg-white/10" />
+              </>
+            ) : null}
+
             {showBasemaps ? (
               <div className="px-1 pb-1.5 pt-1">
                 <div className="px-1 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-foreground/40">

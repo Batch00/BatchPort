@@ -4,6 +4,8 @@
 // component re-exports all of them, so `from "@/components/map/globe"` keeps
 // working everywhere it is already used.
 
+import type { TransportMode } from "@/lib/transport";
+
 /** A single mappable stop. Positions are [lng, lat]. */
 export interface GlobeDestination {
   id: string;
@@ -34,6 +36,10 @@ export interface GlobeArc {
   targetCity: string;
   /** Planned-trip legs render dashed. Default false. */
   planned?: boolean;
+  /** How the hop was travelled, which picks the arc's line family (see
+   * lib/transport.ts). Absent or null draws the default air styling, so a map
+   * nobody has annotated looks exactly as it always did. */
+  mode?: TransportMode | null;
 }
 
 /** An unfulfilled place-type bucket list item with coordinates. */

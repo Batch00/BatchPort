@@ -114,12 +114,13 @@ The landing page (`src/app/page.tsx`) renders the public demo account's real tra
 
 ### Map Control Model
 
-`src/components/map/map-controls.tsx` implements a two-tier model. Keep it:
+`src/components/map/map-controls.tsx` ranks controls by **how often they are used**, not by whether they are a mode or a utility. That distinction was the old model and it put recenter (constant) three clicks deep while nearby (occasional) held a permanent button. Keep the current split:
 
-- **Modes** (photo map, replay, attractions, nearby) change what the map shows and earn visible buttons, filled brand blue when active. A mode may surface its own chrome while running.
-- **Utilities** (basemap, recenter, projection, fullscreen, refresh) adjust the view and all live in the single settings popover. Do not promote a utility to a visible button.
-- Resting state is at most five buttons plus search, and only on the dashboard, which is the one surface wiring all four modes. Adding a fifth mode means rethinking the model, not appending a button.
-- The cluster is a bottom-right vertical column at every breakpoint; search anchors top-right. This is what makes the mobile collision structurally impossible (bounded cluster height, bottom-anchored, against a 340px minimum map height on the dashboard and 300px elsewhere). Do not reintroduce a top-anchored phone column, and do not lower the dashboard globe's min-height back to 300px while five buttons stack there.
+- **Visible buttons:** photo map, replay, recenter, settings. Four, in that order, bottom-right.
+- **The popover:** nearby and show attractions at the top (both genuine modes, both occasional), then basemap swatches, projection, fullscreen, refresh.
+- Because two modes live out of sight, the popover trigger takes a brand tint plus a small brand dot whenever one is active, and its `aria-label` says so. Never let a mode run with no visible signal. The active menu row is tinted too and carries `role="menuitemcheckbox"`.
+- Resting state is at most four buttons plus search. Adding a fifth means rethinking the model, not appending a button.
+- The cluster is a bottom-right vertical column at every breakpoint; search anchors top-right. This is what makes the mobile collision structurally impossible (bounded cluster height, bottom-anchored, against a 300px minimum map height everywhere). Do not reintroduce a top-anchored phone column.
 
 Overlay corner system: top-left for status chrome (stats pill, photo-mode header, replay readout), top-right for search, bottom-right for the control cluster, bottom-centre for the transient style-loading pill, bottom-left for MapLibre attribution.
 
@@ -140,8 +141,10 @@ Layer stack (bottom to top):
 - `country-visited`: brand-blue fill for visited countries, lightens on hover
 - `country-visited-outline`: border around visited countries
 - `country-outline`: all country borders (from the base style)
-- `trip-arcs-glow`: wide blurred glow behind arcs
-- `trip-arcs`: sharp great-circle arc lines
+- `trip-arcs-glow`: wide blurred glow behind air arcs
+- `trip-arcs`: sharp great-circle arc lines (air family: flights and unrecorded hops)
+- `trip-arcs-ground`: violet dashed lines for train/bus/car/bike/walk legs
+- `trip-arcs-sea`: cyan dotted lines for ferry legs
 - `pins-glow`: blurred circle glow per destination
 - `pins`: white circle with color-coded stroke per destination (color from primary experience category)
 
@@ -251,6 +254,13 @@ them together:
   caret. Blur, the Done button, and closing the row pass true.
 - **Journaling applies to completed and ongoing trips only** (`journalingApplies`).
   A planned trip's day structure already belongs to the planner.
+- **The section is one disclosure per trip, closed by default**, and opens to
+  the days that already have an entry with a "Show all N days" switch to reach
+  an empty one. A journal with nothing in it opens to every day instead, or
+  there would be no way to start. The header carries the entry count so the
+  closed state still says whether there is writing inside. Do not nest the days
+  a second time under per-stop headers: the destination list directly above
+  already groups them, and it would add a click to reach any given day.
 
 `lib/story.ts` is pure and takes a `StoryTrip` the caller assembles from rows
 it already has. That is what lets the trip page, /demo, and /share/[slug]
@@ -274,6 +284,49 @@ the cards after it. Do not "simplify" the portal away.
 on `date_part`, because Postgres cannot index the latter and this app is not
 adding an index for a thumbnail strip. It returns null when nothing matched;
 callers render nothing. There is no empty state.
+
+### Transport Legs
+
+How the traveller got from one stop to the next. The model is one sentence:
+**a leg belongs to the arriving destination, one row per stop.** Order within a
+trip already comes from `destinations.order_index`, so storing an origin id
+would be a second copy of that ordering and would be wrong the first time a
+stop is reordered or deleted. "The leg into stop N" is a unique constraint on
+`destination_id` and nothing more, which also means the leg on the first stop
+is the journey out from home for free. The journey home after the last stop is
+deliberately not modelled: it is not a hop between two things this app knows
+about, and a nullable `destination_id` to hold it would cost the unique key
+that keeps everything else simple.
+
+`lib/transport.ts` is pure and client-safe (the mode catalog, arc families,
+formatting, and the breakdown fold); `lib/transport-data.ts` is the server
+read, and like search and export `getTransportLegs` takes no userId so RLS is
+the boundary. `getSharedTransportByTrip` is the deliberate exception, mirroring
+`getSharedJournalByTrip`.
+
+Three rules hold the rest together:
+
+- **Mode is the only required field.** Carrier, duration, distance, and notes
+  live behind an "Add details" disclosure, and tapping a mode in the sheet
+  saves immediately. Recording "we took the train" costs one tap, because the
+  alternative is that nobody records anything.
+- **Arcs style by family, not by mode** (`arcFamily`): air is the existing
+  solid brand-blue great circle with a glow and covers flights *and every hop
+  with no recorded mode*, so an unannotated map looks exactly as it always did;
+  ground is violet and dashed; sea is cyan and dotted. Three layers rather than
+  one data-driven paint because `line-dasharray` is not a data-driven property
+  in MapLibre, the same constraint that already gives planned arcs their own
+  layer. There is no globe legend: the overlay corners are spoken for, and the
+  trip page's leg rows carry a dot in the matching arc colour, which teaches
+  the language where a leg is authored.
+- **Distance is broken down, never adjusted.** Every kilometre in
+  `getTransportBreakdown` is the same great-circle measure `f_distance_traveled`
+  counts, which is fair for a flight and an understatement for a road. A detour
+  multiplier would be a number the app invented, so the caption states the
+  measure instead, unrecorded hops are named rather than folded in, and a leg
+  whose owner typed a real `distance_km` uses that. The CO2 line is one muted
+  sentence from published per-passenger-km factors, presented as an estimate and
+  never as a judgement; `gramsCo2PerKm: null` ("other") drops out of it.
 
 ### Search, Export, and Home Location
 
@@ -346,6 +399,11 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Nearby proximity helpers and radii (pure) | `src/lib/nearby.ts` |
 | Nearby planned-experience points (server read) | `src/lib/nearby-data.ts` |
 | Observed weather at time of visit | `src/lib/weather.ts` |
+| Transport modes, arc families, breakdown (pure) | `src/lib/transport.ts` |
+| Transport server reads and distance breakdown | `src/lib/transport-data.ts` |
+| Transport server actions | `src/lib/actions/transport.ts` |
+| Transport leg row and entry sheet | `src/components/trips/transport-leg.tsx` |
+| Distance by mode stats card | `src/components/stats/transport-breakdown.tsx` |
 | Journal day derivation and helpers (pure) | `src/lib/journal.ts` |
 | Journal server reads | `src/lib/journal-data.ts` |
 | Journal server action | `src/lib/actions/journal.ts` |

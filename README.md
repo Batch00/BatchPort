@@ -9,7 +9,7 @@ BatchPort is a personal travel tracker and installable progressive web app built
 - MapLibre GL JS globe rendering with globe/mercator projection toggle
 - Visited country fills (electric blue) and bucket list country fills (amber) using native GeoJSON fill layers
 - Destination pin layer, color-coded by primary experience category, with hover glow and popup
-- Great-circle trip arc layer with glow, computed from consecutive destinations within each trip
+- Great-circle trip arc layer with glow, computed from consecutive destinations within each trip, styled by how each hop was travelled (solid blue for flights and unrecorded hops, violet dashes for ground, cyan dots for ferries)
 - Country click drill-down: flies to the country and shows a side panel listing destinations grouped by trip
 - Hover tooltips on pins (destination name) and countries (name plus destination count)
 - Stats overlay showing countries, trips, and destination counts
@@ -21,11 +21,12 @@ BatchPort is a personal travel tracker and installable progressive web app built
 
 ### Map Controls
 
-The floating control cluster follows a two-tier model, capped at five buttons plus the search icon on the fullest surface and fewer everywhere else.
+The floating control cluster is ranked by how often a control is actually reached for, capped at four buttons plus the search icon on the fullest surface and fewer everywhere else.
 
-- **Modes** change what the map shows and get visible buttons that fill brand blue while active: photo map, replay, attractions, and nearby. A mode may surface its own chrome while running (replay swaps the cluster for a transport bar; photo mode adds a header pill; nearby adds a status card). Nearby is the fourth mode and the last one this layout carries; a fifth would mean rethinking the model, not appending a button.
-- **Utilities** adjust how the current view is drawn and all live in one settings popover: basemap swatches, recenter, globe/flat projection, fullscreen, and refresh.
-- Layout is a single bottom-right vertical column at every breakpoint. Search anchors top-right, so the two cannot collide: the cluster's height is bounded at five buttons (about 264px on phones) and the dashboard globe, the only surface that wires all four modes, is at least 340px tall. Every other globe surface is at least 300px.
+- **Visible buttons** are the frequent four: photo map, replay, recenter, and the settings popover. Recenter earns its place by sheer frequency (every stray drag on a globe ends in wanting the data back on screen). Photo map and replay surface their own chrome while running (replay swaps the cluster for a transport bar; photo mode adds a header pill).
+- **The settings popover** holds everything occasional, modes included: nearby and show attractions at the top, then basemap swatches, globe/flat projection, fullscreen, and refresh. Both are entered once and lived in, so a permanent button would spend resting-state room on a tap most sessions never make.
+- Because two modes live behind the popover, its trigger takes a brand tint and a small brand dot whenever one is running, and the active menu row is tinted too, so no mode is ever on with no visible signal.
+- Layout is a single bottom-right vertical column at every breakpoint. Search anchors top-right, so the two cannot collide: the cluster's height is bounded at four buttons (about 220px on phones) and every globe surface is at least 300px tall.
 - Read-only surfaces (demo and /share/[slug]) render the same model minus the auth-gated pieces (no refresh, no attractions, no nearby, no photo management actions).
 
 ### Alternate Globe Modes
@@ -74,6 +75,7 @@ The floating control cluster follows a two-tier model, capped at five buttons pl
 - Yearly breakdown chart (Recharts): trips, countries, and new countries per year
 - Experience by category chart (Recharts): experience count and average rating per category
 - Top countries chart (Recharts): destinations and trips per country (top 10)
+- "How you travelled": distance split by transport mode, with the CO2e estimate that follows from it. Kilometres are the same great-circle measure the total uses, never scaled up by a made-up detour factor, and hops with no recorded leg are named rather than folded in. Absent until at least one leg carries a mode
 - Travel extremes panel: northernmost, southernmost, easternmost, and westernmost destination names and coordinates
 - Bucket list completion progress bar and percentage
 - All metrics come from SQL views and an RPC function; no client-side aggregation
@@ -128,7 +130,17 @@ The floating control cluster follows a two-tier model, capped at five buttons pl
 - Days come from the trip's own dates (or the span its stops cover), and each day derives the stop it falls in from the destination date ranges; nothing about the stop is stored on the entry
 - Low friction writing: tap a day, type, and it autosaves. A failed save never clears what was typed, closing the editor flushes immediately, and an unsaved change warns before the tab closes
 - Clearing an entry deletes it, so a day either has writing or it does not
+- Collapsed by default and folded twice, so a month-long trip does not become a wall of empty days: the closed header carries the entry count, and opening it lists only the days that already have writing, with a "Show all N days" switch to reach an empty one. A journal with nothing in it opens straight to every day
 - Entries render on the trip page and feed the trip story
+
+### Transport Legs
+
+- Record how you got to each stop: flight, train, bus, car, ferry, bike, walk, or other
+- One tap to log. Picking a mode saves immediately; carrier ("Eurostar", "BA 342"), duration, a distance override, and notes all sit behind an optional "Add details" disclosure
+- A leg belongs to the stop it arrives at, one per stop, so the leg on the first stop is the journey out from home and the order comes from the route itself. Nothing has to be re-entered when a stop moves
+- Arcs on the globe restyle by how the hop was travelled: flights stay the solid brand-blue great circle with a glow, ground travel reads as thinner violet dashes, ferries as cyan dots. A hop with no recorded leg keeps the original styling, so an unannotated map is unchanged
+- The dot on each leg row matches the arc colour its family draws in, which is the legend, in the place a leg is written rather than floating over the map
+- Shown read-only on /demo and /share/[slug], where an unrecorded leg simply renders nothing
 
 ### Trip Story
 
@@ -230,6 +242,8 @@ trips
 
 **journal_entries:** One freeform entry per (user_id, trip_id, entry_date). Body text plus timestamps, with a unique constraint on the three-column key. Deliberately carries no destination_id: which stop a day belongs to is already determined by the destination arrival/departure ranges, so it is derived on read rather than stored where it could drift.
 
+**transport_legs:** How one stop was reached from the one before it. Belongs to the ARRIVING destination, one row per stop (unique on `destination_id`), which is why it stores no origin: the order is already `destinations.order_index`, and a stored copy of it would drift the first time a stop moved. The leg on a trip's first stop is the journey out from home. Fields: mode (flight/train/bus/car/ferry/bike/walk/other, the only required one), carrier, duration_minutes, an optional distance_km override, and notes. `trip_id` is denormalized so a trip's or a user's legs read in one query.
+
 **user_settings:** Per-user configuration: public_share_enabled, public_slug, is_demo, and the home location (`home_geom geography(Point,4326)` plus the `home_name` and `home_country_code` labels).
 
 ## Metrics Layer
@@ -245,6 +259,8 @@ All stats come from SQL views and an RPC function in the batchport schema. The s
 | `v_bucket_completion` | total, fulfilled, completion_pct |
 | `v_travel_extremes` | northernmost_lat, southernmost_lat, easternmost_lng, westernmost_lng |
 | `f_distance_traveled(p_user_id)` | Total distance traveled in kilometers (RPC call via supabase.rpc) |
+
+The one metric derived outside this layer is the distance-by-mode breakdown, which folds recorded transport legs against the same consecutive-stop great-circle distances the globe draws (`getTransportBreakdown` in `lib/transport-data.ts`). It has no view because it is a join of two small tables the page already needs, and it never changes the totals above.
 
 ## Environment Variables
 
@@ -377,6 +393,7 @@ src/
       trip-form.tsx              Trip create/edit form
       delete-trip-button.tsx     Confirmed delete with alert dialog
       status-badge.tsx           Planned/ongoing/completed badge
+      transport-leg.tsx          Leg row between stops, plus the mode entry sheet
     destinations/
       destination-form.tsx       Destination create/edit form with location search
       delete-destination-button.tsx  Confirmed delete
@@ -398,6 +415,7 @@ src/
       category-chart.tsx         Experience count and rating by category
       country-chart.tsx          Visits per country bar chart
       travel-map-stats.tsx       Travel extremes display (N/S/E/W)
+      transport-breakdown.tsx    Distance by transport mode, with the CO2e estimate
       bucket-progress.tsx        Bucket list completion bar and counts
       chart-card.tsx             Shared chart wrapper card
       stat-card.tsx              Individual stat number card
@@ -448,6 +466,8 @@ src/
     weather.ts                   Observed weather at time of visit (ERA5 archive, cached)
     nearby.ts                    Nearby proximity helpers and radii (client-safe, pure)
     nearby-data.ts               Planned experiences with coordinates, for the checkoff prompt
+    transport.ts                 Transport modes, arc families, formatting, distance fold (pure)
+    transport-data.ts            Transport server reads and the distance-by-mode breakdown
     geocode.ts                   Geocoding cache helpers: readCache, writeCache, parsePhoton, parseNominatim
     wikimedia.ts                 Wikimedia P18 lookup: getWikimediaPhoto() with 90-day cache
     access-token.ts              HMAC-SHA256 token generation and verification for invite links
@@ -459,6 +479,7 @@ src/
       experiences.ts             Experience server actions
       photos.ts                  Photo record server actions (insert, setCover, retag, delete + Storage cleanup)
       bucket-list.ts             Bucket list server actions
+      transport.ts               Transport leg server actions (upsert by stop, delete)
       share-settings.ts          Share settings server action
   utils/supabase/
     client.ts                    Browser Supabase client (batchport schema)
@@ -547,6 +568,14 @@ renders read-only with a one-line note, saving reports "Journaling is not set
 up on this database yet" rather than pretending to have saved, and the story
 view simply has no journal text to interleave. The trip story and On This Day
 need no migration of their own.
+
+Transport legs need the `transport_legs` table, its RLS policies (including an
+`is_shared()` SELECT so legs render on /demo and /share), and its updated_at
+trigger. Run `scripts/sql/2026-08-03-transport-legs.sql` in the Supabase SQL
+editor. Until it runs the app degrades cleanly: the trip page leaves the leg
+rows out entirely rather than offering a control that cannot save, arcs on the
+globe keep their original styling, the stats page shows no distance breakdown,
+and `npm run seed-demo` still seeds a complete demo account without legs.
 
 Nearby mode needs no migration. It reads the destinations the globe already has
 and the planned experiences that carry a `geom`, so it works as soon as the

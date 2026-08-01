@@ -1,5 +1,6 @@
-import type { Map as MlMap } from "maplibre-gl";
+import type { FilterSpecification, Map as MlMap } from "maplibre-gl";
 
+import { GROUND_ARC_COLOR, SEA_ARC_COLOR } from "@/lib/transport";
 import { getCachedCountries, overlayTheme } from "./basemaps";
 import { arcsFC, bucketPlacesFC, destinationsFC } from "./globe-sources";
 import { VISITED_BORDER, matchFilter } from "./map-utils";
@@ -215,14 +216,40 @@ export function installOverlays(map: MlMap, options: OverlayInstallOptions) {
     });
   }
 
-  // Completed/ongoing legs: solid with a glow. Planned legs: dashed, no glow,
-  // slightly dimmer.
+  // Completed/ongoing legs, split by how they were travelled. The families and
+  // their reasoning live in lib/transport.ts; the split into three layers is a
+  // MapLibre constraint, not a design one: line-dasharray is not a data-driven
+  // paint property, so each dash pattern needs its own layer and filter (the
+  // same reason planned arcs already have theirs).
+  //
+  //   air    solid brand blue with a glow, which is what every arc looked like
+  //          before modes existed. Flights and unrecorded hops both land here.
+  //   ground violet, dashed, thinner, no glow. The dashes read as "this line
+  //          stands in for a road or a railway", which it does: the geometry
+  //          is still the great circle and nothing knows the real route.
+  //   sea    cyan, dotted (a zero-length dash with round caps).
+  const air: FilterSpecification = [
+    "all",
+    ["!", ["get", "planned"]],
+    ["==", ["get", "family"], "air"],
+  ] as unknown as FilterSpecification;
+  const ground: FilterSpecification = [
+    "all",
+    ["!", ["get", "planned"]],
+    ["==", ["get", "family"], "ground"],
+  ] as unknown as FilterSpecification;
+  const sea: FilterSpecification = [
+    "all",
+    ["!", ["get", "planned"]],
+    ["==", ["get", "family"], "sea"],
+  ] as unknown as FilterSpecification;
+
   if (!map.getLayer("trip-arcs-glow")) {
     map.addLayer({
       id: "trip-arcs-glow",
       type: "line",
       source: "arcs",
-      filter: ["!", ["get", "planned"]],
+      filter: air,
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": brandHex,
@@ -237,12 +264,42 @@ export function installOverlays(map: MlMap, options: OverlayInstallOptions) {
       id: "trip-arcs",
       type: "line",
       source: "arcs",
-      filter: ["!", ["get", "planned"]],
+      filter: air,
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": brandHex,
         "line-width": 2.5,
         "line-opacity": 0.9,
+      },
+    });
+  }
+  if (!map.getLayer("trip-arcs-ground")) {
+    map.addLayer({
+      id: "trip-arcs-ground",
+      type: "line",
+      source: "arcs",
+      filter: ground,
+      layout: { "line-join": "round" },
+      paint: {
+        "line-color": GROUND_ARC_COLOR,
+        "line-width": 2,
+        "line-opacity": 0.85,
+        "line-dasharray": [3, 2],
+      },
+    });
+  }
+  if (!map.getLayer("trip-arcs-sea")) {
+    map.addLayer({
+      id: "trip-arcs-sea",
+      type: "line",
+      source: "arcs",
+      filter: sea,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": SEA_ARC_COLOR,
+        "line-width": 2.2,
+        "line-opacity": 0.85,
+        "line-dasharray": [0, 2.2],
       },
     });
   }

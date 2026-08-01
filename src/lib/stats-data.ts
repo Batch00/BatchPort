@@ -6,6 +6,8 @@ import {
   type RatedExperience,
   type Superlatives,
 } from "@/lib/superlatives";
+import { getTransportBreakdown } from "@/lib/transport-data";
+import type { TransportBreakdown } from "@/lib/transport";
 
 // The server Supabase client is scoped to the batchport schema, so derive the
 // parameter type from it rather than the default (public-schema) SupabaseClient.
@@ -92,6 +94,14 @@ export interface StatsData {
   distanceKm: number;
   furthestFromHome: FurthestFromHome | null;
   superlatives: Superlatives;
+  /**
+   * Distance split by how it was travelled, from the recorded transport legs.
+   * Null when no leg carries a mode, which is the default state and renders
+   * nothing. It deliberately does NOT adjust distanceKm: great-circle is a
+   * fair approximation for a flight and an understatement for a road, and a
+   * detour multiplier would be a number the app made up.
+   */
+  transport: TransportBreakdown | null;
 }
 
 // The subset of stats the dashboard, demo, and share pages actually render
@@ -516,6 +526,7 @@ export async function getAllStats(userId?: string): Promise<StatsData> {
     adjustments,
     home,
     ratedExperiences,
+    transport,
   ] = await Promise.all([
     getTravelSummary(supabase, uid),
     getExperiencesByCategory(supabase, uid),
@@ -528,6 +539,7 @@ export async function getAllStats(userId?: string): Promise<StatsData> {
     getPlannedAdjustments(supabase, uid),
     getHomeLocation(uid),
     getRatedExperiences(supabase, uid),
+    getTransportBreakdown(uid),
   ]);
 
   // Needs the home row, so it runs after the parallel batch rather than in it.
@@ -550,5 +562,6 @@ export async function getAllStats(userId?: string): Promise<StatsData> {
     distanceKm,
     furthestFromHome,
     superlatives: buildSuperlatives(ratedExperiences),
+    transport,
   };
 }

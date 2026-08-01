@@ -8,6 +8,7 @@ import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
 import { PlannedExperienceRowReadOnly } from "@/components/experiences/planned-checklist";
 import { StoryLauncher } from "@/components/trips/story-launcher";
+import { TransportLegReadOnly } from "@/components/trips/transport-leg";
 import { hasStory, storyTripFromProfile } from "@/lib/story";
 import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
 import { groupByPlanDay, planDayCount, planDayLabel } from "@/lib/day-plan";
@@ -87,6 +88,10 @@ function ReadOnlyPlannedList({
 export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
   const [expanded, setExpanded] = useState(false);
   const destinationCount = trip.destinations.length;
+  // A leg belongs to the stop it arrives at, so the list is keyed by that id.
+  const legByDestination = new Map(
+    trip.transport.map((leg) => [leg.destination_id, leg]),
+  );
   const days = durationDays(trip.start_date, trip.end_date);
   // Small anticipation cue on upcoming planned trips.
   const countdown =
@@ -169,10 +174,13 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
           ) : (
             <ol className="flex flex-col gap-3">
               {trip.destinations.map((destination, index) => (
-                <li
-                  key={destination.id}
-                  className="flex gap-3 rounded-lg bg-white/[0.02] p-3 ring-1 ring-foreground/10"
-                >
+                <li key={destination.id}>
+                  {/* Read-only: an unrecorded leg renders nothing here. */}
+                  <TransportLegReadOnly
+                    leg={legByDestination.get(destination.id) ?? null}
+                    isFirst={index === 0}
+                  />
+                  <div className="flex gap-3 rounded-lg bg-white/[0.02] p-3 ring-1 ring-foreground/10">
                   <div className="relative isolate h-16 w-20 shrink-0 overflow-hidden rounded-md bg-white/5">
                     {destination.coverUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -274,6 +282,7 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
                         No experiences logged
                       </p>
                     )}
+                  </div>
                   </div>
                 </li>
               ))}

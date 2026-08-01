@@ -58,6 +58,23 @@ export interface SeedTrip {
   destinations: SeedDestination[];
 }
 
+/** How the traveller reached one stop. Mode is the only required field, which
+ * is the whole point of the feature. */
+export interface SeedTransport {
+  mode:
+    | "flight"
+    | "train"
+    | "bus"
+    | "car"
+    | "ferry"
+    | "bike"
+    | "walk"
+    | "other";
+  carrier?: string;
+  durationMinutes?: number;
+  notes?: string;
+}
+
 export interface SeedBucketItem {
   type: "country" | "place";
   country_code: string | null;
@@ -1508,6 +1525,127 @@ export const TRIPS: SeedTrip[] = [
     ],
   },
 ];
+
+// --- Transport legs --------------------------------------------------------
+//
+// How the traveller reached each stop, keyed by trip name and then by city.
+// A leg belongs to the stop it ARRIVES at, so the entry under the first city
+// of a trip is the journey out from home and every later one is the hop from
+// the stop before it.
+//
+// Kept as its own block rather than a field on each destination: the legs are
+// a thin second pass over the same route, and reading them together is how you
+// check that a rail trip actually reads as rail. The seeder skips silently if
+// a name here does not match the fixture above.
+export const TRANSPORT_LEGS: Record<
+  string,
+  Record<string, SeedTransport>
+> = {
+  "Interrail Summer": {
+    Amsterdam: { mode: "flight", carrier: "KL 1008", durationMinutes: 75 },
+    Berlin: { mode: "train", carrier: "ICE 145", durationMinutes: 385 },
+    Prague: { mode: "train", carrier: "EC 179", durationMinutes: 265 },
+    Vienna: { mode: "train", carrier: "RJ 71", durationMinutes: 240 },
+    Budapest: { mode: "train", carrier: "RJ 41", durationMinutes: 160 },
+  },
+  "Dia de Muertos Long Weekend": {
+    "Mexico City": { mode: "flight", carrier: "AM 405", durationMinutes: 620 },
+    Puebla: { mode: "bus", carrier: "ADO", durationMinutes: 135 },
+    Oaxaca: {
+      mode: "bus",
+      carrier: "ADO Platino",
+      durationMinutes: 270,
+      notes: "Overnight, reclining seats, worth the upgrade.",
+    },
+  },
+  "Slow Loop Through Southeast Asia": {
+    Bangkok: { mode: "flight", carrier: "TG 917", durationMinutes: 700 },
+    "Chiang Mai": {
+      mode: "train",
+      carrier: "Sleeper 13",
+      durationMinutes: 780,
+      notes: "Second class sleeper, fan car. Woke up in the hills.",
+    },
+    "Luang Prabang": {
+      mode: "ferry",
+      carrier: "Mekong slow boat",
+      durationMinutes: 1080,
+      notes: "Two days down the river with a stop at Pakbeng.",
+    },
+    Hanoi: { mode: "flight", carrier: "VN 930", durationMinutes: 110 },
+    "Siem Reap": { mode: "bus", carrier: "Giant Ibis", durationMinutes: 720 },
+  },
+  "Andes Adventure": {
+    Lima: { mode: "flight", carrier: "LA 2471", durationMinutes: 745 },
+    Cusco: { mode: "flight", carrier: "LA 2027", durationMinutes: 80 },
+    "La Paz": { mode: "bus", carrier: "Bolivia Hop", durationMinutes: 750 },
+    Uyuni: {
+      mode: "bus",
+      carrier: "Todo Turismo",
+      durationMinutes: 600,
+      notes: "Overnight across the altiplano.",
+    },
+    "Buenos Aires": { mode: "flight", carrier: "BoA 748", durationMinutes: 195 },
+  },
+  "Golden Week in Japan": {
+    Tokyo: { mode: "flight", carrier: "NH 204", durationMinutes: 760 },
+    Hakone: { mode: "train", carrier: "Romancecar", durationMinutes: 90 },
+    Kanazawa: { mode: "train", carrier: "Thunderbird", durationMinutes: 305 },
+    Kyoto: { mode: "train", carrier: "Thunderbird 16", durationMinutes: 135 },
+    Osaka: { mode: "train", carrier: "JR Special Rapid", durationMinutes: 30 },
+  },
+  "Serengeti and the Swahili Coast": {
+    Nairobi: { mode: "flight", carrier: "KQ 101", durationMinutes: 505 },
+    Arusha: { mode: "bus", carrier: "Riverside Shuttle", durationMinutes: 330 },
+    "Serengeti National Park": {
+      mode: "car",
+      carrier: "Safari Land Cruiser",
+      durationMinutes: 420,
+      notes: "Half of it on corrugated gravel through the Ngorongoro gate.",
+    },
+    "Stone Town": { mode: "flight", carrier: "Coastal Aviation", durationMinutes: 105 },
+  },
+  "Down Under and Across the Ditch": {
+    Sydney: { mode: "flight", carrier: "QF 2", durationMinutes: 1370 },
+    Melbourne: { mode: "train", carrier: "XPT", durationMinutes: 660 },
+    Queenstown: { mode: "flight", carrier: "JQ 209", durationMinutes: 200 },
+    Rotorua: { mode: "car", carrier: "Hired campervan", durationMinutes: 660 },
+    Auckland: { mode: "car", carrier: "Hired campervan", durationMinutes: 185 },
+  },
+  "Iceland Ring Road": {
+    Reykjavik: { mode: "flight", carrier: "FI 451", durationMinutes: 195 },
+    Vik: { mode: "car", durationMinutes: 155, notes: "Stopped at every waterfall on Route 1." },
+    Hofn: { mode: "car", durationMinutes: 215 },
+    Akureyri: { mode: "car", durationMinutes: 300 },
+  },
+  "Fjords and Midnight Sun": {
+    Oslo: { mode: "flight", carrier: "SK 807", durationMinutes: 115 },
+    Bergen: {
+      mode: "train",
+      carrier: "Bergensbanen",
+      durationMinutes: 415,
+      notes: "Snow on the Hardangervidda in June.",
+    },
+    Flam: {
+      mode: "ferry",
+      carrier: "Naeroyfjord express",
+      durationMinutes: 140,
+    },
+    Tromso: { mode: "flight", carrier: "WF 924", durationMinutes: 150 },
+  },
+  "Silk Road Autumn": {
+    Istanbul: { mode: "flight", carrier: "TK 1980", durationMinutes: 235 },
+    Tbilisi: { mode: "flight", carrier: "TK 378", durationMinutes: 140 },
+    Samarkand: { mode: "flight", carrier: "HY 776", durationMinutes: 195 },
+    Bukhara: { mode: "train", carrier: "Afrosiyob", durationMinutes: 100 },
+  },
+  "Southern Summer in Patagonia": {
+    Santiago: { mode: "flight", carrier: "LA 705", durationMinutes: 900 },
+    "Puerto Natales": { mode: "flight", carrier: "DAP 231", durationMinutes: 210 },
+    "El Calafate": { mode: "bus", carrier: "Cootra", durationMinutes: 320 },
+    Ushuaia: { mode: "flight", carrier: "AR 1893", durationMinutes: 80 },
+  },
+};
 
 export const BUCKET_ITEMS: SeedBucketItem[] = [
   {

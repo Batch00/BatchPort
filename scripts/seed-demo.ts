@@ -31,6 +31,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import {
   BUCKET_ITEMS,
+  TRANSPORT_LEGS,
   TRIPS,
   type ExperienceStatus,
   type SeedDestination,
@@ -370,6 +371,7 @@ interface SeedTotals {
   experiences: number;
   photos: number;
   covers: number;
+  transport: number;
 }
 
 async function seedTrips(
@@ -383,6 +385,7 @@ async function seedTrips(
     experiences: 0,
     photos: 0,
     covers: 0,
+    transport: 0,
   };
   const tripIds = new Map<string, string>();
 
@@ -523,6 +526,31 @@ async function seedTrips(
           continue;
         }
         totals.experiences += 1;
+      }
+
+      // How the traveller reached this stop. Best effort: a database without
+      // the transport_legs table still seeds a complete demo account, it just
+      // has no legs on the trip pages and default-styled arcs on the globe.
+      const leg = TRANSPORT_LEGS[trip.name]?.[dest.city];
+      if (leg) {
+        const { error: legError } = await supabase
+          .from("transport_legs")
+          .insert({
+            user_id: userId,
+            trip_id: tripId,
+            destination_id: destId,
+            mode: leg.mode,
+            carrier: leg.carrier ?? null,
+            duration_minutes: leg.durationMinutes ?? null,
+            notes: leg.notes ?? null,
+          });
+        if (legError) {
+          console.warn(
+            `  Could not record the ${leg.mode} into ${dest.city}: ${legError.message}`,
+          );
+        } else {
+          totals.transport += 1;
+        }
       }
 
       console.log(
@@ -707,7 +735,7 @@ async function main() {
 
   console.log("\n=== Seeded ===");
   console.log(
-    `  ${totals.trips} trips, ${totals.destinations} destinations, ${totals.experiences} experiences, ${totals.photos} photos, ${totals.covers} trip covers.`,
+    `  ${totals.trips} trips, ${totals.destinations} destinations, ${totals.experiences} experiences, ${totals.photos} photos, ${totals.covers} trip covers, ${totals.transport} transport legs.`,
   );
 
   console.log("\n=== Blast radius check ===");

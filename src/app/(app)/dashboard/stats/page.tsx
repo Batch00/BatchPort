@@ -11,6 +11,7 @@ import {
 } from "@/lib/stats-insights";
 import { StatsOverview } from "@/components/stats/stats-overview";
 import { RecordsRow } from "@/components/stats/records-row";
+import { TransportBreakdownCard } from "@/components/stats/transport-breakdown";
 import { YearlyChart } from "@/components/stats/yearly-chart";
 import { CategoryChart } from "@/components/stats/category-chart";
 import { CountryChart } from "@/components/stats/country-chart";
@@ -62,6 +63,12 @@ export default async function StatsPage() {
       />
 
       <RecordsRow records={records} />
+
+      {/* Absent until at least one transport leg has been recorded. There is
+          no "record how you travelled" empty state. */}
+      {stats.transport ? (
+        <TransportBreakdownCard breakdown={stats.transport} />
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <YearlyChart data={stats.yearly} description={yearlyInsight(stats.yearly)} />

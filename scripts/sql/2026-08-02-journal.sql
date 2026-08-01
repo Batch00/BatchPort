@@ -46,7 +46,7 @@ alter table batchport.journal_entries enable row level security;
 drop policy if exists journal_entries_select on batchport.journal_entries;
 create policy journal_entries_select on batchport.journal_entries
   for select
-  using (auth.uid() = user_id or is_shared(user_id));
+  using (auth.uid() = user_id or batchport.is_shared(user_id));
 
 drop policy if exists journal_entries_insert on batchport.journal_entries;
 create policy journal_entries_insert on batchport.journal_entries

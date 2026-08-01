@@ -6,7 +6,9 @@ import { getTrip, getTripDestinationOptions } from "@/lib/trips";
 import { getPhotos, getPhotosForOwners } from "@/lib/photos-data";
 import { getJournalEntries, journalAvailable } from "@/lib/journal-data";
 import { journalDays, journalingApplies } from "@/lib/journal";
+import { getTransportLegs, transportAvailable } from "@/lib/transport-data";
 import { TripJournal } from "@/components/trips/trip-journal";
+import { TransportLegRow } from "@/components/trips/transport-leg";
 import { StoryLauncher } from "@/components/trips/story-launcher";
 import { hasStory, type StoryPhoto, type StoryTrip } from "@/lib/story";
 import { getCategories } from "@/lib/experiences";
@@ -80,14 +82,26 @@ export default async function TripDetailPage({
   // journalEntries and journalReady ride in the same batch: the availability
   // probe is what lets the section render read-only with an explanation on a
   // database where the migration has not run, instead of failing on save.
-  const [destPhotos, expPhotos, home, journalEntries, journalReady] =
-    await Promise.all([
-      getPhotosForOwners("destination", destIds),
-      getPhotosForOwners("experience", experienceIds),
-      getHomeLocation(user.id),
-      getJournalEntries(id),
-      journalAvailable(),
-    ]);
+  // transportLegs and transportReady ride along for the same reason: without
+  // the migration the connector rows are left out entirely rather than
+  // offering a control that cannot save.
+  const [
+    destPhotos,
+    expPhotos,
+    home,
+    journalEntries,
+    journalReady,
+    transportLegs,
+    transportReady,
+  ] = await Promise.all([
+    getPhotosForOwners("destination", destIds),
+    getPhotosForOwners("experience", experienceIds),
+    getHomeLocation(user.id),
+    getJournalEntries(id),
+    journalAvailable(),
+    getTransportLegs(id),
+    transportAvailable(),
+  ]);
 
   // Distance from home is the trip's furthest stop. With no home set, or no
   // located stop, this is null and the banner line simply omits it.
@@ -359,6 +373,18 @@ export default async function TripDetailPage({
               : undefined;
             return (
               <li key={destination.id}>
+                {/* The leg into this stop, above the stop it arrives at. On
+                    the first stop that is the journey out from home. */}
+                {transportReady ? (
+                  <TransportLegRow
+                    tripId={trip.id}
+                    destinationId={destination.id}
+                    destinationName={destination.name}
+                    leg={transportLegs.get(destination.id) ?? null}
+                    isFirst={index === 0}
+                    isDemo={isDemo}
+                  />
+                ) : null}
                 <Link
                   href={`/trips/${trip.id}/destinations/${destination.id}`}
                   className="group block"

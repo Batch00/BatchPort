@@ -1,5 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { parseEwkbPoint, placeKey } from "@/lib/geo";
+import { legModesByDestination } from "@/lib/transport-data";
+import type { TransportMode } from "@/lib/transport";
 
 // Server-side data layer for the globe. getMapData fetches everything the map
 // needs in a minimal set of parallel queries and pre-computes the arcs so the
@@ -42,6 +44,9 @@ export interface MapArc {
   targetCity: string;
   /** True when the trip is planned; rendered dashed. */
   planned: boolean;
+  /** How this hop was travelled, from the leg recorded on the arriving stop.
+   * Null when nothing was recorded, which draws the original arc styling. */
+  mode: TransportMode | null;
 }
 
 /** An unfulfilled place-type bucket list item, rendered as an amber pin. */
@@ -179,7 +184,10 @@ export async function getMapData(
   // countries, arcs, and most counts), an exact trip count so the overlay
   // reflects every trip, and one query for all unfulfilled bucket items
   // (countries and places split in memory rather than in two round trips).
-  const [destResult, tripCountResult, bucketResult] = await Promise.all([
+  // The fourth query is the transport legs, which style the arcs by how each
+  // hop was travelled. It degrades to an empty map, so a database without the
+  // table renders exactly the arcs it always did.
+  const [destResult, tripCountResult, bucketResult, legModes] = await Promise.all([
     supabase
       .from("destinations")
       .select(DESTINATION_SELECT)
@@ -194,6 +202,7 @@ export async function getMapData(
       .select("id, type, place_name, country_code, geom")
       .eq("user_id", resolvedUserId)
       .is("fulfilled_at", null),
+    legModesByDestination(supabase, resolvedUserId),
   ]);
 
   if (destResult.error) throw destResult.error;
@@ -273,6 +282,9 @@ export async function getMapData(
         sourceCity: source.name,
         targetCity: target.name,
         planned: source.planned,
+        // A leg belongs to the stop it arrives at, so the hop's mode is the
+        // mode recorded on its target.
+        mode: legModes.get(target.id) ?? null,
       });
     }
   }

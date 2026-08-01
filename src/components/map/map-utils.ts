@@ -20,6 +20,8 @@ export const TRAVEL_LAYERS = [
   "country-planned-outline",
   "trip-arcs-glow",
   "trip-arcs",
+  "trip-arcs-ground",
+  "trip-arcs-sea",
   "trip-arcs-planned",
   "bucket-pins-glow",
   "bucket-pins-halo",

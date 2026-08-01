@@ -4,6 +4,8 @@ import { getPhotoMapData, type PhotoMapData } from "@/lib/photo-map-data";
 import { getSummaryStats, type SummaryStats } from "@/lib/stats-data";
 import { getSharedBucketList, type BucketItem } from "@/lib/bucket-list";
 import { getSharedJournalByTrip } from "@/lib/journal-data";
+import { getSharedTransportByTrip } from "@/lib/transport-data";
+import type { TransportLeg } from "@/lib/transport";
 import { getPhotoUrl, resolveCoverPhoto } from "@/lib/photos";
 import { DEMO_USER_ID } from "@/lib/constants";
 import type { JournalEntry } from "@/lib/journal";
@@ -63,6 +65,10 @@ export interface ProfileTrip {
    * the `story` option). Empty arrays otherwise, so callers never branch. */
   journal: JournalEntry[];
   photos: StoryPhoto[];
+  /** Recorded transport legs, keyed within the card by the stop each arrives
+   * at. An array rather than a map so it crosses the server boundary plainly;
+   * empty when nothing was recorded or the table does not exist yet. */
+  transport: TransportLeg[];
 }
 
 /** A fulfilled item's trip cover on the read-only bucket grid. */
@@ -261,7 +267,8 @@ export async function getProfileTrips(
     ? ["trip", "destination", "experience"]
     : ["trip", "destination"];
 
-  const [coversResult, fallbacksResult, journalByTrip] = await Promise.all([
+  const [coversResult, fallbacksResult, journalByTrip, transportByTrip] =
+    await Promise.all([
     coverIds.length > 0
       ? supabase
           .from("photos")
@@ -279,6 +286,9 @@ export async function getProfileTrips(
     wantStory
       ? getSharedJournalByTrip(userId)
       : Promise.resolve(new Map<string, JournalEntry[]>()),
+    // Unconditional: legs render on the expanded trip card, not just in the
+    // story, and the read is one small query that degrades to empty.
+    getSharedTransportByTrip(userId),
   ]);
 
   const photoById = new Map<string, PhotoRow>();
@@ -408,6 +418,9 @@ export async function getProfileTrips(
       destinations,
       journal: journalByTrip.get(trip.id) ?? [],
       photos: storyPhotosByTrip.get(trip.id) ?? [],
+      transport: Array.from(
+        (transportByTrip.get(trip.id) ?? new Map<string, TransportLeg>()).values(),
+      ),
     };
   });
 }

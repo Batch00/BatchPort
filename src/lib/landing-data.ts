@@ -76,6 +76,7 @@ async function fetchLandingGlobeData(): Promise<LandingGlobeData | null> {
         tripName: arc.tripName,
         sourceCity: arc.sourceCity,
         targetCity: arc.targetCity,
+        mode: arc.mode,
       }));
 
     return {

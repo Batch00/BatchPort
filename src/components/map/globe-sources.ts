@@ -1,6 +1,7 @@
 import type { FeatureCollection, LineString, Point } from "geojson";
 
 import { greatCirclePoints } from "@/lib/geo";
+import { arcFamily } from "@/lib/transport";
 import type {
   GlobeArc,
   GlobeBucketPlace,
@@ -53,7 +54,13 @@ export function arcsFC(arcs: GlobeArc[]): FeatureCollection<LineString> {
           ARC_SEGMENTS,
         ),
       },
-      properties: { tripName: arc.tripName, planned: arc.planned ?? false },
+      properties: {
+        tripName: arc.tripName,
+        planned: arc.planned ?? false,
+        // The layer filters read this: "air" covers flights and every hop
+        // nobody recorded a mode for.
+        family: arcFamily(arc.mode ?? null),
+      },
     })),
   };
 }
