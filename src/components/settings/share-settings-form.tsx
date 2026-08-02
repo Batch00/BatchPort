@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updateShareSettings } from "@/lib/actions/share-settings";
+import { useConnectionGuard } from "@/lib/offline/use-offline";
 import { cn } from "@/lib/utils";
 import type { ShareSettings } from "@/lib/share-settings";
 
@@ -27,12 +28,14 @@ function shareBaseUrl(): string {
 export function ShareSettingsForm({ initial, isDemo }: ShareSettingsFormProps) {
   const router = useRouter();
   const [enabled, setEnabled] = useState(initial.public_share_enabled);
+  const blockedOffline = useConnectionGuard();
   const [slug, setSlug] = useState(initial.public_slug ?? "");
   const [saving, setSaving] = useState(false);
 
   const shareUrl = slug ? `${shareBaseUrl()}/share/${slug}` : "";
 
   async function handleSave() {
+    if (blockedOffline("Saving settings")) return;
     if (isDemo) {
       toast.error("Demo account settings are read-only.");
       return;

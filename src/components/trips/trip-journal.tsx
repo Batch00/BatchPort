@@ -12,6 +12,8 @@ import {
 
 import { saveJournalEntryAction } from "@/lib/actions/journal";
 import { journalDayLabel, journalPreview, type JournalDay } from "@/lib/journal";
+import { enqueue } from "@/lib/offline/queue";
+import { useOnlineStatus } from "@/lib/offline/use-offline";
 import { cn } from "@/lib/utils";
 
 // The travel journal on the trip page: one row per day of the trip, tap to
@@ -54,18 +56,22 @@ const AUTOSAVE_MS = 1200;
 function DayRow({
   day,
   tripId,
+  tripName,
   disabled,
   disabledReason,
 }: {
   day: JournalDay;
   tripId: string;
+  tripName: string;
   disabled: boolean;
   disabledReason: string | null;
 }) {
+  const online = useOnlineStatus();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(day.body ?? "");
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [queued, setQueued] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The text last known to be on the server. Held twice on purpose: as state,
   // because the "Unsaved" indicator is rendered from it, and as a ref, because
@@ -79,6 +85,32 @@ function DayRow({
     async (value: string, final: boolean) => {
       if (value.trim() === committedRef.current.trim()) return;
       setSaving(true);
+
+      // Offline, the autosave queues instead of posting. Queued journal saves
+      // coalesce on (trip, day), so typing a long entry with no signal leaves
+      // one pending write holding the latest text rather than one per pause.
+      if (!online) {
+        const stored = await enqueue({
+          kind: "journal.save",
+          tripId,
+          tripName,
+          entryDate: day.date,
+          body: value,
+        });
+        setSaving(false);
+        if (!stored) {
+          toast.error("Could not save that offline.", {
+            description: "Your text is still here. Keep this open until you reconnect.",
+          });
+          return;
+        }
+        committedRef.current = value;
+        setCommitted(value);
+        setQueued(true);
+        setSavedAt(Date.now());
+        return;
+      }
+
       const result = await saveJournalEntryAction(tripId, day.date, value, {
         final,
       });
@@ -91,9 +123,10 @@ function DayRow({
       }
       committedRef.current = value;
       setCommitted(value);
+      setQueued(false);
       setSavedAt(Date.now());
     },
-    [tripId, day.date],
+    [tripId, tripName, day.date, online],
   );
 
   const flush = useCallback(() => {
@@ -206,6 +239,10 @@ function DayRow({
                     "Saving..."
                   ) : dirty ? (
                     "Unsaved"
+                  ) : queued ? (
+                    <span className="text-amber-300/70">
+                      Queued, sends when you reconnect
+                    </span>
                   ) : savedAt !== null ? (
                     <span className="inline-flex items-center gap-1 text-foreground/45">
                       <CheckIcon className="size-3" />
@@ -236,11 +273,15 @@ function DayRow({
 
 export function TripJournal({
   tripId,
+  tripName,
   days,
   disabled,
   disabledReason,
 }: {
   tripId: string;
+  /** Only used to label a queued offline save in the pending list, where the
+   * date alone would not say which trip it belongs to. */
+  tripName: string;
   days: JournalDay[];
   /** Read-only: the demo account, or a database without the journal table. */
   disabled: boolean;
@@ -303,6 +344,7 @@ export function TripJournal({
                 key={day.date}
                 day={day}
                 tripId={tripId}
+                tripName={tripName}
                 disabled={disabled}
                 disabledReason={disabledReason}
               />

@@ -33,6 +33,8 @@ import {
 import { RatingInput } from "@/components/rating-input";
 import { CategoryIcon } from "@/components/category-icon";
 import { createExperienceAction } from "@/lib/actions/experiences";
+import { enqueue } from "@/lib/offline/queue";
+import { useOnlineStatus } from "@/lib/offline/use-offline";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { formatProximity, localToday, type NearbyPosition } from "@/lib/nearby";
 import type { Category } from "@/lib/types";
@@ -100,6 +102,7 @@ function LogHereForm({
     defaultDestinationId ?? "",
   );
   const [submitting, setSubmitting] = useState(false);
+  const online = useOnlineStatus();
 
   const destination = destinations.find((item) => item.id === destinationId);
   const canSave = name.trim().length > 0 && Boolean(destination);
@@ -112,6 +115,40 @@ function LogHereForm({
       return;
     }
     setSubmitting(true);
+
+    // Standing somewhere with no signal is the case this sheet was built for,
+    // so it queues rather than refusing. The coordinate is still the one the
+    // user deliberately attached to a record they are creating, and it goes no
+    // further than this device until the write replays.
+    if (!online) {
+      const stored = await enqueue({
+        kind: "experience.create",
+        destinationId: destination.id,
+        destinationName: destination.name,
+        name: name.trim(),
+        categoryId: categoryId || null,
+        rating: rating || null,
+        visitedDate: localToday(),
+        notes: null,
+        status: "done",
+        lat: position.lat,
+        lng: position.lng,
+      });
+      setSubmitting(false);
+      if (!stored) {
+        toast.error("Could not save that offline.", {
+          description:
+            "This browser is not storing offline changes, so nothing was recorded.",
+        });
+        return;
+      }
+      toast.success(`Logged ${name.trim()} in ${destination.name}`, {
+        description: "Queued on this device, sending when you reconnect.",
+      });
+      onOpenChange(false);
+      return;
+    }
+
     const result = await createExperienceAction(
       destination.tripId,
       destination.id,

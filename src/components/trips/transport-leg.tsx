@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { useConnectionGuard } from "@/lib/offline/use-offline";
 import {
   BikeIcon,
   BusIcon,
@@ -228,8 +229,10 @@ function TransportLegDialog({
     Boolean(leg?.carrier || leg?.duration_minutes || leg?.distance_km || leg?.notes),
   );
   const [busy, setBusy] = useState(false);
+  const blockedOffline = useConnectionGuard();
 
   async function save(next: TransportMode) {
+    if (blockedOffline("Recording a transport leg")) return;
     setBusy(true);
     const durationMinutes =
       (Number(hours) || 0) * 60 + (Number(mins) || 0) || null;
@@ -249,6 +252,7 @@ function TransportLegDialog({
   }
 
   async function remove() {
+    if (blockedOffline("Removing a transport leg")) return;
     setBusy(true);
     const result = await deleteTransportLegAction(destinationId).catch(() => ({
       error: "Could not remove that leg.",

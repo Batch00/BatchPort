@@ -17,6 +17,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { deleteTripAction } from "@/lib/actions/trips";
+import { useConnectionGuard } from "@/lib/offline/use-offline";
 
 export function DeleteTripButton({
   tripId,
@@ -26,9 +27,11 @@ export function DeleteTripButton({
   tripName: string;
 }) {
   const [open, setOpen] = useState(false);
+  const blockedOffline = useConnectionGuard();
   const [deleting, setDeleting] = useState(false);
 
   async function handleDelete() {
+    if (blockedOffline("Deleting a trip")) return;
     setDeleting(true);
     const result = await deleteTripAction(tripId);
     // A successful delete redirects to /dashboard. Only errors return.

@@ -6,6 +6,7 @@ import { Loader2Icon, MapPinIcon, SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { CountryFlag } from "@/components/country-flag";
 import { cn } from "@/lib/utils";
+import { useOnlineStatus } from "@/lib/offline/use-offline";
 import type { GeoLocation } from "@/lib/types";
 
 interface LocationSearchProps {
@@ -32,6 +33,7 @@ export function LocationSearch({
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [searched, setSearched] = useState(false);
+  const online = useOnlineStatus();
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -149,7 +151,7 @@ export function LocationSearch({
           ) : results.length === 0 ? (
             searched ? (
               <div className="px-3 py-3 text-sm text-muted-foreground">
-                No results
+                {online ? "No results" : "Looking up places needs a connection."}
               </div>
             ) : null
           ) : (

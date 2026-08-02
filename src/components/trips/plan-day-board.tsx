@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PlannedExperienceRow } from "@/components/experiences/planned-checklist";
 import { setExperiencePlannedDayAction } from "@/lib/actions/experiences";
+import { useConnectionGuard } from "@/lib/offline/use-offline";
 import {
   experiencePoint,
   groupByPlanDay,
@@ -66,6 +67,7 @@ export function PlanDayBoard({
   );
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverGroup, setDragOverGroup] = useState<number | null>(null);
+  const blockedOffline = useConnectionGuard();
 
   // Reset optimistic state whenever the underlying experience set changes (a
   // refresh confirmed the writes). Keyed by id+day so a committed assignment
@@ -112,6 +114,7 @@ export function PlanDayBoard({
     toDay: number | null,
   ) {
     if (fromDay === toDay) return;
+    if (blockedOffline("Moving a plan to another day")) return;
     if (isDemo) {
       toast.error(DEMO_READONLY_MESSAGE);
       return;

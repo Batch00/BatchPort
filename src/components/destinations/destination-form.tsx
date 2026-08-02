@@ -18,6 +18,7 @@ import {
 } from "@/lib/actions/destinations";
 import { CountryFlag } from "@/components/country-flag";
 import type { DestinationInput } from "@/lib/destinations";
+import { useConnectionGuard } from "@/lib/offline/use-offline";
 import type { CoverPosition, GeoLocation, Photo } from "@/lib/types";
 import type { GlobeBucketPlace } from "@/components/map/globe";
 import type { PickerDestination } from "@/components/destinations/map-destination-picker";
@@ -75,9 +76,11 @@ export function DestinationForm({
   const [departure, setDeparture] = useState(defaultDeparture);
   const [notes, setNotes] = useState(defaultNotes);
   const [submitting, setSubmitting] = useState(false);
+  const blockedOffline = useConnectionGuard();
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (blockedOffline("Saving a destination")) return;
     if (!location) {
       toast.error("Search for and select a location.");
       return;

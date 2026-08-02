@@ -32,6 +32,7 @@ import {
 } from "@/lib/photos";
 import { insertPhotoRecord, setCoverPhoto } from "@/lib/actions/photos";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
+import { useOnlineStatus } from "@/lib/offline/use-offline";
 import { cn } from "@/lib/utils";
 import { extractExifFromBuffer, findNearestDestination } from "@/lib/utils/exif";
 import type { PhotoOwnerType } from "@/lib/types";
@@ -164,6 +165,24 @@ async function reverseGeocode(lat: number, lng: number): Promise<string | null> 
   }
 }
 
+/**
+ * Offline behaviour: photo uploads are REFUSED, not queued.
+ *
+ * They are the obvious candidate for a field queue and they were considered
+ * for one. The reason they are not queued is storage, not difficulty. A queued
+ * upload has to hold the original bytes, and a phone camera roll dropped into
+ * this picker is tens of megabytes per batch, competing for the same origin
+ * quota as the trip snapshot, the offline thumbnails, and the cached tiles.
+ * Losing that quota race evicts the whole origin, which would take the queued
+ * writes down with it: the one outcome this feature exists to prevent. A
+ * bounded blob store with its own eviction policy is the right answer and it
+ * is a piece of work in its own right, not a rider on this one.
+ *
+ * So the refusal is at the picker, before a file is read, with copy that says
+ * where the photos still are (the camera roll) and what to do. Nothing is
+ * staged, nothing is half-saved, and no gallery shows a pending row that will
+ * never resolve.
+ */
 export function PhotoUpload({
   ownerType,
   ownerId,
@@ -178,6 +197,7 @@ export function PhotoUpload({
   const [dragging, setDragging] = useState(false);
   const [items, setItems] = useState<StagedPhoto[]>([]);
   const [committing, setCommitting] = useState(false);
+  const online = useOnlineStatus();
 
   const canTag = Boolean(tagDestinations && tagDestinations.length > 0);
   const destinations = tagDestinations ?? [];
@@ -226,6 +246,16 @@ export function PhotoUpload({
     if (!fileList || fileList.length === 0) return;
     if (isDemo) {
       toast.error(DEMO_READONLY_MESSAGE);
+      return;
+    }
+    // Photo uploads are refused offline rather than queued. See the note above
+    // PhotoUpload for why. The refusal happens at the picker, before anything
+    // is staged, so there is never a row on screen implying it was taken.
+    if (!online) {
+      toast.error("Uploading photos needs a connection.", {
+        description:
+          "Nothing was uploaded. Your photos stay in your camera roll; add them when you are back online.",
+      });
       return;
     }
     if (committing) return;

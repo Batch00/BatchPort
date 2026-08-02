@@ -189,13 +189,28 @@ The floating control cluster is ranked by how often a control is actually reache
 - Set a custom public slug (3 to 30 characters, lowercase letters, numbers, and hyphens; reserved slugs are blocked; must be unique across users)
 - Download your data as JSON or GeoJSON
 
-### PWA
+### PWA and Offline
 
 - Web app manifest served at /manifest.webmanifest
-- Pass-through service worker (public/sw.js), installable but no offline caching
 - Branded icons at multiple sizes (48x48 through 512x512) plus maskable variants (192x192 and 512x512)
 - Responsive layout with hamburger nav on mobile (AppNav)
 - Touch-friendly photo lightbox
+
+BatchPort works with no connection, which is when a travel app matters most: abroad, on a plane, standing somewhere you planned to be.
+
+**Reading offline.** Opening the app with no signal lands on a saved copy of your account: every trip, its stops and experiences, the plan checklists with their day assignments, journal entries, and the globe with its country fills and arcs. The copy is a snapshot refreshed whenever you open the app online, held in IndexedDB, so it covers trips you never happened to open rather than only the pages you visited. The dark basemap and the country outlines are files that ship with the app, so the map draws with nothing to reach.
+
+**Writing offline.** Four things a traveller does in the field keep working: checking a planned experience off, writing a journal entry, logging a new experience (including from nearby mode), and marking a bucket list item completed. Each one is queued on the device with a visible pending marker, and sent when you reconnect. A queued write is never dropped: it leaves the queue by succeeding or by you discarding it, a failed send keeps its error and stays in the list, and if the browser refuses to store it you are told it was not saved rather than told it was.
+
+**What needs a connection.** Deleting anything, reordering, creating or editing trips and stops, assigning plan days, recording transport legs, settings, and photo uploads all refuse offline with a message naming what needs the connection, rather than queueing a change with conflict semantics nobody can predict. Discovery, weather, search of new places, attractions, and POI lookup simply have nothing to show. Nothing spins forever.
+
+**Conflict policy** is last write wins, per row, stated in the pending panel.
+
+**A calm indicator, not a banner.** A small chip in the nav appears when you are offline or something is waiting, and nothing at all otherwise. Tapping it lists every pending write, any that failed with why, and a retry.
+
+**Per-trip "Available offline".** Every trip is already readable offline; this toggle stores that trip's photo thumbnails too, capped, removable, with the approximate size shown. It does not pre-download map tiles: MapTiler's terms allow keeping tiles you have already looked at and prohibit bulk download, so the map caches as you pan and the toggle says so rather than implying more.
+
+**Service worker hygiene.** Caches are versioned and cleaned on activate. Navigations are network-first and never cached, so a deploy cannot leave a stale page on screen. Server actions, photo uploads, the session refresh, and the auth callback are passed straight through, untouched.
 
 ## Tech Stack
 
@@ -209,6 +224,7 @@ The floating control cluster is ranked by how often a control is actually reache
 | Geocoding | Photon (typeahead and POI), Nominatim (reverse), GeoNames countries.geojson (bundled) |
 | Photos | Supabase Storage (batchport bucket), Wikimedia Commons API (Wikidata P18 property) |
 | Email | Resend |
+| Offline | Service worker (Cache Storage), IndexedDB snapshot and write queue |
 | Hosting | Vercel |
 
 ## Data Model
@@ -360,6 +376,8 @@ src/
       photos/
         wikimedia/route.ts       Wikimedia metadata lookup (server-side)
         wikimedia/proxy/route.ts Image proxy to avoid CORS when displaying Wikimedia photos
+    offline/page.tsx             Offline shell (public, renders from the IndexedDB snapshot)
+    api/offline/snapshot/route.ts  The whole account in one document, for offline reads
     layout.tsx                   Root layout: Inter font, dark class, Toaster, ServiceWorkerRegister
     manifest.ts                  Web app manifest served at /manifest.webmanifest
     globals.css                  Tailwind v4 tokens including --brand color (#2563EB)
@@ -445,7 +463,12 @@ src/
       landing-actions.tsx        Request access and sign-in buttons on the landing page
     ui/                          shadcn/ui primitives (button, card, dialog, input, popover, etc.)
       date-range-picker.tsx      Single-calendar start/end range picker over YYYY-MM-DD strings
-    service-worker-register.tsx  Registers public/sw.js on mount
+    service-worker-register.tsx  Registers public/sw.js and keeps it fresh across deploys
+    offline/
+      offline-shell.tsx          Offline trip list and globe, read from IndexedDB
+      offline-trip.tsx           Offline trip view with queued checkoff and journal writes
+      offline-status.tsx         Offline chip and the pending write queue panel
+      trip-offline-toggle.tsx    Per-trip photo thumbnail caching
   lib/
     types.ts                     Domain types mirroring the Postgres schema
     constants.ts                 DEMO_USER_ID constant
@@ -486,6 +509,16 @@ src/
     access-token.ts              HMAC-SHA256 token generation and verification for invite links
     landing-data.ts              Landing hero globe data: cached anon read of the demo account
     mock-travel-data.ts          GENERATED static fallback for the landing hero (see generate-mock-globe.ts)
+    offline/
+      types.ts                   Offline snapshot shape (client-safe)
+      queue-types.ts             Queued write vocabulary, labelling, coalescing (pure)
+      constants.ts               Cache names, staleness, per-trip photo bounds
+      db.ts                      IndexedDB wrapper (meta and queue stores)
+      queue.ts                   The write queue store and the FIFO replay loop
+      snapshot.ts                Snapshot fetch, storage, and staleness
+      trip-cache.ts              Per-trip photo cache warm and removal
+      use-offline.ts             Online status, queue, and connection guard hooks
+      forget.ts                  Wipes offline storage on sign-out
     actions/
       trips.ts                   Trip server actions
       destinations.ts            Destination server actions (triggers Wikimedia + bucket auto-fulfill)
@@ -494,6 +527,7 @@ src/
       bucket-list.ts             Bucket list server actions
       transport.ts               Transport leg server actions (upsert by stop, delete)
       share-settings.ts          Share settings server action
+      offline.ts                 Replay of one queued offline write (idempotent)
   utils/supabase/
     client.ts                    Browser Supabase client (batchport schema)
     server.ts                    Server Supabase client (batchport schema, async cookies())
@@ -501,7 +535,7 @@ src/
     admin.ts                     Service-role client (not schema-scoped; must call .schema("batchport") per query)
   proxy.ts                       Session refresh and route protection (Next.js 16 proxy convention)
 public/
-  sw.js                          Pass-through service worker (enables PWA installability)
+  sw.js                          Service worker: precache, offline fallback, runtime caches
   data/countries.geojson         Country polygons for the globe (ISO_A2_EH property for code matching)
   styles/dark-style.json         MapLibre dark base style (used when PMTiles is not configured)
   icons/                         PWA icons: 48x48 through 512x512, maskable 192x192 and 512x512

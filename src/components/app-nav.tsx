@@ -7,6 +7,8 @@ import { MenuIcon, SettingsIcon, XIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { GlobalSearch } from "@/components/search/global-search";
+import { OfflineStatus } from "@/components/offline/offline-status";
+import { forgetOfflineData } from "@/lib/offline/forget";
 import { cn } from "@/lib/utils";
 
 // Links shown in the full mobile menu. The desktop bar shows the first three
@@ -70,6 +72,11 @@ export function AppNav({ email, signOut }: AppNavProps) {
           <span className="hidden text-sm text-foreground/60 lg:inline">
             {email}
           </span>
+          {/* Renders nothing while online with an empty queue, so the resting
+              nav is unchanged. Outside the hamburger for the same reason
+              search is: "did my checkoff save" is not a question worth two
+              taps. */}
+          <OfflineStatus />
           {/* Sits outside the hamburger so search is one tap from every page
               on a phone, not two. */}
           <GlobalSearch />
@@ -80,7 +87,11 @@ export function AppNav({ email, signOut }: AppNavProps) {
           >
             <SettingsIcon className="size-4" />
           </Link>
-          <form action={signOut} className="hidden sm:block">
+          <form
+            action={signOut}
+            onSubmit={forgetOfflineData}
+            className="hidden sm:block"
+          >
             <Button type="submit" variant="ghost" size="sm">
               Sign out
             </Button>
@@ -123,7 +134,7 @@ export function AppNav({ email, signOut }: AppNavProps) {
             <span className="min-w-0 truncate text-xs text-foreground/50">
               {email}
             </span>
-            <form action={signOut}>
+            <form action={signOut} onSubmit={forgetOfflineData}>
               <Button type="submit" variant="ghost" size="sm">
                 Sign out
               </Button>

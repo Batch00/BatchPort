@@ -5,6 +5,7 @@ import { Loader2Icon, MapPinIcon, SearchIcon, XIcon } from "lucide-react";
 
 import { CountryFlag } from "@/components/country-flag";
 import { cn } from "@/lib/utils";
+import { useOnlineStatus } from "@/lib/offline/use-offline";
 import type { GeoLocation } from "@/lib/types";
 import type { DiscoveryCityTarget } from "./discovery-panel";
 
@@ -39,6 +40,7 @@ export function GlobeSearch({ onSelect, className }: GlobeSearchProps) {
   const [results, setResults] = useState<GeoLocation[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const online = useOnlineStatus();
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -178,7 +180,11 @@ export function GlobeSearch({ onSelect, className }: GlobeSearchProps) {
         <div className="mt-1 overflow-hidden rounded-xl border border-white/10 bg-black/85 shadow-xl backdrop-blur-md">
           {results.length === 0 ? (
             <div className="px-3 py-2.5 text-sm text-foreground/45">
-              {loading ? "Searching..." : "No results"}
+              {loading
+                ? "Searching..."
+                : online
+                  ? "No results"
+                  : "Finding new places needs a connection."}
             </div>
           ) : (
             <ul className="max-h-64 overflow-y-auto py-1">

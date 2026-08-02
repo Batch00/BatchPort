@@ -20,6 +20,7 @@ import { CoverPhotoPicker } from "@/components/photos/cover-photo-picker";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { createTripAction, updateTripAction } from "@/lib/actions/trips";
 import { formatDateRange } from "@/lib/format";
+import { useConnectionGuard } from "@/lib/offline/use-offline";
 import type { TripInput } from "@/lib/trips";
 import type { CoverPosition, Photo, TripStatus } from "@/lib/types";
 
@@ -79,6 +80,7 @@ export function TripForm({
   const router = useRouter();
   const [values, setValues] = useState<TripFormValues>(defaultValues ?? EMPTY);
   const [submitting, setSubmitting] = useState(false);
+  const blockedOffline = useConnectionGuard();
 
   function set<K extends keyof TripFormValues>(key: K, value: TripFormValues[K]) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -86,6 +88,7 @@ export function TripForm({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (blockedOffline("Saving a trip")) return;
     if (!values.name.trim()) {
       toast.error("Trip name is required.");
       return;

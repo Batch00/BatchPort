@@ -10,6 +10,8 @@ import { RatingInput } from "@/components/rating-input";
 import { CategoryIcon } from "@/components/category-icon";
 import { InfoTip } from "@/components/ui/info-tip";
 import { markExperienceDoneAction } from "@/lib/actions/experiences";
+import { enqueue } from "@/lib/offline/queue";
+import { useOnlineStatus } from "@/lib/offline/use-offline";
 import { cn } from "@/lib/utils";
 
 // The checklist row for a planned experience, shared by the destination page
@@ -61,6 +63,34 @@ export function PlannedExperienceRow({
   const [rating, setRating] = useState(0);
   const [visitedDate, setVisitedDate] = useState(() => defaultDate ?? todayIso());
   const [saving, setSaving] = useState(false);
+  const [queued, setQueued] = useState(false);
+  const online = useOnlineStatus();
+
+  // Offline, the whole flow is the same shape with the queue standing in for
+  // the server: the row flips, the follow-up opens, and the rating lands on a
+  // second queued write that replays after the first. What must not happen is
+  // the row flipping when the queue did not accept the write, so a storage
+  // failure puts it back and says so.
+  async function queueCheckoff(
+    extras: { rating: number | null; visitedDate: string | null },
+  ): Promise<boolean> {
+    const stored = await enqueue({
+      kind: "experience.checkoff",
+      experienceId: experience.id,
+      experienceName: experience.name,
+      rating: extras.rating,
+      visitedDate: extras.visitedDate,
+    });
+    if (!stored) {
+      toast.error("Could not save that offline.", {
+        description:
+          "This browser is not storing offline changes, so nothing was recorded.",
+      });
+      return false;
+    }
+    setQueued(true);
+    return true;
+  }
 
   async function handleCheck() {
     if (disabled || checked) return;
@@ -72,6 +102,16 @@ export function PlannedExperienceRow({
     // follow-up's Save (or Skip) commits with revalidation instead.
     setChecked(true);
     setFollowUpOpen(true);
+
+    if (!online) {
+      const ok = await queueCheckoff({ rating: null, visitedDate: null });
+      if (!ok) {
+        setChecked(false);
+        setFollowUpOpen(false);
+      }
+      return;
+    }
+
     const result = await markExperienceDoneAction(
       experience.id,
       { rating: null, visitedDate: null },
@@ -86,6 +126,21 @@ export function PlannedExperienceRow({
 
   async function handleSaveFollowUp() {
     setSaving(true);
+
+    if (!online) {
+      const ok = await queueCheckoff({
+        rating: rating > 0 ? rating : null,
+        visitedDate: visitedDate || null,
+      });
+      setSaving(false);
+      if (!ok) return;
+      setFollowUpOpen(false);
+      // No onChanged(): there is no server data to refresh, and re-rendering
+      // the parent would drop the queued row out of the planned list as if it
+      // had already been sent.
+      return;
+    }
+
     const result = await markExperienceDoneAction(experience.id, {
       rating: rating > 0 ? rating : null,
       visitedDate: visitedDate || null,
@@ -103,7 +158,7 @@ export function PlannedExperienceRow({
   // just leaves it done with no rating and refreshes the parent's server data.
   function handleSkip() {
     setFollowUpOpen(false);
-    onChanged();
+    if (!queued) onChanged();
   }
 
   return (
@@ -140,6 +195,11 @@ export function PlannedExperienceRow({
             )}
           >
             {experience.name}
+            {queued ? (
+              <span className="ml-2 inline-flex shrink-0 items-center rounded-full bg-amber-400/10 px-1.5 py-0.5 align-middle text-[10px] font-medium text-amber-300/80">
+                Queued
+              </span>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-x-2 text-xs text-foreground/40">
             {experience.categoryLabel ? (
@@ -171,7 +231,9 @@ export function PlannedExperienceRow({
       {followUpOpen ? (
         <div className="border-t border-white/10 px-3 py-2.5">
           <p className="text-xs text-foreground/60">
-            Done! Add a rating or date (optional):
+            {queued
+              ? "Done! Saved on this device, sending when you reconnect. Add a rating or date (optional):"
+              : "Done! Add a rating or date (optional):"}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
             <RatingInput value={rating} onChange={setRating} size={20} />

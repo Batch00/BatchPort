@@ -19,6 +19,7 @@ import { LocationSearch } from "@/components/location-search";
 import { CountryCombobox } from "@/components/bucket-list/country-combobox";
 import { createBucketItem, updateBucketItem } from "@/lib/actions/bucket-list";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
+import { useConnectionGuard } from "@/lib/offline/use-offline";
 import { cn } from "@/lib/utils";
 import type {
   BucketItem,
@@ -97,6 +98,7 @@ function BucketItemForm({
   const [targetDate, setTargetDate] = useState(item?.target_date ?? "");
   const [notes, setNotes] = useState(item?.notes ?? "");
   const [submitting, setSubmitting] = useState(false);
+  const blockedOffline = useConnectionGuard();
 
   function handlePlaceChange(location: GeoLocation) {
     setPlaceName(location.name);
@@ -107,6 +109,7 @@ function BucketItemForm({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (blockedOffline("Saving a bucket list item")) return;
     if (isDemo) {
       toast.error(DEMO_READONLY_MESSAGE);
       return;

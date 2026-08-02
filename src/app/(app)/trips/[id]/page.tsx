@@ -8,6 +8,7 @@ import { getJournalEntries, journalAvailable } from "@/lib/journal-data";
 import { journalDays, journalingApplies } from "@/lib/journal";
 import { getTransportLegs, transportAvailable } from "@/lib/transport-data";
 import { TripJournal } from "@/components/trips/trip-journal";
+import { TripOfflineToggle } from "@/components/offline/trip-offline-toggle";
 import { TransportLegRow } from "@/components/trips/transport-leg";
 import { StoryLauncher } from "@/components/trips/story-launcher";
 import { hasStory, type StoryPhoto, type StoryTrip } from "@/lib/story";
@@ -484,6 +485,7 @@ export default async function TripDetailPage({
       {showJournal ? (
         <TripJournal
           tripId={trip.id}
+          tripName={trip.name}
           days={journalDayRows}
           disabled={isDemo || !journalReady}
           disabledReason={
@@ -513,6 +515,10 @@ export default async function TripDetailPage({
         untaggedPhotos={tripPhotos}
         taggedPhotos={[...destPhotos, ...expPhotos]}
       />
+
+      {/* Last, because it is about this device rather than about the trip.
+          Hidden for the demo account, which cannot be a traveller's phone. */}
+      {isDemo ? null : <TripOfflineToggle tripId={trip.id} />}
     </div>
     </DiscoveryProvider>
   );

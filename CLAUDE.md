@@ -387,6 +387,79 @@ Three rules hold the rest together:
   sentence from published per-passenger-km factors, presented as an estimate and
   never as a judgement; `gramsCo2PerKm: null` ("other") drops out of it.
 
+### Offline
+
+The app is a real PWA now, not just an installable one. Four pieces, and the
+rules that keep them from lying to the user.
+
+**The service worker (`public/sw.js`) is conservative on purpose.** It only
+intercepts GET, passes `/api/*` and `/auth/*` straight through (the photo proxy
+is the one exception), and never caches a navigation response. That is what
+keeps server actions, uploads, the session refresh, and the PKCE callback
+working exactly as they did, and what makes a stale shell after a deploy
+structurally impossible: the only HTML in any cache is `/offline`. Caches split
+on one question, is this build output or the user's: `batchport-shell-*` and
+`batchport-static-*` carry `SHELL_VERSION` and are wiped on activate;
+`batchport-tiles-v1` and `batchport-photos-v1` survive deploys.
+
+**Offline reads come from an IndexedDB snapshot, not cached RSC payloads.**
+`/api/offline/snapshot` returns the whole account in one document (trips,
+stops, experiences with plan days, journal, legs, bucket, categories, and
+`getMapData()` verbatim); the client stores it and `/offline` renders from it.
+RSC payloads were the alternative and they lose on four counts: one opaque blob
+per visited route, invalidated by every deploy (the build id is baked in),
+unreadable as data, and missing any trip the user never happened to open. The
+cost is that `/offline` is a second rendering of a trip rather than the trip
+page. `/offline` is public in `proxy.ts` and reads nothing from the server,
+because a route that redirects cannot be precached.
+
+**A failed navigation redirects to `/offline`, it does not serve the cached
+body in place.** Serving `/offline`'s HTML under `/trips/xyz` reloads forever:
+the document carries the App Router state for one route while the address bar
+says another, and the router reconciles, fails, and navigates again.
+
+**Four writes queue offline; everything else is refused.** Checking off a
+planned experience, a journal entry, creating an experience (including from
+nearby mode), and fulfilling a bucket item. They queue because they are what a
+traveller does standing somewhere with no signal, and because each one replays
+as an upsert on a natural key or a create behind a server-side duplicate check.
+Deletes, reordering, trip and stop create/edit, day assignment, transport legs,
+and settings are refused through `useConnectionGuard()` rather than queued:
+their conflict semantics are not worth guessing at. **Photo uploads are refused
+too**, for storage reasons rather than difficulty (see the note above
+`PhotoUpload`).
+
+Three invariants hold the queue together, and breaking any one of them breaks
+the promise the feature makes:
+
+- **A queued write leaves the queue by succeeding or by the user discarding
+  it, and by nothing else.** A failed replay keeps its row, its error, and its
+  place in the pending panel. `forgetOfflineData()` on sign-out is the single
+  exception, and it is one.
+- **`enqueue()` returns whether it landed.** Every caller checks it and shows
+  a refusal instead of a confirmation when IndexedDB said no. Telling someone
+  their journal entry is safe when it is only in a React state variable is the
+  exact failure this exists to prevent.
+- **Replay is FIFO and serial**, stopping at the first retryable failure so
+  nothing behind a pending write jumps ahead of it. A non-retryable refusal is
+  parked as failed and the loop continues past it, or one bad write would block
+  the queue forever.
+
+Conflict policy is **last write wins**, per row, stated in the pending panel.
+Single-user app; a merge UI for "you wrote this journal day on two devices"
+would cost more than it saves.
+
+**Map tiles are never bulk pre-cached.** MapTiler's Cloud terms permit "a
+temporary personal cache (browser cache, mobile app cache, etc.) for use by a
+single end-user" and prohibit "batch or excessive bulk download of map tiles",
+so the worker caches tiles the user has already viewed and nothing walks a
+bounding box. The keyless dark style and `countries.geojson` are local static
+files and are precached in full, so the globe always draws offline. The
+per-trip "Available offline" toggle says this out loud rather than quietly
+doing less than its label implies; what it actually stores is that trip's photo
+thumbnails, capped at `MAX_THUMBS_PER_TRIP`, removable, with the count and an
+approximate size shown after the fact.
+
 ### Search, Export, and Home Location
 
 Three surfaces read the current user's own rows and must never take a userId
@@ -411,6 +484,8 @@ empty state: no home means no distance lines, no furthest-from-home tile, and
 no timezone chip. Nothing in the app prompts the user to set one.
 
 ## Common Gotchas
+
+- **The service worker must stay out of the way:** it intercepts GET only, and passes `/api/*` and `/auth/*` through untouched. Adding a cache to either would break server actions (POSTs to the page URL), photo uploads, the session refresh, or the PKCE callback. Navigation responses are never cached, which is what makes a stale shell after a deploy impossible.
 
 - **proxy.ts not middleware.ts:** Next.js 16 renamed the middleware file convention to "proxy". The session refresh and route guard live in `src/proxy.ts`. Creating a `src/middleware.ts` file would have no effect.
 
@@ -512,6 +587,22 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | POI search | `src/components/poi-search.tsx` |
 | Rating input (half-star) | `src/components/rating-input.tsx` |
 | Shared profile view (demo and /share/[slug]) | `src/components/share/shared-profile-view.tsx` |
+| Offline snapshot shape (client-safe) | `src/lib/offline/types.ts` |
+| Offline queue vocabulary and coalescing (pure) | `src/lib/offline/queue-types.ts` |
+| IndexedDB wrapper (meta + queue stores) | `src/lib/offline/db.ts` |
+| Offline write queue and replay loop | `src/lib/offline/queue.ts` |
+| Snapshot fetch, store, and staleness | `src/lib/offline/snapshot.ts` |
+| Per-trip photo cache warm and removal | `src/lib/offline/trip-cache.ts` |
+| Online status, queue, and connection guard hooks | `src/lib/offline/use-offline.ts` |
+| Offline storage wipe on sign-out | `src/lib/offline/forget.ts` |
+| Offline replay server action | `src/lib/actions/offline.ts` |
+| Offline snapshot API route | `src/app/api/offline/snapshot/route.ts` |
+| Offline shell page (public, client-rendered) | `src/app/offline/page.tsx` |
+| Offline shell (trip list, globe, snapshot read) | `src/components/offline/offline-shell.tsx` |
+| Offline trip view (checkoff and journal writes) | `src/components/offline/offline-trip.tsx` |
+| Offline status chip and pending queue panel | `src/components/offline/offline-status.tsx` |
+| Per-trip "available offline" toggle | `src/components/offline/trip-offline-toggle.tsx` |
+| Service worker (caching, offline fallback) | `public/sw.js` |
 | Seed script | `scripts/seed-trips.ts` |
 | Demo showcase fixture | `scripts/demo-dataset.ts` |
 | Demo reset and reseed | `scripts/seed-demo.ts` |

@@ -31,6 +31,7 @@ import {
   unfulfillBucketItem,
 } from "@/lib/actions/bucket-list";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
+import { useConnectionGuard } from "@/lib/offline/use-offline";
 import { bucketItemName } from "@/lib/bucket-format";
 import {
   bucketItemDiscoveryTarget,
@@ -74,6 +75,7 @@ export function BucketListBoard({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingItem, setDeletingItem] = useState<BucketItem | null>(null);
   const [busy, setBusy] = useState(false);
+  const blockedOffline = useConnectionGuard();
 
   const [showAllCompleted, setShowAllCompleted] = useState(false);
   // The page-level discovery host renders the panel; the board only opens it.
@@ -142,6 +144,10 @@ export function BucketListBoard({
 
   async function commitOrder(newIds: string[], previous: string[]) {
     if (newIds.join("|") === previous.join("|")) return;
+    if (blockedOffline("Reordering your list")) {
+      setViewOrder(previous);
+      return;
+    }
     if (isDemo) {
       toast.error(DEMO_READONLY_MESSAGE);
       setViewOrder(previous);
@@ -290,6 +296,7 @@ export function BucketListBoard({
   }
 
   async function handleUndo(item: BucketItem) {
+    if (blockedOffline("Undoing a completion")) return;
     if (isDemo) {
       toast.error(DEMO_READONLY_MESSAGE);
       return;
@@ -309,6 +316,7 @@ export function BucketListBoard({
   }
 
   async function confirmDelete() {
+    if (blockedOffline("Deleting a bucket list item")) return;
     if (!deletingItem) return;
     if (isDemo) {
       toast.error(DEMO_READONLY_MESSAGE);

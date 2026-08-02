@@ -22,6 +22,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fulfillBucketItem } from "@/lib/actions/bucket-list";
+import { enqueue } from "@/lib/offline/queue";
+import { useOnlineStatus } from "@/lib/offline/use-offline";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { bucketItemName } from "@/lib/bucket-format";
 import { formatDateRange } from "@/lib/format";
@@ -90,6 +92,7 @@ function FulfillForm({
 }) {
   const [tripId, setTripId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const online = useOnlineStatus();
 
   async function handleConfirm() {
     if (isDemo) {
@@ -101,6 +104,32 @@ function FulfillForm({
       return;
     }
     setSubmitting(true);
+
+    // Ticking something off the bucket list is the other thing that happens
+    // standing in front of it, so it queues. Replay just rewrites the same two
+    // columns, which is why it is safe to run twice.
+    if (!online) {
+      const stored = await enqueue({
+        kind: "bucket.fulfill",
+        itemId: item.id,
+        itemLabel: bucketItemName(item),
+        tripId,
+      });
+      setSubmitting(false);
+      if (!stored) {
+        toast.error("Could not save that offline.", {
+          description:
+            "This browser is not storing offline changes, so nothing was recorded.",
+        });
+        return;
+      }
+      toast.success(`${bucketItemName(item)} completed`, {
+        description: "Queued on this device, sending when you reconnect.",
+      });
+      onFulfilled();
+      return;
+    }
+
     const result = await fulfillBucketItem(item.id, tripId);
     setSubmitting(false);
     if ("error" in result) {

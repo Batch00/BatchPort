@@ -18,6 +18,11 @@ const PUBLIC_ROUTES = [
   "/api/approve-access",
   "/api/deny-access",
   "/demo",
+  // The offline shell. It has to be reachable with no session because the
+  // service worker precaches it and serves it when a navigation fails: a
+  // redirect cannot be cached, and a page that redirects is not a fallback.
+  // It reads nothing from the server, only this device's own stored snapshot.
+  "/offline",
 ];
 
 function isPublicRoute(pathname: string): boolean {

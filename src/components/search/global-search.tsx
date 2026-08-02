@@ -16,6 +16,7 @@ import {
 import { CountryFlag } from "@/components/country-flag";
 import { RatingDisplay } from "@/components/rating-display";
 import { cn } from "@/lib/utils";
+import { useOnlineStatus } from "@/lib/offline/use-offline";
 import {
   EMPTY_SEARCH_RESULTS,
   isSearchEmpty,
@@ -60,6 +61,7 @@ export function GlobalSearch({ className }: { className?: string }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResults>(EMPTY_SEARCH_RESULTS);
   const [loading, setLoading] = useState(false);
+  const online = useOnlineStatus();
   const [searched, setSearched] = useState(false);
   const [active, setActive] = useState(0);
 
@@ -233,8 +235,13 @@ export function GlobalSearch({ className }: { className?: string }) {
                 world, use the search on the globe.
               </p>
             ) : empty ? (
+              // Offline, an empty result is almost certainly the request never
+              // leaving the device, not an account with nothing in it. Say
+              // which one it is rather than implying the search ran.
               <p className="px-3 py-6 text-center text-sm text-foreground/40">
-                Nothing in your travels matches that.
+                {online
+                  ? "Nothing in your travels matches that."
+                  : "Search needs a connection. Your saved trips are still readable offline."}
               </p>
             ) : (
               GROUPS.map((group) => {

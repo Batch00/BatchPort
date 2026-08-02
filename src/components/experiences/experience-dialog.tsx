@@ -29,6 +29,8 @@ import {
   createExperienceAction,
   updateExperienceAction,
 } from "@/lib/actions/experiences";
+import { enqueue } from "@/lib/offline/queue";
+import { useOnlineStatus } from "@/lib/offline/use-offline";
 import { cn } from "@/lib/utils";
 import type {
   Category,
@@ -48,6 +50,8 @@ interface ExperienceDialogProps {
   // The destination center, used to bias POI search results.
   destLat?: number | null;
   destLng?: number | null;
+  // Only used to label a queued offline create in the pending list.
+  destinationName?: string;
   // What a new experience starts as: "planned" on planned and ongoing trips
   // (an idea), "done" on completed ones (a log). Edits use the row's status.
   defaultStatus?: ExperienceStatus;
@@ -66,6 +70,7 @@ export function ExperienceDialog({
   onSaved,
   destLat = null,
   destLng = null,
+  destinationName,
   defaultStatus = "done",
 }: ExperienceDialogProps) {
   return (
@@ -84,6 +89,7 @@ export function ExperienceDialog({
           defaultStatus={defaultStatus}
           destLat={destLat}
           destLng={destLng}
+          destinationName={destinationName}
           onCancel={() => onOpenChange(false)}
           onSaved={() => {
             onOpenChange(false);
@@ -103,6 +109,7 @@ function ExperienceForm({
   defaultStatus,
   destLat,
   destLng,
+  destinationName,
   onCancel,
   onSaved,
 }: {
@@ -113,6 +120,7 @@ function ExperienceForm({
   defaultStatus: ExperienceStatus;
   destLat: number | null;
   destLng: number | null;
+  destinationName: string | undefined;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -132,6 +140,7 @@ function ExperienceForm({
     null,
   );
   const [submitting, setSubmitting] = useState(false);
+  const online = useOnlineStatus();
 
   function handlePoiSelect(poi: PoiResult) {
     setName(poi.name);
@@ -163,6 +172,47 @@ function ExperienceForm({
       lat: coords?.lat ?? null,
       lng: coords?.lng ?? null,
     };
+    // Offline: creating is a field action and queues; editing does not.
+    // An edit is a partial overwrite of a row that may have changed since this
+    // dialog opened, and replaying it later would silently undo whatever came
+    // in between. Creating has no such row to fight with.
+    if (!online) {
+      if (experience) {
+        setSubmitting(false);
+        toast.error("Editing an experience needs a connection.", {
+          description:
+            "Nothing was changed. Logging a new one still works offline.",
+        });
+        return;
+      }
+      const stored = await enqueue({
+        kind: "experience.create",
+        destinationId,
+        destinationName: destinationName ?? "",
+        name: input.name,
+        categoryId: input.category_id,
+        rating: input.rating,
+        visitedDate: input.visited_date,
+        notes: input.notes,
+        status,
+        lat: input.lat,
+        lng: input.lng,
+      });
+      setSubmitting(false);
+      if (!stored) {
+        toast.error("Could not save that offline.", {
+          description:
+            "This browser is not storing offline changes, so nothing was recorded.",
+        });
+        return;
+      }
+      toast.success(`Saved "${input.name}"`, {
+        description: "Queued on this device, sending when you reconnect.",
+      });
+      onSaved();
+      return;
+    }
+
     const result = experience
       ? await updateExperienceAction(
           tripId,
