@@ -25,6 +25,11 @@ export interface GlobeDestination {
   tripStartDate?: string | null;
   tripEndDate?: string | null;
   orderIndex?: number;
+  /** How the traveller reached THIS stop, which is what a leg records (see
+   * lib/transport.ts). The static arcs carry the same value on GlobeArc; a
+   * stop carries it too so the replay can style its growing arcs by family
+   * without a second lookup. Absent or null draws the air styling. */
+  transportMode?: TransportMode | null;
 }
 
 /** A great-circle leg between two consecutive stops on a trip. */

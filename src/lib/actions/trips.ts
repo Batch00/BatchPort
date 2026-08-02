@@ -10,6 +10,7 @@ import { createTrip, updateTrip, deleteTrip, type TripInput } from "@/lib/trips"
 import { createDestination } from "@/lib/destinations";
 import { autoPopulateDestinationCover } from "@/lib/photos-data";
 import { cleanupPhotosForOwners, ownersForTrip } from "@/lib/photo-cleanup";
+import { syncTripSchedule } from "@/lib/trip-schedule";
 
 // Server actions for trip mutations. Each checks the demo guard first, performs
 // the operation, revalidates affected paths, then redirects. They return an
@@ -47,6 +48,10 @@ export async function updateTripAction(
   const invalid = validateTripInput(input);
   if (invalid) return { error: invalid };
   await updateTrip(id, input);
+  // A trip with dated stops does not get to disagree with them. The form shows
+  // the derived range read-only, so this only ever fires on a payload that
+  // reached the action some other way, but it is the boundary that holds.
+  await syncTripSchedule(id);
   revalidateAppData();
   redirect(`/trips/${id}`);
 }

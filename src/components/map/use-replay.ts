@@ -7,7 +7,12 @@
 // mode flags (active, playing, ended, speed).
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import type { Map as MlMap, GeoJSONSource, LngLatBoundsLike } from "maplibre-gl";
+import type {
+  Map as MlMap,
+  FilterSpecification,
+  GeoJSONSource,
+  LngLatBoundsLike,
+} from "maplibre-gl";
 import type { Feature, FeatureCollection, LineString, Point } from "geojson";
 
 import {
@@ -16,6 +21,7 @@ import {
   type ReplayFrameState,
   type ReplayTimeline,
 } from "@/lib/replay";
+import { GROUND_ARC_COLOR, SEA_ARC_COLOR, type ArcFamily } from "@/lib/transport";
 import {
   matchFilter,
   readBrandHex,
@@ -46,6 +52,8 @@ const REPLAY_LAYERS = [
   "replay-country-outline",
   "replay-arc-glow",
   "replay-arc-line",
+  "replay-arc-ground",
+  "replay-arc-sea",
   "replay-head-glow",
   "replay-head-dot",
   "replay-pin-glow",
@@ -62,6 +70,19 @@ const CAMERA_DURATION_MS = 1700;
 
 function emptyFC<G extends LineString | Point>(): FeatureCollection<G> {
   return { type: "FeatureCollection", features: [] };
+}
+
+/** Match one arc family on the shared replay-arcs source. */
+function familyFilter(family: ArcFamily): FilterSpecification {
+  return ["==", ["get", "family"], family] as unknown as FilterSpecification;
+}
+
+/** The colour a family's arc head is tinted with. Air uses the resolved brand
+ * hex, so it is passed in rather than looked up. */
+function familyColor(family: ArcFamily, brandHex: string): string {
+  if (family === "ground") return GROUND_ARC_COLOR;
+  if (family === "sea") return SEA_ARC_COLOR;
+  return brandHex;
 }
 
 // Slight overshoot so pins land with a pop rather than a linear grow.
@@ -364,7 +385,7 @@ export function useReplay({
               type: "LineString",
               coordinates: tl.legs[legIndex].coords,
             },
-            properties: {},
+            properties: { family: tl.legs[legIndex].family },
           };
           legFeatureCacheRef.current[legIndex] = cached;
         }
@@ -372,12 +393,13 @@ export function useReplay({
       }
       let head = emptyFC<Point>();
       if (state.activeLeg) {
+        const leg = tl.legs[state.activeLeg.legIndex];
         const eased = easeInOutCubic(state.activeLeg.progress);
-        const coords = sliceLeg(tl.legs[state.activeLeg.legIndex].coords, eased);
+        const coords = sliceLeg(leg.coords, eased);
         features.push({
           type: "Feature",
           geometry: { type: "LineString", coordinates: coords },
-          properties: {},
+          properties: { family: leg.family },
         });
         if (eased > 0.001 && eased < 0.999) {
           head = {
@@ -389,7 +411,9 @@ export function useReplay({
                   type: "Point",
                   coordinates: coords[coords.length - 1],
                 },
-                properties: {},
+                properties: {
+                  color: familyColor(leg.family, brandHexRef.current),
+                },
               },
             ],
           };
@@ -523,10 +547,18 @@ export function useReplay({
     map.addSource("replay-head", { type: "geojson", data: emptyFC<Point>() });
     map.addSource("replay-pins", { type: "geojson", data: emptyFC<Point>() });
 
+    // Arcs, split by how the hop was travelled, mirroring the static globe
+    // exactly (see globe-layers.ts): air keeps the solid brand-blue line and
+    // its glow, ground is thinner violet dashes, sea is cyan dots. Three
+    // layers over one source rather than one data-driven layer, because
+    // line-dasharray is not a data-driven paint property in MapLibre. The
+    // per-feature "family" property drives the filters, and an unrecorded hop
+    // is "air", so an unannotated replay animates exactly as it always did.
     map.addLayer({
       id: "replay-arc-glow",
       type: "line",
       source: "replay-arcs",
+      filter: familyFilter("air"),
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": brandHex,
@@ -539,6 +571,7 @@ export function useReplay({
       id: "replay-arc-line",
       type: "line",
       source: "replay-arcs",
+      filter: familyFilter("air"),
       layout: { "line-cap": "round", "line-join": "round" },
       paint: {
         "line-color": brandHex,
@@ -546,15 +579,42 @@ export function useReplay({
         "line-opacity": 0.9,
       },
     });
+    map.addLayer({
+      id: "replay-arc-ground",
+      type: "line",
+      source: "replay-arcs",
+      filter: familyFilter("ground"),
+      layout: { "line-join": "round" },
+      paint: {
+        "line-color": GROUND_ARC_COLOR,
+        "line-width": 2,
+        "line-opacity": 0.85,
+        "line-dasharray": [3, 2],
+      },
+    });
+    map.addLayer({
+      id: "replay-arc-sea",
+      type: "line",
+      source: "replay-arcs",
+      filter: familyFilter("sea"),
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": SEA_ARC_COLOR,
+        "line-width": 2.2,
+        "line-opacity": 0.85,
+        "line-dasharray": [0, 2.2],
+      },
+    });
 
-    // The bright head that leads each growing arc.
+    // The bright head that leads each growing arc, tinted to the family it is
+    // drawing so the leading edge and the line it leaves behind agree.
     map.addLayer({
       id: "replay-head-glow",
       type: "circle",
       source: "replay-head",
       paint: {
         "circle-radius": 9,
-        "circle-color": brandHex,
+        "circle-color": ["get", "color"],
         "circle-opacity": 0.5,
         "circle-blur": 1,
       },

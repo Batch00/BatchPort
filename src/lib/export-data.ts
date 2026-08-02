@@ -2,6 +2,10 @@ import { requireUser } from "@/lib/current-user";
 import { getHomeLocation } from "@/lib/home-location";
 import { getShareSettings } from "@/lib/share-settings";
 import { getPhotoUrl } from "@/lib/photos";
+import {
+  chronologicalDestinations,
+  withResolvedTripDates,
+} from "@/lib/trip-dates";
 import type { PhotoSource, TripStatus } from "@/lib/types";
 
 // Server-side export builders. Every read runs through requireUser's
@@ -119,9 +123,26 @@ async function loadBundle(): Promise<ExportBundle> {
     supabase.from("bucket_list").select("*"),
   ]);
 
+  // Both formats walk bundle.destinations in order, and the GeoJSON route
+  // LineStrings are literally that order drawn, so the visit-order rule is
+  // applied once here rather than in each builder (see lib/trip-dates.ts).
+  // Trip ranges are resolved from the same stops for the same reason.
+  const destRows = (destinations.data ?? []) as DestinationRow[];
+  const byTrip = new Map<string, DestinationRow[]>();
+  for (const destination of destRows) {
+    const list = byTrip.get(destination.trip_id) ?? [];
+    list.push(destination);
+    byTrip.set(destination.trip_id, list);
+  }
+  const orderedDestinations = Array.from(byTrip.values()).flatMap((list) =>
+    chronologicalDestinations(list),
+  );
+
   return {
-    trips: (trips.data ?? []) as TripRow[],
-    destinations: (destinations.data ?? []) as DestinationRow[],
+    trips: ((trips.data ?? []) as TripRow[]).map((trip) =>
+      withResolvedTripDates(trip, byTrip.get(trip.id) ?? []),
+    ),
+    destinations: orderedDestinations,
     experiences: (experiences.data ?? []) as unknown as ExperienceRow[],
     photos: (photos.data ?? []) as PhotoRow[],
     bucket: (bucket.data ?? []) as BucketRow[],

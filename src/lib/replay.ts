@@ -6,6 +6,8 @@
 // mid-leg) reconstructs the exact fills, pins, and partial arc for that moment.
 
 import { boundsOfPoints, greatCirclePoints } from "./geo";
+import { arcFamily, type ArcFamily, type TransportMode } from "./transport";
+import { chronologicalOrder } from "./trip-dates";
 
 /** The subset of a globe destination the replay needs. Planned stops are dropped. */
 export interface ReplayInputStop {
@@ -21,6 +23,9 @@ export interface ReplayInputStop {
   arrivalDate?: string | null;
   categoryColor?: string | null;
   planned?: boolean;
+  /** How the traveller reached this stop. A leg belongs to the stop it arrives
+   * at, so the hop INTO a stop is styled by the stop's own mode. */
+  transportMode?: TransportMode | null;
 }
 
 export interface ReplayStop {
@@ -31,6 +36,8 @@ export interface ReplayStop {
   color: string | null;
   /** Resolved arrival timestamp (real or interpolated), for the date readout. */
   arrivalMs: number;
+  /** The mode recorded on the leg into this stop, or null. */
+  mode: TransportMode | null;
 }
 
 export interface ReplayTrip {
@@ -45,6 +52,11 @@ export interface ReplayTrip {
 export interface ReplayLeg {
   coords: [number, number][];
   tripIndex: number;
+  /** Which arc styling this leg draws in, so the animation tells the same
+   * story the static map does: air solid blue, ground violet dashed, sea cyan
+   * dotted. An unrecorded hop is "air", which is the styling every replay arc
+   * had before modes existed. */
+  family: ArcFamily;
 }
 
 export interface ReplaySegment {
@@ -187,7 +199,11 @@ export function buildReplayTimeline(
   );
   if (eligible.length === 0) return null;
 
-  // Group by trip, ordering stops by orderIndex when provided.
+  // Group by trip. Stops go in visit order: arrival date first, orderIndex for
+  // the undated ones and for ties (see lib/trip-dates.ts). The globe already
+  // hands over a chronological orderIndex, but the timeline is also built from
+  // the landing hero's static payload, so it does the ordering itself rather
+  // than trusting the caller.
   const grouped = new Map<string, ReplayInputStop[]>();
   for (const stop of eligible) {
     const list = grouped.get(stop.tripId) ?? [];
@@ -198,9 +214,11 @@ export function buildReplayTimeline(
   const dated: ResolvedTrip[] = [];
   const undated: DraftTrip[] = [];
   for (const list of grouped.values()) {
-    const ordered = [...list].sort(
-      (a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0),
-    );
+    const ordered = chronologicalOrder(list, (stop) => ({
+      arrival: stop.arrivalDate ?? null,
+      departure: null,
+      order: stop.orderIndex ?? 0,
+    }));
     const draft: DraftTrip = {
       name: ordered[0].tripName,
       stops: ordered,
@@ -269,6 +287,7 @@ export function buildReplayTimeline(
       lat: s.lat,
       color: s.categoryColor ?? null,
       arrivalMs: trip.arrivals[i],
+      mode: s.transportMode ?? null,
     })),
     bounds: boundsOfPoints(
       trip.stops.map((s) => [s.lng, s.lat] as [number, number]),
@@ -342,6 +361,9 @@ export function buildReplayTimeline(
             LEG_SEGMENTS,
           ),
           tripIndex,
+          // The leg belongs to the stop it arrives at, so the hop's family
+          // comes from the target's mode.
+          family: arcFamily(target.mode),
         });
         segments.push({
           kind: "leg",

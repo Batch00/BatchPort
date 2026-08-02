@@ -10,6 +10,7 @@ import {
 } from "@/lib/photos-data";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
+import { derivedTripWindow } from "@/lib/trip-dates";
 import { TripForm } from "@/components/trips/trip-form";
 
 export default async function EditTripPage({
@@ -70,6 +71,9 @@ export default async function EditTripPage({
         coverPhotos={coverPhotos}
         coverPhotoId={trip.cover_photo_id}
         coverPosition={trip.cover_position}
+        // Non-null exactly when the stops date the trip, which is when the
+        // form stops offering a range of its own.
+        derivedDates={derivedTripWindow(trip.destinations)}
       />
     </div>
   );

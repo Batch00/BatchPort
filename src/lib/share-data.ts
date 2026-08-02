@@ -7,6 +7,7 @@ import { getSharedJournalByTrip } from "@/lib/journal-data";
 import { getSharedTransportByTrip } from "@/lib/transport-data";
 import type { TransportLeg } from "@/lib/transport";
 import { getPhotoUrl, resolveCoverPhoto } from "@/lib/photos";
+import { chronologicalDestinations, resolveTripDates } from "@/lib/trip-dates";
 import { DEMO_USER_ID } from "@/lib/constants";
 import type { JournalEntry } from "@/lib/journal";
 import type { StoryPhoto } from "@/lib/story";
@@ -307,9 +308,21 @@ export async function getProfileTrips(
   const thumbUrl = (photo: PhotoRow | null | undefined): string | null =>
     photo ? getPhotoUrl(photo, "thumb") : null;
 
-  // Group destinations under their trip.
-  const destsByTrip = new Map<string, ProfileDestination[]>();
+  // Group destinations under their trip, in visit order. PostgREST can only
+  // order by the stored order_index, so the date-aware sequence is applied
+  // here, per trip (see lib/trip-dates.ts).
+  const rowsByTrip = new Map<string, DestinationRow[]>();
   for (const dest of destRows) {
+    const list = rowsByTrip.get(dest.trip_id) ?? [];
+    list.push(dest);
+    rowsByTrip.set(dest.trip_id, list);
+  }
+  const orderedDestRows = Array.from(rowsByTrip.values()).flatMap((list) =>
+    chronologicalDestinations(list),
+  );
+
+  const destsByTrip = new Map<string, ProfileDestination[]>();
+  for (const dest of orderedDestRows) {
     const experiences: ProfileExperience[] = [...(dest.experiences ?? [])]
       .sort(sortExperiences)
       .map((exp) => ({
@@ -405,11 +418,14 @@ export async function getProfileTrips(
     const firstDestCover =
       destinations.find((d) => d.coverUrl)?.coverUrl ?? null;
     const tripFallback = firstByOwner.get(`trip:${trip.id}`);
+    // Dated stops define the range; the stored columns are the fallback for a
+    // trip nobody has dated a stop on.
+    const dates = resolveTripDates(trip, destinations);
     return {
       id: trip.id,
       name: trip.name,
-      start_date: trip.start_date,
-      end_date: trip.end_date,
+      start_date: dates.start_date,
+      end_date: dates.end_date,
       status: trip.status,
       notes: trip.notes,
       coverUrl: thumbUrl(explicit) ?? firstDestCover ?? thumbUrl(tripFallback),

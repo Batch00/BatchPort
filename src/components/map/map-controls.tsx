@@ -26,11 +26,17 @@ import { ActionTip } from "@/components/ui/info-tip";
 // drag or zoom on a globe ends in wanting the data back on screen), which is
 // why it sits out here next to two modes rather than three clicks deep.
 //
-// THE POPOVER holds everything occasional, modes included: nearby and show
-// attractions at the top, then the basemap swatches, projection, fullscreen,
-// and refresh. Nearby and attractions are genuine modes, but they are entered
-// once and lived in, so a permanent button spends resting-state room on a tap
-// most sessions never make.
+// THE POPOVER holds everything occasional, modes included: the basemap
+// swatches first, then projection, fullscreen, and refresh, and the modes
+// (nearby, show attractions) last. Nearby and attractions are genuine modes,
+// but they are entered once and lived in, so a permanent button spends
+// resting-state room on a tap most sessions never make.
+//
+// Modes sit at the BOTTOM, not the top. The popover opens upward from a
+// bottom-anchored trigger, so the last row is the one nearest the thumb and
+// the list grows away from the top-right search corner. Putting the two modes
+// at the top pushed the whole menu further up the map on a short phone screen
+// for the sake of the two rows tapped least often.
 //
 // Because two modes now live behind the popover, the trigger has to say so: it
 // takes a brand tint and a small brand dot whenever a mode inside it is
@@ -113,6 +119,53 @@ const SWATCH_FILLS: Record<string, string> = {
   terrain: "linear-gradient(135deg, #7f8a5c 0%, #4a5638 100%)",
 };
 
+// Space to leave clear at the top of the map so an open menu never reaches the
+// search button that anchors there.
+const MENU_TOP_CLEARANCE = 56;
+// Below this the menu is not a menu any more, so it scrolls instead.
+const MENU_MIN_HEIGHT = 150;
+
+/**
+ * The tallest the settings menu may be: the gap between the map's top edge and
+ * the control cluster, less the clearance the search button needs.
+ *
+ * Measured rather than guessed with a viewport unit, because the map is a card
+ * in a scrolling page as often as it is the whole screen, and it clips its own
+ * overflow: a menu sized against the viewport is either clipped mid-row on a
+ * short map or needlessly short on a tall one. Null when the surface cannot be
+ * found, which falls back to the CSS cap.
+ */
+function useMenuMaxHeight(
+  open: boolean,
+  triggerRef: React.RefObject<HTMLDivElement | null>,
+): number | null {
+  const [maxHeight, setMaxHeight] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    function measure() {
+      const trigger = triggerRef.current;
+      const surface = trigger?.closest("[data-globe-surface]") ?? null;
+      if (!trigger || !surface) {
+        setMaxHeight(null);
+        return;
+      }
+      // The wrapper's box is the trigger button's: the menu inside it is
+      // absolutely positioned and so contributes no height.
+      const gap =
+        trigger.getBoundingClientRect().top -
+        surface.getBoundingClientRect().top -
+        MENU_TOP_CLEARANCE;
+      setMaxHeight(Math.max(MENU_MIN_HEIGHT, Math.round(gap)));
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+    // triggerRef is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+  return maxHeight;
+}
+
 /** Closes the popover on any pointerdown outside its wrapper element. */
 function useDismissOnOutsidePointer(
   open: boolean,
@@ -193,8 +246,9 @@ export function MapControls({
   useDismissOnOutsidePointer(settingsOpen, settingsRef, () =>
     setSettingsOpen(false),
   );
+  const menuMaxHeight = useMenuMaxHeight(settingsOpen, settingsRef);
 
-  // The occasional modes, at the top of the popover: entering one is a
+  // The occasional modes, at the foot of the popover: entering one is a
   // deliberate act, and each row reads as active while its mode runs.
   const modes: {
     key: string;
@@ -224,7 +278,7 @@ export function MapControls({
   // A mode is running out of sight, so the trigger has to carry the signal.
   const modeActive = modes.some((mode) => mode.active);
 
-  // Utility rows, in the order they appear under the basemap swatches.
+  // Map settings, in the order they appear under the basemap swatches.
   const utilities: {
     key: string;
     label: string;
@@ -331,49 +385,21 @@ export function MapControls({
           <div
             role="menu"
             aria-label="Map settings"
-            className="absolute bottom-full right-0 mb-2 w-56 overflow-hidden rounded-xl border border-white/10 bg-black/85 p-1.5 shadow-2xl backdrop-blur-md"
+            // Bounded and scrollable rather than free to grow: the popover
+            // opens upward from a bottom-anchored trigger, and on a short
+            // phone map an unbounded menu runs past the top of the map (which
+            // clips it) and up under the search button. The measured cap is
+            // the real bound; the 60svh class is the fallback when the menu is
+            // rendered outside a globe surface. overscroll-contain keeps a
+            // scroll inside the menu from panning the map underneath it.
+            style={
+              menuMaxHeight === null ? undefined : { maxHeight: menuMaxHeight }
+            }
+            className="absolute bottom-full right-0 mb-2 max-h-[60svh] w-56 overflow-y-auto overscroll-contain rounded-xl border border-white/10 bg-black/85 p-1.5 shadow-2xl backdrop-blur-md"
           >
-            {modes.length > 0 ? (
-              <>
-                {modes.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    role="menuitemcheckbox"
-                    aria-checked={item.active}
-                    onClick={() => {
-                      setSettingsOpen(false);
-                      item.onSelect();
-                    }}
-                    className={cn(
-                      MENU_ITEM_CLASS,
-                      item.active && "bg-brand/15 text-foreground",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "shrink-0",
-                        item.active ? "text-brand" : "text-foreground/50",
-                      )}
-                    >
-                      {item.icon}
-                    </span>
-                    {item.label}
-                    {item.active ? (
-                      <span
-                        aria-hidden
-                        className="ml-auto size-1.5 shrink-0 rounded-full bg-brand"
-                      />
-                    ) : null}
-                  </button>
-                ))}
-                <div className="my-1 h-px bg-white/10" />
-              </>
-            ) : null}
-
             {showBasemaps ? (
-              <div className="px-1 pb-1.5 pt-1">
-                <div className="px-1 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-foreground/40">
+              <div className="px-1 pb-1 pt-0.5">
+                <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-foreground/40">
                   Basemap
                 </div>
                 <div className="grid grid-cols-4 gap-1.5">
@@ -442,6 +468,44 @@ export function MapControls({
                 {item.label}
               </button>
             ))}
+
+            {modes.length > 0 ? (
+              <>
+                <div className="my-1 h-px bg-white/10" />
+                {modes.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={item.active}
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      item.onSelect();
+                    }}
+                    className={cn(
+                      MENU_ITEM_CLASS,
+                      item.active && "bg-brand/15 text-foreground",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "shrink-0",
+                        item.active ? "text-brand" : "text-foreground/50",
+                      )}
+                    >
+                      {item.icon}
+                    </span>
+                    {item.label}
+                    {item.active ? (
+                      <span
+                        aria-hidden
+                        className="ml-auto size-1.5 shrink-0 rounded-full bg-brand"
+                      />
+                    ) : null}
+                  </button>
+                ))}
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>

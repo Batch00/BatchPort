@@ -112,12 +112,56 @@ The landing page (`src/app/page.tsx`) renders the public demo account's real tra
 - Planned trips are filtered out of the hero. Their hollow pins and dashed arcs need the legend and trip list that only /demo has.
 - The fallback is `buildMockGlobeProps()` in `lib/mock-travel-data.ts`, a **generated** file. Do not hand-edit it: run `npm run generate-mock-globe`, which derives it from `scripts/demo-dataset.ts`, the same fixture `seed-demo.ts` writes. The fallback is chosen server-side in the same render as the live read, so there is never a client-side swap or a flash.
 
+### Trip Dates and Stop Order
+
+Two rules, both owned by `lib/trip-dates.ts` (pure) and enforced on write by
+`lib/trip-schedule.ts` (server):
+
+- **A dated trip's range is its stops.** If any destination carries a date, the
+  trip runs from the earliest arrival to the latest departure. The stored
+  `trips.start_date` / `end_date` columns are the fallback for a trip nobody has
+  dated a stop on, never a second opinion about one that has been.
+- **Stops are in date order.** `order_index` is still the stored sequence and
+  still the manual order for an undated trip, but a dated stop belongs where its
+  date puts it regardless of when it was typed in.
+
+The stored columns are **kept in sync**, not replaced by derive-on-read, because
+the SQL stats views read `trips.start_date/end_date` directly
+(`v_user_travel_summary.days_traveling`, `v_yearly_breakdown`) and a view cannot
+call a TypeScript function. `syncTripSchedule(tripId)` runs after every
+destination create, update, and delete, and after a trip edit; it renumbers only
+the `order_index` values that actually moved and only writes the trip row when
+the derived range differs. It is best-effort and logs rather than throwing.
+
+Every read path *also* applies the same pure functions
+(`chronologicalDestinations`, `resolveTripDates`), so rows written before the
+sync existed, or a sync that failed, still render correctly. The two can never
+disagree because they are the same function. A failed sync degrades to stale SQL
+views, never to a wrong date on screen.
+
+Because `order_index` is renumbered to match, everything downstream of the route
+sequence keeps reading `order_index` alone: the globe's arc order, the replay
+timeline, the story, and "the leg into stop N". Nothing else had to learn about
+dates. `getMapData` re-issues `orderIndex` as the position in visit order rather
+than copying the column, so the globe is correct even on unsynced rows.
+
+The trip form does not offer a date range when the stops supply one: it renders
+the derived range read-only with a line saying where it came from. A trip with
+no dated stops and no manual dates still reads "Dates to be decided".
+
+Trip and destination dates are entered through `components/ui/date-range-picker.tsx`,
+a hand-rolled single-calendar range picker over YYYY-MM-DD strings (no date
+dependency; it uses the Radix Popover already available through `radix-ui`). All
+of its arithmetic is UTC-anchored: a local `Date` on a YYYY-MM-DD string lands on
+the previous day west of Greenwich.
+
 ### Map Control Model
 
 `src/components/map/map-controls.tsx` ranks controls by **how often they are used**, not by whether they are a mode or a utility. That distinction was the old model and it put recenter (constant) three clicks deep while nearby (occasional) held a permanent button. Keep the current split:
 
 - **Visible buttons:** photo map, replay, recenter, settings. Four, in that order, bottom-right.
-- **The popover:** nearby and show attractions at the top (both genuine modes, both occasional), then basemap swatches, projection, fullscreen, refresh.
+- **The popover:** basemap swatches first, then projection, fullscreen, refresh, and the modes (nearby, show attractions) last. Modes sit at the bottom because the popover opens upward from a bottom-anchored trigger: the last row is nearest the thumb, and the list grows away from the top-right search corner instead of toward it.
+- The popover's height is **measured against the map**, not the viewport: it caps at the gap between the map's top edge and the control cluster, less the search button's clearance, and scrolls past that. The map clips its own overflow (`data-globe-surface` marks it), so a menu sized in viewport units is either clipped mid-row on a short card or needlessly short on a tall one.
 - Because two modes live out of sight, the popover trigger takes a brand tint plus a small brand dot whenever one is active, and its `aria-label` says so. Never let a mode run with no visible signal. The active menu row is tinted too and carries `role="menuitemcheckbox"`.
 - Resting state is at most four buttons plus search. Adding a fifth means rethinking the model, not appending a button.
 - The cluster is a bottom-right vertical column at every breakpoint; search anchors top-right. This is what makes the mobile collision structurally impossible (bounded cluster height, bottom-anchored, against a 300px minimum map height everywhere). Do not reintroduce a top-anchored phone column.
@@ -208,6 +252,17 @@ and export, takes no userId so RLS is the boundary.
 Nearby borrows the attractions layer rather than duplicating it
 (`useAttractions().enable()` starts it without recording a preference), and
 hands it back on exit unless the user already had it on.
+
+It borrows the **basemap** the same way (`use-detail-basemap.ts`). The dark
+minimal style has no detail past country shapes and `maxZoomForBasemap` caps it
+at zoom 10, which is exactly where the attractions layer switches on and well
+short of the 13 nearby flies to, so both modes switch to `streets` while they
+run. Three rules keep it honest: it is a loan (nothing is written to
+sessionStorage), a manual basemap change during the mode wins and abandons the
+restore, and the loan is reference counted so nearby and attractions can hold it
+at once. Nearby requests it only once a fix arrives, so a denial leaves the map
+as it was found. With no `NEXT_PUBLIC_MAPTILER_KEY` there is nothing to borrow,
+every call is a no-op, and both modes run on dark exactly as before.
 
 ### Historical Weather
 
@@ -316,7 +371,11 @@ Three rules hold the rest together:
   ground is violet and dashed; sea is cyan and dotted. Three layers rather than
   one data-driven paint because `line-dasharray` is not a data-driven property
   in MapLibre, the same constraint that already gives planned arcs their own
-  layer. There is no globe legend: the overlay corners are spoken for, and the
+  layer. **Replay draws the same three families**, from the same one source
+  split by a `family` feature property (`replay-arc-line`/`-glow` for air,
+  `replay-arc-ground`, `replay-arc-sea`), and tints the growing arc's head to
+  match. The mode reaches the timeline on `GlobeDestination.transportMode`, on
+  the arriving stop, because that is where a leg lives. There is no globe legend: the overlay corners are spoken for, and the
   trip page's leg rows carry a dot in the matching arc colour, which teaches
   the language where a leg is authored.
 - **Distance is broken down, never adjusted.** Every kilometre in
@@ -388,6 +447,9 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | isDemoUser(), demo guard helpers | `src/lib/demo.ts` |
 | isDemoBlocked() server action helper | `src/lib/demo-guard.ts` |
 | Trip data layer | `src/lib/trips.ts` |
+| Trip date derivation and stop ordering (pure) | `src/lib/trip-dates.ts` |
+| Trip date and order_index sync (server write) | `src/lib/trip-schedule.ts` |
+| Single-calendar date range picker | `src/components/ui/date-range-picker.tsx` |
 | Destination data layer | `src/lib/destinations.ts` |
 | Experience data layer and getCategories() | `src/lib/experiences.ts` |
 | Bucket list data layer and auto-fulfill | `src/lib/bucket-list.ts` |
@@ -440,6 +502,7 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Basemap catalog and style resolution | `src/components/map/basemaps.ts` |
 | Map control cluster (modes + settings popover) | `src/components/map/map-controls.tsx` |
 | Nearby mode hook (geolocation, marker) | `src/components/map/use-nearby.ts` |
+| Detailed-basemap loan for street-level modes | `src/components/map/use-detail-basemap.ts` |
 | Nearby status card | `src/components/map/nearby-panel.tsx` |
 | Nearby "log something here" sheet | `src/components/map/log-here-sheet.tsx` |
 | Observed-weather line | `src/components/weather/visit-weather.tsx` |

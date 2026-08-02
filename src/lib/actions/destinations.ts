@@ -8,6 +8,7 @@ import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { isDemoBlocked } from "@/lib/demo-guard";
 import { autoPopulateDestinationCover } from "@/lib/photos-data";
 import { autoFulfillBucketItems } from "@/lib/bucket-list";
+import { syncTripSchedule } from "@/lib/trip-schedule";
 import {
   cleanupPhotosForOwners,
   ownersForDestination,
@@ -48,6 +49,11 @@ export async function createDestinationAction(
   const invalid = validateDestinationInput(input);
   if (invalid) return { error: invalid };
   const destination = await createDestination(tripId, input);
+  // A dated stop belongs where its date puts it, not where it was typed, and
+  // the trip's range follows from its stops. Both are re-derived here so the
+  // stored order_index and trips.start_date/end_date the SQL views read never
+  // disagree with what the app shows.
+  await syncTripSchedule(tripId);
   // Auto-fetch a Wikimedia cover for the new stop. Best-effort and silent: it
   // never blocks creation, and the photo simply appears as the cover.
   await autoPopulateDestinationCover({
@@ -74,6 +80,8 @@ export async function updateDestinationAction(
   const invalid = validateDestinationInput(input);
   if (invalid) return { error: invalid };
   await updateDestination(id, input);
+  // Editing a stop's dates can reorder the route and move the trip's range.
+  await syncTripSchedule(tripId);
   revalidateAppData();
   redirect(`/trips/${tripId}/destinations/${id}`);
 }
@@ -90,6 +98,9 @@ export async function deleteDestinationAction(
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   const photoOwners = await ownersForDestination(id);
   await deleteDestination(id);
+  // Removing a stop closes the gap in order_index and can shrink the trip's
+  // range, so the survivors are re-derived before anything reads them again.
+  await syncTripSchedule(tripId);
   await cleanupPhotosForOwners(photoOwners);
   revalidateAppData();
   redirect(`/trips/${tripId}`);

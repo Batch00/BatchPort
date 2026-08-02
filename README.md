@@ -24,7 +24,7 @@ BatchPort is a personal travel tracker and installable progressive web app built
 The floating control cluster is ranked by how often a control is actually reached for, capped at four buttons plus the search icon on the fullest surface and fewer everywhere else.
 
 - **Visible buttons** are the frequent four: photo map, replay, recenter, and the settings popover. Recenter earns its place by sheer frequency (every stray drag on a globe ends in wanting the data back on screen). Photo map and replay surface their own chrome while running (replay swaps the cluster for a transport bar; photo mode adds a header pill).
-- **The settings popover** holds everything occasional, modes included: nearby and show attractions at the top, then basemap swatches, globe/flat projection, fullscreen, and refresh. Both are entered once and lived in, so a permanent button would spend resting-state room on a tap most sessions never make.
+- **The settings popover** holds everything occasional, modes included: basemap swatches, globe/flat projection, fullscreen, and refresh, then nearby and show attractions at the foot. Both modes are entered once and lived in, so a permanent button would spend resting-state room on a tap most sessions never make; they sit last because the popover opens upward from a bottom-anchored trigger, so the final row is the one nearest the thumb. The menu's height is capped against the map rather than the viewport, and scrolls past that, so it can never reach the search button on a short phone map.
 - Because two modes live behind the popover, its trigger takes a brand tint and a small brand dot whenever one is running, and the active menu row is tinted too, so no mode is ever on with no visible signal.
 - Layout is a single bottom-right vertical column at every breakpoint. Search anchors top-right, so the two cannot collide: the cluster's height is bounded at four buttons (about 220px on phones) and every globe surface is at least 300px tall.
 - Read-only surfaces (demo and /share/[slug]) render the same model minus the auth-gated pieces (no refresh, no attractions, no nearby, no photo management actions).
@@ -32,9 +32,9 @@ The floating control cluster is ranked by how often a control is actually reache
 ### Alternate Globe Modes
 
 - **Photo map:** every photo with a resolvable coordinate rendered as a clustered thumbnail marker; travel layers stand down. Coordinates resolve from EXIF GPS, then the owning experience, destination, or the trip's first destination. Photos with no location are counted in the header and viewable in an off-map grid, where they can be assigned to a destination.
-- **Replay:** timeline playback of travel history with a date and country readout, scrubber, speed toggle, and restart.
+- **Replay:** timeline playback of travel history with a date and country readout, scrubber, speed toggle, and restart. Each leg draws in its transport family's styling, the same one the static arcs use, with the growing arc's leading head tinted to match.
 - **Attractions:** viewport Wikipedia geosearch markers (via /api/discover/geo) that open in the discovery panel. Debounced, memoized per viewport cell, and gated to zoom 10 and above.
-- **Nearby:** the app's present tense, built for standing somewhere. Tapping the mode (and only tapping it) asks the browser for a location; the map flies to it, drops a pulsing emerald you-are-here marker, and switches the attractions layer on around you. The card names the stop you are in when one is within 50km, links into that destination and its trip plan, offers a one-tap checkoff when you are within 250m of something you planned, and opens a compact sheet that logs an experience at your coordinates (name prefilled from an attraction within 150m, destination defaulted to the stop you are in). The position is held in memory for the life of the mode and never stored or transmitted; the only coordinate that leaves the session is the one on a record you create. A denial states the problem once and offers an exit, and never re-asks on its own.
+- **Nearby:** the app's present tense, built for standing somewhere. Tapping the mode (and only tapping it) asks the browser for a location; the map flies to it, drops a pulsing emerald you-are-here marker, switches the attractions layer on around you, and borrows the detailed streets basemap so there is something under the marker to read. The basemap is a loan, not a preference: it is handed back on exit, a manual basemap change during the mode wins, and with no MapTiler key configured the mode simply runs on dark. The card names the stop you are in when one is within 50km, links into that destination and its trip plan, offers a one-tap checkoff when you are within 250m of something you planned, and opens a compact sheet that logs an experience at your coordinates (name prefilled from an attraction within 150m, destination defaulted to the stop you are in). The position is held in memory for the life of the mode and never stored or transmitted; the only coordinate that leaves the session is the one on a record you create. A denial states the problem once and offers an exit, and never re-asks on its own.
 - **Discovery:** clicking any country opens a panel with country facts (currency, languages, driving side, plug and voltage), climate lines, and top cities; POIs can be saved onto a trip as planned or done experiences.
 
 ### Trip, Destination, and Experience Management
@@ -42,10 +42,11 @@ The floating control cluster is ranked by how often a control is actually reache
 - Full CRUD for trips, destinations, and experiences via server actions
 - Trip status: planned, ongoing, completed
 - Trip and destination notes fields
-- Destinations ordered within a trip via order_index (reorderable)
+- Destinations ordered chronologically by arrival date, with order_index as the stored sequence and the manual order for an undated trip. Dating a stop moves it to where it belongs, and everything derived from the route order (globe arcs, replay, the story, transport legs) follows without being told
 - Experience categories: museum, restaurant, attraction, nightlife, beach, nature, lodging, and more
 - Half-star rating on experiences: stored as a smallint 1-10 (each unit is half a star), displayed as 0.5-5.0 stars
-- Date fields on trips (start/end), destinations (arrival/departure), and experiences (visited date)
+- Date fields on trips (start/end), destinations (arrival/departure), and experiences (visited date). Trip and destination ranges are picked on a single calendar: click the first day, click the last, and the selected span highlights as you go
+- A trip's dates come from its stops once any of them are dated, running from the earliest arrival to the latest departure, so the trip and its route can never quote different weeks. The trip form shows that range read-only and points at the stops; the stored columns stay in sync underneath, since the stats views read them directly. A trip with no dated stops keeps its own manually entered range, and one with neither still reads as undated
 
 ### Geocoding Pipeline
 
@@ -224,9 +225,9 @@ trips
 
 ### Tables
 
-**trips:** Top-level travel event with name, status (planned/ongoing/completed), start_date, end_date, notes, and cover_photo_id.
+**trips:** Top-level travel event with name, status (planned/ongoing/completed), start_date, end_date, notes, and cover_photo_id. `start_date` and `end_date` are maintained from the trip's destinations whenever any of them carry a date (earliest arrival to latest departure); they are only a user-entered value on a trip whose stops are undated. They stay stored rather than derived on read because the SQL stats views read them directly.
 
-**destinations:** A stop within a trip. Stores a PostGIS `geom geography(Point,4326)` column; `latitude` and `longitude` are generated columns derived from geom and must never be inserted or updated directly. Also holds country_code, admin_region, arrival_date, departure_date, order_index, cover_photo_id, and notes.
+**destinations:** A stop within a trip. Stores a PostGIS `geom geography(Point,4326)` column; `latitude` and `longitude` are generated columns derived from geom and must never be inserted or updated directly. Also holds country_code, admin_region, arrival_date, departure_date, order_index, cover_photo_id, and notes. `order_index` is the route sequence every other feature reads, and it is renumbered to match arrival-date order on every destination write, so dating a stop reorders the route rather than leaving two competing notions of "next".
 
 **experiences:** An activity at a destination. Has category_id, `rating` (smallint 1-10; each unit is half a star, so 10 = five full stars), visited_date, notes, and an optional `geom geography(Point,4326)` set from POI search.
 
@@ -376,6 +377,7 @@ src/
       use-photo-mode.ts          Photo map mode: clustering, markers, enter/exit
       use-attractions.ts         Wikipedia geosearch attraction markers
       use-nearby.ts              Nearby mode: device fix, you-are-here marker, enter/exit
+      use-detail-basemap.ts      Detailed-basemap loan for the street-level modes
       nearby-panel.tsx           Nearby status card: context, checkoff prompt, actions
       log-here-sheet.tsx         Compact sheet that logs an experience at your coordinates
       use-globe-fullscreen.ts    Fullscreen state with panel-first Escape handling
@@ -433,7 +435,8 @@ src/
       share-settings-form.tsx    Public share toggle and slug form
     auth/
       landing-actions.tsx        Request access and sign-in buttons on the landing page
-    ui/                          shadcn/ui primitives (button, card, dialog, input, etc.)
+    ui/                          shadcn/ui primitives (button, card, dialog, input, popover, etc.)
+      date-range-picker.tsx      Single-calendar start/end range picker over YYYY-MM-DD strings
     service-worker-register.tsx  Registers public/sw.js on mount
   lib/
     types.ts                     Domain types mirroring the Postgres schema
@@ -447,6 +450,8 @@ src/
     revalidate.ts                revalidateAppData(): app-wide cache purge after mutations
     action-result.ts             ActionResult type ({ ok: true } | { error: string })
     trips.ts                     Trip data layer (getTrip, getTripOptions, create, update, delete)
+    trip-dates.ts                Trip range derivation and chronological stop ordering (pure)
+    trip-schedule.ts             Writes the derived range and order_index back after a stop changes
     destinations.ts              Destination data layer (create sends EWKT geom)
     experiences.ts               Experience data layer and getCategories()
     bucket-list.ts               Bucket list data layer and autoFulfillBucketItems()

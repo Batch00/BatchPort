@@ -1,6 +1,10 @@
 import { requireUser } from "@/lib/current-user";
 import { DESTINATION_COLUMNS } from "@/lib/destinations";
 import { normalizeExperience, sortExperiences } from "@/lib/experiences";
+import {
+  chronologicalDestinations,
+  withResolvedTripDates,
+} from "@/lib/trip-dates";
 import type {
   Trip,
   TripStatus,
@@ -88,14 +92,18 @@ export async function getTripDestinationOptions(): Promise<
       name: trip.name,
       status: trip.status,
       start_date: trip.start_date,
-      destinations: [...trip.destinations]
-        .sort((a, b) => a.order_index - b.order_index)
-        .map(({ id, name, country_code, arrival_date }) => ({
-          id,
-          name,
-          country_code,
-          arrival_date,
+      destinations: chronologicalDestinations(
+        trip.destinations.map((destination) => ({
+          ...destination,
+          // The picker only carries arrival, but the ordering wants both ends.
+          departure_date: null,
         })),
+      ).map(({ id, name, country_code, arrival_date }) => ({
+        id,
+        name,
+        country_code,
+        arrival_date,
+      })),
     }));
 }
 
@@ -112,8 +120,13 @@ export async function getTripStatus(id: string): Promise<TripStatus | null> {
   return (data?.status as TripStatus | undefined) ?? null;
 }
 
-// A single trip with its destinations (ordered by order_index) and each
-// destination's experiences. Returns null when not found or not owned.
+// A single trip with its destinations and each destination's experiences.
+// Returns null when not found or not owned.
+//
+// Stops come back in visit order (arrival date, falling back to order_index)
+// and the trip's dates are resolved from them, so a stop dated out of sequence
+// or a stored range that predates the last edit both read correctly here
+// without waiting for the next write to re-sync (see lib/trip-dates.ts).
 export async function getTrip(id: string): Promise<TripWithDestinations | null> {
   const { supabase } = await requireUser();
 
@@ -134,16 +147,19 @@ export async function getTrip(id: string): Promise<TripWithDestinations | null> 
   const { data: destinations, error: destError } = destResult;
   if (destError) throw destError;
 
-  const withExperiences = ((destinations ?? []) as DestinationWithExperiences[]).map(
-    (destination) => ({
-      ...destination,
-      experiences: (destination.experiences ?? [])
-        .map(normalizeExperience)
-        .sort(sortExperiences),
-    }),
-  );
+  const withExperiences = chronologicalDestinations(
+    (destinations ?? []) as DestinationWithExperiences[],
+  ).map((destination) => ({
+    ...destination,
+    experiences: (destination.experiences ?? [])
+      .map(normalizeExperience)
+      .sort(sortExperiences),
+  }));
 
-  return { ...(trip as Trip), destinations: withExperiences };
+  return {
+    ...withResolvedTripDates(trip as Trip, withExperiences),
+    destinations: withExperiences,
+  };
 }
 
 export async function createTrip(input: TripInput): Promise<Trip> {

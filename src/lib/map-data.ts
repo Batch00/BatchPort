@@ -1,6 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { parseEwkbPoint, placeKey } from "@/lib/geo";
 import { legModesByDestination } from "@/lib/transport-data";
+import { chronologicalDestinations, derivedTripWindow } from "@/lib/trip-dates";
 import type { TransportMode } from "@/lib/transport";
 
 // Server-side data layer for the globe. getMapData fetches everything the map
@@ -32,6 +33,10 @@ export interface MapDestination {
   arrivalDate: string | null;
   departureDate: string | null;
   category: MapCategory | null;
+  /** The leg recorded on this stop: how the traveller got here. Null when
+   * nothing was recorded. Feeds the replay's per-family arc styling, the same
+   * way MapArc.mode feeds the static arcs. */
+  transportMode: TransportMode | null;
 }
 
 /** A great-circle leg between two consecutive stops on a trip. */
@@ -219,25 +224,48 @@ export async function getMapData(
 
   const rows = (destResult.data ?? []) as unknown as DestinationRow[];
 
-  const destinations: MapDestination[] = rows
-    .filter((row) => row.latitude !== null && row.longitude !== null)
-    .map((row) => ({
-      id: row.id,
-      tripId: row.trip_id,
-      tripName: row.trips?.name ?? "Trip",
-      tripStartDate: row.trips?.start_date ?? null,
-      tripEndDate: row.trips?.end_date ?? null,
-      planned: row.trips?.status === "planned",
-      name: row.name,
-      countryCode: row.country_code,
-      lat: row.latitude as number,
-      lng: row.longitude as number,
-      orderIndex: row.order_index,
-      arrivalDate: row.arrival_date,
-      departureDate: row.departure_date,
-      category: primaryCategory(row.experiences),
-    }))
-    .sort(byTripThenOrder);
+  // Stops go in visit order within each trip, and orderIndex is re-issued as
+  // the position in that order rather than copied from the stored column. Every
+  // consumer of this payload (the arcs below, the replay timeline, the photo
+  // fallbacks) sorts by orderIndex alone, so this is the single place the
+  // chronological rule has to be applied for all of them. The stored column is
+  // renumbered to match on write (lib/trip-schedule.ts); doing it here as well
+  // means rows written before that existed are still ordered correctly.
+  //
+  // The trip's own range is derived from the same stops, so the replay's
+  // per-trip timing and the pin popups agree with the trip page.
+  const rowsByTrip = new Map<string, DestinationRow[]>();
+  for (const row of rows) {
+    const list = rowsByTrip.get(row.trip_id) ?? [];
+    list.push(row);
+    rowsByTrip.set(row.trip_id, list);
+  }
+
+  const destinations: MapDestination[] = [];
+  for (const list of rowsByTrip.values()) {
+    const window = derivedTripWindow(list);
+    chronologicalDestinations(list).forEach((row, index) => {
+      if (row.latitude === null || row.longitude === null) return;
+      destinations.push({
+        id: row.id,
+        tripId: row.trip_id,
+        tripName: row.trips?.name ?? "Trip",
+        tripStartDate: window?.start ?? row.trips?.start_date ?? null,
+        tripEndDate: window?.end ?? row.trips?.end_date ?? null,
+        planned: row.trips?.status === "planned",
+        name: row.name,
+        countryCode: row.country_code,
+        lat: row.latitude as number,
+        lng: row.longitude as number,
+        orderIndex: index,
+        arrivalDate: row.arrival_date,
+        departureDate: row.departure_date,
+        category: primaryCategory(row.experiences),
+        transportMode: legModes.get(row.id) ?? null,
+      });
+    });
+  }
+  destinations.sort(byTripThenOrder);
 
   // Visited means actually been there: ongoing and completed trips count,
   // planned ones do not. Countries reached only by planned trips get the

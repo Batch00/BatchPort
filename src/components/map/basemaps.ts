@@ -105,6 +105,24 @@ export function maxZoomForBasemap(id: string): number {
     : 10;
 }
 
+/**
+ * The basemap a street-level mode should borrow, or null when the deployment
+ * has no MapTiler key and there is nothing to borrow.
+ *
+ * Nearby and the attractions layer both work at zoom 13 and up, and the dark
+ * minimal style has no detail past country shapes (it is capped at zoom 10 by
+ * maxZoomForBasemap, so those modes cannot even reach their own zoom on it).
+ * Streets is the answer rather than satellite or terrain: it is the dark
+ * variant, so the switch stays on brand, and street names are what "what is
+ * around me" actually needs.
+ *
+ * Without a key this returns null and the modes run on dark exactly as they
+ * did before, which is the required degrade: no error, no missing control.
+ */
+export function detailBasemapId(): string | null {
+  return process.env.NEXT_PUBLIC_MAPTILER_KEY ? "streets" : null;
+}
+
 /** The basemaps offered in the switcher. Always includes the keyless dark
  * default; adds the MapTiler styles only when a key is configured. */
 export function availableBasemaps(): BasemapOption[] {

@@ -17,7 +17,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CoverPhotoPicker } from "@/components/photos/cover-photo-picker";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { createTripAction, updateTripAction } from "@/lib/actions/trips";
+import { formatDateRange } from "@/lib/format";
 import type { TripInput } from "@/lib/trips";
 import type { CoverPosition, Photo, TripStatus } from "@/lib/types";
 
@@ -38,6 +40,11 @@ interface TripFormProps {
   coverPhotos?: Photo[];
   coverPhotoId?: string | null;
   coverPosition?: CoverPosition | null;
+  /** The range this trip's dated stops describe, when they describe one. Its
+   * presence means the trip's dates are not the user's to type here: they come
+   * from the destinations, and the field shows the result instead of inviting
+   * an entry the next destination write would overwrite. */
+  derivedDates?: { start: string; end: string } | null;
 }
 
 const EMPTY: TripFormValues = {
@@ -67,6 +74,7 @@ export function TripForm({
   coverPhotos = [],
   coverPhotoId = null,
   coverPosition = null,
+  derivedDates = null,
 }: TripFormProps) {
   const router = useRouter();
   const [values, setValues] = useState<TripFormValues>(defaultValues ?? EMPTY);
@@ -119,27 +127,46 @@ export function TripForm({
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="start_date">Start date</Label>
-          <Input
-            id="start_date"
-            type="date"
-            value={values.start_date}
-            onChange={(e) => set("start_date", e.target.value)}
-            disabled={submitting}
-          />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="end_date">End date</Label>
-          <Input
-            id="end_date"
-            type="date"
-            value={values.end_date}
-            onChange={(e) => set("end_date", e.target.value)}
-            disabled={submitting}
-          />
-        </div>
+      <div className="grid gap-2">
+        <Label htmlFor="trip_dates">Dates</Label>
+        {derivedDates ? (
+          // The stops already say when this trip was. Showing a second,
+          // editable answer would be offering the user a way to be wrong.
+          <>
+            <div
+              id="trip_dates"
+              className="flex h-10 w-full items-center rounded-md border border-white/10 bg-white/[0.03] px-3 text-sm text-foreground/80"
+            >
+              {formatDateRange(derivedDates.start, derivedDates.end)}
+            </div>
+            <p className="text-xs text-foreground/50">
+              Taken from this trip&apos;s destinations, from the earliest
+              arrival to the latest departure. Edit a stop&apos;s dates to
+              change it.
+            </p>
+          </>
+        ) : (
+          <>
+            <DateRangePicker
+              id="trip_dates"
+              start={values.start_date}
+              end={values.end_date}
+              onChange={(start, end) =>
+                setValues((prev) => ({
+                  ...prev,
+                  start_date: start,
+                  end_date: end,
+                }))
+              }
+              disabled={submitting}
+              placeholder="Pick the trip dates"
+            />
+            <p className="text-xs text-foreground/50">
+              Once your destinations have dates, this range comes from them
+              instead.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="grid gap-2">

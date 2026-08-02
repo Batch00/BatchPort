@@ -49,6 +49,7 @@ import { useReplay } from "./use-replay";
 import { usePhotoMode, type GlobePhoto } from "./use-photo-mode";
 import { useAttractions, type AttractionPoi } from "./use-attractions";
 import { useNearby } from "./use-nearby";
+import { useDetailBasemap } from "./use-detail-basemap";
 import { NearbyPanel } from "./nearby-panel";
 import { LogHereSheet, type LogHereDestination } from "./log-here-sheet";
 import {
@@ -228,6 +229,12 @@ export function Globe({
   // stable per session (it only depends on the MapTiler key env var).
   const basemaps = useMemo(() => availableBasemaps(), []);
   const [basemap, setBasemap] = useState("dark");
+  // Mirrored so the street-level modes can read the live basemap without
+  // taking a render dependency on it.
+  const basemapRef = useRef("dark");
+  useEffect(() => {
+    basemapRef.current = basemap;
+  }, [basemap]);
   // True from a basemap switch until the new style's tiles settle, so the
   // brief tile load reads as intentional rather than a broken map.
   const [styleLoading, setStyleLoading] = useState(false);
@@ -278,11 +285,32 @@ export function Globe({
 
   // The optional attractions explore layer. It stands down whenever another
   // mode takes the globe (photo map, replay) and its toggle hides with them.
+  // Street-level modes borrow the detailed basemap while they run; the rules
+  // (loan, not preference; manual change wins; reference counted) live in
+  // use-detail-basemap.ts.
+  const detailBasemap = useDetailBasemap({
+    basemapRef,
+    applyBasemap: (id) => applyBasemapRef.current(id),
+  });
+  const detailBasemapRef = useRef(detailBasemap);
+  useEffect(() => {
+    detailBasemapRef.current = detailBasemap;
+  });
+
   const attractions = useAttractions({
     mapRef,
     enabled: Boolean(onOpenAttraction),
     onOpen: (poi) => onOpenAttraction?.(poi),
   });
+  // The attractions layer is gated to zoom 10 and up, which is exactly where
+  // the dark style runs out of detail, so it borrows the detailed basemap too.
+  // Watching the resolved active flag rather than wrapping the toggle catches
+  // every path in: the control, nearby switching it on, and photo map and
+  // replay switching it off.
+  useEffect(() => {
+    if (attractions.active) detailBasemapRef.current.request("attractions");
+    else detailBasemapRef.current.release("attractions");
+  }, [attractions.active]);
   const attractionsDisableRef = useRef(attractions.disable);
   const attractionsEnableRef = useRef(attractions.enable);
   useEffect(() => {
@@ -323,7 +351,12 @@ export function Globe({
   // denial never leaves markers behind.
   const attractionsWereOnRef = useRef(false);
   useEffect(() => {
-    if (nearbyMode.status === "active") attractionsEnableRef.current();
+    if (nearbyMode.status !== "active") return;
+    attractionsEnableRef.current();
+    // Only once a fix actually arrives, for the same reason the attraction
+    // markers wait: a denial should leave the map exactly as it was found,
+    // not on a street basemap the user never got to use.
+    detailBasemapRef.current.request("nearby");
   }, [nearbyMode.status]);
 
   function enterNearby() {
@@ -336,6 +369,9 @@ export function Globe({
   function exitNearby() {
     nearbyMode.exit();
     if (!attractionsWereOnRef.current) attractionsDisableRef.current();
+    // The attractions layer releases its own hold through the effect above, so
+    // a user who had it on before nearby keeps the detailed map.
+    detailBasemapRef.current.release("nearby");
   }
 
   function toggleNearby() {
@@ -1168,6 +1204,11 @@ export function Globe({
   return (
     <div
       ref={wrapperRef}
+      // The overlay chrome measures against this box rather than the viewport:
+      // the map is often a card in a scrolling page, and this element clips
+      // (overflow-hidden), so "the space above the control cluster" is a fact
+      // about the map, not the window. See MapControls' menu height.
+      data-globe-surface=""
       className="absolute inset-0 size-full overflow-hidden bg-[#0d0d0d]"
     >
       <div ref={containerRef} className="absolute inset-0 size-full" />

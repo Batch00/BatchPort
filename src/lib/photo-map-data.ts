@@ -1,6 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { parseEwkbPoint } from "@/lib/geo";
 import { getPhotoUrl } from "@/lib/photos";
+import { chronologicalDestinations } from "@/lib/trip-dates";
 import type { GlobePhoto } from "@/components/map/use-photo-mode";
 import type { PhotoOwnerType, PhotoSource } from "@/lib/types";
 
@@ -56,6 +57,10 @@ interface DestRow {
   latitude: number | null;
   longitude: number | null;
   order_index: number;
+  // A trip-level photo falls back to the trip's FIRST stop, so "first" has to
+  // mean the visit order, not the insertion order (see lib/trip-dates.ts).
+  arrival_date: string | null;
+  departure_date: string | null;
   trips: { name: string } | null;
 }
 
@@ -111,7 +116,9 @@ export async function getPhotoMapData(userId?: string): Promise<PhotoMapData> {
       .eq("user_id", resolvedUserId),
     supabase
       .from("destinations")
-      .select("id, trip_id, name, latitude, longitude, order_index, trips ( name )")
+      .select(
+        "id, trip_id, name, latitude, longitude, order_index, arrival_date, departure_date, trips ( name )",
+      )
       .eq("user_id", resolvedUserId),
     supabase
       .from("experiences")
@@ -141,10 +148,18 @@ export async function getPhotoMapData(userId?: string): Promise<PhotoMapData> {
   const expById = new Map(expRows.map((row) => [row.id, row]));
   // The first destination (by visit order) with coordinates per trip, so
   // trip-level photos still land somewhere sensible.
+  const rowsByTrip = new Map<string, DestRow[]>();
+  for (const row of destRows) {
+    const list = rowsByTrip.get(row.trip_id) ?? [];
+    list.push(row);
+    rowsByTrip.set(row.trip_id, list);
+  }
   const firstDestByTrip = new Map<string, DestRow>();
-  for (const row of [...destRows].sort((a, b) => a.order_index - b.order_index)) {
-    if (row.latitude === null || row.longitude === null) continue;
-    if (!firstDestByTrip.has(row.trip_id)) firstDestByTrip.set(row.trip_id, row);
+  for (const [tripId, list] of rowsByTrip) {
+    const first = chronologicalDestinations(list).find(
+      (row) => row.latitude !== null && row.longitude !== null,
+    );
+    if (first) firstDestByTrip.set(tripId, first);
   }
 
   const photos: GlobePhoto[] = [];

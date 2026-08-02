@@ -103,6 +103,7 @@ export function DashboardGlobe({
         tripStartDate: d.tripStartDate,
         tripEndDate: d.tripEndDate,
         orderIndex: d.orderIndex,
+        transportMode: d.transportMode,
       })),
     [destinations],
   );

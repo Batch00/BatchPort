@@ -8,6 +8,7 @@ import {
   type TransportLeg,
   type TransportMode,
 } from "@/lib/transport";
+import { chronologicalDestinations } from "@/lib/trip-dates";
 
 // Server reads for transport legs.
 //
@@ -148,6 +149,10 @@ interface BreakdownDestinationRow {
   id: string;
   trip_id: string;
   order_index: number;
+  // The hop distances are measured between consecutive stops, so the sequence
+  // has to be the visit order, not the insertion order (see lib/trip-dates.ts).
+  arrival_date: string | null;
+  departure_date: string | null;
   latitude: number | null;
   longitude: number | null;
   trips: { status: string } | null;
@@ -172,7 +177,9 @@ export async function getTransportBreakdown(
   const [destResult, legResult] = await Promise.all([
     supabase
       .from("destinations")
-      .select("id, trip_id, order_index, latitude, longitude, trips!inner(status)")
+      .select(
+        "id, trip_id, order_index, arrival_date, departure_date, latitude, longitude, trips!inner(status)",
+      )
       .eq("user_id", userId)
       .neq("trips.status", "planned")
       .order("order_index", { ascending: true }),
@@ -205,7 +212,7 @@ export async function getTransportBreakdown(
 
   const hops: { mode: TransportMode | null; km: number }[] = [];
   for (const list of byTrip.values()) {
-    const ordered = [...list].sort((a, b) => a.order_index - b.order_index);
+    const ordered = chronologicalDestinations(list);
     for (let i = 1; i < ordered.length; i += 1) {
       const from = ordered[i - 1];
       const to = ordered[i];

@@ -5,6 +5,7 @@ import { DestinationForm } from "@/components/destinations/destination-form";
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
 import { parseEwkbPoint } from "@/lib/geo";
+import { chronologicalDestinations } from "@/lib/trip-dates";
 
 export default async function NewDestinationPage({
   params,
@@ -81,7 +82,12 @@ export default async function NewDestinationPage({
   // Smart default: the next stop usually starts where the previous one ended,
   // so prefill arrival with the last stop's departure (falling back to its
   // arrival, then the trip start). Just a default; freely editable.
-  const lastStop = stops[stops.length - 1];
+  //
+  // "Last" is the last stop in VISIT order, which is what the query's
+  // order_index gives once the schedule sync has run, but is derived here
+  // anyway so a trip written before that still prefills from its real end.
+  const ordered = chronologicalDestinations(stops);
+  const lastStop = ordered[ordered.length - 1];
   const defaultArrival =
     lastStop?.departure_date ??
     lastStop?.arrival_date ??

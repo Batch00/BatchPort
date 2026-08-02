@@ -25,6 +25,7 @@ import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
 import { TRIPS, type SeedDestination, type SeedTrip } from "./demo-dataset";
+import { chronologicalDestinations } from "../src/lib/trip-dates";
 
 const OUTPUT_PATH = join("src", "lib", "mock-travel-data.ts");
 
@@ -102,7 +103,18 @@ function build(
 
   for (const trip of trips) {
     const tripId = `trip-${slugify(trip.name)}`;
-    const stops = trip.destinations.map((dest) => {
+    // Visit order, the same rule the app applies everywhere else (see
+    // lib/trip-dates.ts). The fixture happens to be written in date order, but
+    // the arcs below are literally this sequence drawn, so it is derived here
+    // rather than assumed.
+    const stops = chronologicalDestinations(
+      trip.destinations.map((dest, index) => ({
+        ...dest,
+        arrival_date: dest.arrival,
+        departure_date: dest.departure,
+        order_index: index,
+      })),
+    ).map((dest) => {
       const slug = primaryCategorySlug(dest);
       return {
         id: `dest-${slugify(trip.name)}-${slugify(dest.city)}`,
@@ -117,8 +129,8 @@ function build(
     });
     destinations.push(...stops);
 
-    // Arcs join consecutive stops in fixture order, which is the same order
-    // the seeder writes into order_index.
+    // Arcs join consecutive stops in visit order, the same sequence the
+    // seeder's order_index ends up carrying.
     for (let i = 0; i < stops.length - 1; i += 1) {
       arcs.push({
         sourcePosition: [stops[i].lng, stops[i].lat],

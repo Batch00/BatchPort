@@ -7,8 +7,8 @@ import { toast } from "sonner";
 import { Loader2Icon, MapIcon, MapPinIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { LocationSearch } from "@/components/location-search";
 import { CoverPhotoPicker } from "@/components/photos/cover-photo-picker";
@@ -150,27 +150,23 @@ export function DestinationForm({
         ) : null}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="arrival">Arrival date</Label>
-          <Input
-            id="arrival"
-            type="date"
-            value={arrival}
-            onChange={(e) => setArrival(e.target.value)}
-            disabled={submitting}
-          />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="departure">Departure date</Label>
-          <Input
-            id="departure"
-            type="date"
-            value={departure}
-            onChange={(e) => setDeparture(e.target.value)}
-            disabled={submitting}
-          />
-        </div>
+      <div className="grid gap-2">
+        <Label htmlFor="stay">Dates</Label>
+        <DateRangePicker
+          id="stay"
+          start={arrival}
+          end={departure}
+          onChange={(nextArrival, nextDeparture) => {
+            setArrival(nextArrival);
+            setDeparture(nextDeparture);
+          }}
+          disabled={submitting}
+          placeholder="Pick your arrival and departure"
+        />
+        <p className="text-xs text-foreground/50">
+          These dates set where this stop falls in the trip, and the
+          trip&apos;s own range.
+        </p>
       </div>
 
       <div className="grid gap-2">
