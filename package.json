@@ -17,6 +17,7 @@
     "seed-countries": "npx tsx scripts/seed-countries.ts",
     "seed-cities": "npx tsx scripts/seed-cities.ts",
     "setup-shares": "npx tsx scripts/setup-share-settings.ts",
+    "resync-trip-schedules": "npx tsx scripts/resync-trip-schedules.ts",
     "cleanup-orphan-photos": "npx tsx scripts/cleanup-orphan-photos.ts"
   },
   "dependencies": {

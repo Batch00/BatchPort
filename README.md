@@ -307,6 +307,14 @@ npm run seed-countries   # Populate the countries reference table
 npm run seed-cities      # Populate the cities table from GeoNames cities15000 (powers Discovery top cities)
 npm run setup-shares     # Initialize user_settings rows for existing users
 
+# Bring existing trips' stored start_date/end_date and destinations.order_index
+# in line with their stops. The app syncs these on every destination write and
+# derives the same answer on read, so the UI is already correct; this is for the
+# SQL stats views, which read the stored columns directly. Run once after
+# deploying derived trip dates. Idempotent.
+npm run resync-trip-schedules -- --dry-run
+npm run resync-trip-schedules
+
 # Find photo rows whose owner entity no longer exists. Report only:
 npm run cleanup-orphan-photos -- --dry-run
 # Delete the rows and their upload Storage objects (idempotent):
@@ -511,6 +519,7 @@ scripts/
   seed-countries.ts              Populates the countries reference table
   seed-cities.ts                 Populates the cities table from GeoNames cities15000
   setup-share-settings.ts        Creates user_settings rows for existing users
+  resync-trip-schedules.ts       One-off: aligns stored trip dates and order_index with each trip's stops
   sql/                           One-off migrations to run in the Supabase SQL editor
 ```
 
