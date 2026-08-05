@@ -42,6 +42,14 @@ export interface DrawMapOptions {
   graticuleStep?: number | null;
   /** Pin radius as a fraction of the unit. */
   pinScale?: number;
+  /**
+   * Multiplier on every line weight. Weights are a fraction of `unit`, which
+   * keeps a poster's hairlines hairline, but an inset disc is small enough
+   * that the same fraction lands under a pixel and the route disappears. The
+   * inset asks for thicker lines relative to its size; the poster leaves this
+   * at 1.
+   */
+  lineScale?: number;
 }
 
 /** Segments per arc. Enough that a transatlantic curve has no visible facets
@@ -88,9 +96,10 @@ export function drawMap(
     pins,
     graticuleStep = 30,
     pinScale = 0.0042,
+    lineScale = 1,
   } = options;
   const unit = options.unit ?? frame.box[2];
-  const hairline = Math.max(0.5, unit * 0.0007);
+  const hairline = Math.max(0.5, unit * 0.0007 * lineScale);
 
   context.save();
   context.lineJoin = "round";
@@ -152,17 +161,20 @@ export function drawMap(
     const runs = legs.flatMap((leg) =>
       projectPath(frame, greatCirclePoints(leg.from, leg.to, ARC_SEGMENTS)),
     );
+    const arcWidth = Math.max(0.7, unit * 0.0013 * lineScale);
     if (theme.arcGlow) {
       context.beginPath();
       tracePath(context, runs, false);
       context.strokeStyle = theme.arcGlow;
-      context.lineWidth = unit * 0.0055;
+      // Tied to the arc rather than to the unit, so the halo stays in
+      // proportion to the line it is haloing at any line scale.
+      context.lineWidth = arcWidth * 3.6;
       context.stroke();
     }
     context.beginPath();
     tracePath(context, runs, false);
     context.strokeStyle = theme.arc;
-    context.lineWidth = Math.max(0.7, unit * 0.0013);
+    context.lineWidth = arcWidth;
     context.stroke();
   }
 

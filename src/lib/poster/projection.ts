@@ -134,9 +134,24 @@ export function posterLatitudeRange(
 
 // --- Orthographic -----------------------------------------------------------
 
+/**
+ * Orthographic, optionally cropped to a disc smaller than the full hemisphere.
+ *
+ * `radius` is in projected units, where 1 is the limb of the sphere: a point
+ * an angular distance c from the centre lands at sin(c), so radius 0.3 shows a
+ * cap about 17 degrees across. Anything below 1 is a zoom, and the visible
+ * boundary stops being the limb and becomes the crop, which is why `outline`
+ * reports the smaller circle. Everything downstream (the ocean fill, the clip,
+ * the ring) follows from that one number.
+ *
+ * The poster uses radius 1 and draws a whole planet. The share card's inset
+ * fits the radius to the trip, because a Europe trip on a full hemisphere is a
+ * cluster of dots nobody can read.
+ */
 export function orthographicProjection(
   centerLng: number,
   centerLat: number,
+  radius = 1,
 ): Projection {
   const lambda0 = centerLng * DEG;
   const phi0 = centerLat * DEG;
@@ -151,7 +166,7 @@ export function orthographicProjection(
 
   return {
     cylindrical: false,
-    extent: [-1, -1, 1, 1],
+    extent: [-radius, -radius, radius, radius],
     horizon: cosC,
     project(lng, lat) {
       if (cosC(lng, lat) < 0) return null;
@@ -166,7 +181,7 @@ export function orthographicProjection(
       const ring: UnitPoint[] = [];
       for (let i = 0; i <= 360; i += 1) {
         const angle = i * DEG;
-        ring.push([Math.cos(angle), Math.sin(angle)]);
+        ring.push([Math.cos(angle) * radius, Math.sin(angle) * radius]);
       }
       return [ring];
     },
@@ -174,13 +189,63 @@ export function orthographicProjection(
 }
 
 /**
+ * The projected radius that fits a set of points inside an orthographic disc,
+ * with air around them.
+ *
+ * Two clamps matter. `min` stops a single-city trip from becoming a
+ * meaningless close-up of one dot on a featureless disc: below roughly a tenth
+ * of the sphere's radius there is no coastline left to recognise. And a point
+ * more than 90 degrees away is behind the horizon and cannot be fitted at all,
+ * so a globe-spanning trip falls back to the full hemisphere rather than to
+ * some radius that pretends to contain it.
+ */
+export function fitOrthographicRadius(
+  center: { lng: number; lat: number },
+  points: { lat: number; lng: number }[],
+  { padding = 0.35, min = 0.17 }: { padding?: number; min?: number } = {},
+): number {
+  if (points.length === 0) return min;
+  const lambda0 = center.lng * DEG;
+  const phi0 = center.lat * DEG;
+  const sinPhi0 = Math.sin(phi0);
+  const cosPhi0 = Math.cos(phi0);
+
+  let furthest = 0;
+  for (const point of points) {
+    const phi = point.lat * DEG;
+    const delta = point.lng * DEG - lambda0;
+    const cosC =
+      sinPhi0 * Math.sin(phi) + cosPhi0 * Math.cos(phi) * Math.cos(delta);
+    if (cosC < 0) return 1;
+    // sin(c) from cos(c), which is the projected distance from the centre.
+    furthest = Math.max(furthest, Math.sqrt(Math.max(0, 1 - cosC * cosC)));
+  }
+  return Math.min(1, Math.max(min, furthest * (1 + padding)));
+}
+
+/** Graticule spacing that stays a grid rather than becoming noise or a single
+ * line, given how much of the sphere a disc is showing. */
+export function graticuleStepForRadius(radius: number): number {
+  if (radius > 0.6) return 30;
+  if (radius > 0.32) return 15;
+  if (radius > 0.2) return 10;
+  return 5;
+}
+
+/**
  * The centre a globe framing should use for a set of points: the direction of
  * their average position on the sphere. Averaging degrees instead would put a
  * traveller with stops either side of the antimeridian in the middle of
  * Africa. Falls back to a view of the land hemisphere when there is nothing.
+ *
+ * `clampLatitude` tilts a polar view back toward the equator, which is right
+ * for the poster (a whole globe centred at 68N is mostly ice, and the arcs
+ * that matter fall off the limb) and wrong for the share card's zoomed inset,
+ * where tilting away would push an Iceland trip off its own map.
  */
 export function globeCenter(
   points: { lat: number; lng: number }[],
+  { clampLatitude = true }: { clampLatitude?: boolean } = {},
 ): { lng: number; lat: number } {
   if (points.length === 0) return { lng: 10, lat: 25 };
   let x = 0;
@@ -195,11 +260,10 @@ export function globeCenter(
   }
   const length = Math.hypot(x, y, z);
   if (length < 1e-9) return { lng: 10, lat: 25 };
+  const lat = (Math.asin(z / length) * 180) / Math.PI;
   return {
     lng: (Math.atan2(y, x) * 180) / Math.PI,
-    // Tilt the pole-most views back toward the equator: a globe centred at 68N
-    // is mostly ice, and the arcs that matter fall off the limb.
-    lat: Math.max(-60, Math.min(60, (Math.asin(z / length) * 180) / Math.PI)),
+    lat: clampLatitude ? Math.max(-60, Math.min(60, lat)) : lat,
   };
 }
 

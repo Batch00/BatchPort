@@ -13,6 +13,21 @@ export function flagEmoji(code?: string | null): string {
   );
 }
 
+let regionNames: Intl.DisplayNames | null = null;
+
+// "DK" -> "Denmark", from the platform rather than from a table the app would
+// have to ship and keep current. Falls back to the code when Intl cannot
+// resolve it. Lives here rather than next to CountryFlag because the share
+// card renderer needs it and must not import a React component.
+export function countryName(code: string): string {
+  try {
+    regionNames ??= new Intl.DisplayNames(["en"], { type: "region" });
+    return regionNames.of(code.toUpperCase()) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 // Format a YYYY-MM-DD date as "Jun 10, 2023". The explicit midnight suffix
 // keeps the displayed day stable regardless of the viewer's timezone.
 export function formatDate(value?: string | null): string {

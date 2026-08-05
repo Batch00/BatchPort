@@ -525,6 +525,36 @@ The share card takes a `StoryTrip` and nothing else
 why the read-only surfaces can offer it at all: generating an image reads
 nothing and writes nothing.
 
+Four more rules are specific to the card, and each one replaced a version that
+looked fine in isolation and wrong on a photograph:
+
+- **The route map is an inset, corner-anchored, in both ratios.** Top-right,
+  because the text block owns the bottom-left and the middle is where a
+  photograph puts its subject. A disc in the centre lands on somebody's face
+  and reads as a sticker. It carries a drop shadow and a thin ring so it sits
+  *on* the picture; without them it reads as a hole punched through it.
+- **It is framed to the trip, not to the planet.** `fitOrthographicRadius`
+  fits the stops with padding, and `orthographicProjection` takes that radius
+  and reports the smaller circle from `outline`, so the ocean fill, the clip,
+  and the ring all follow one number. Two clamps: a point past 90 degrees
+  cannot be fitted so the view falls back to a full hemisphere, and a minimum
+  radius stops a one-city trip becoming a featureless close-up. The centre is
+  the trip's true centroid (`clampLatitude: false`), or an Iceland trip slides
+  off its own map.
+- **Line weights are a fraction of the map's own size, so an inset needs
+  `lineScale`.** At a quarter of the card the poster's proportions put arcs
+  under a pixel and the route vanishes. The arc glow is tied to the arc width
+  rather than to the unit, so it stays in proportion at any scale.
+- **The places line never truncates.** It names countries (a "+8" was hiding
+  most of the trip), falls back to stops for a single-country trip, and wraps
+  between places and never inside one: `wrapPlaces` breaks on the separator,
+  not on spaces, because "New Zealand" split across two lines is its own kind
+  of broken. It shrinks first, then takes a second line, then a third.
+
+The text block is measured into rows before anything is painted, because the
+bottom scrim has to know where the block starts. Sizing that scrim as a
+fraction of the height instead is what left a title fighting a bright cover.
+
 ### Search, Export, and Home Location
 
 Three surfaces read the current user's own rows and must never take a userId

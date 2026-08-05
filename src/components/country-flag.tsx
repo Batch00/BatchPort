@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { flagEmoji } from "@/lib/format";
+import { countryName, flagEmoji } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 // A country flag rendered as an SVG image rather than an emoji. Windows has no
@@ -11,16 +11,10 @@ import { cn } from "@/lib/utils";
 // everywhere. If the image fails to load, the emoji is the fallback, which is
 // at worst the two-letter code.
 
-let regionNames: Intl.DisplayNames | null = null;
-/** "DK" -> "Denmark". Falls back to the code when Intl cannot resolve it. */
-export function countryName(code: string): string {
-  try {
-    regionNames ??= new Intl.DisplayNames(["en"], { type: "region" });
-    return regionNames.of(code.toUpperCase()) ?? code;
-  } catch {
-    return code;
-  }
-}
+// Re-exported so the existing `from "@/components/country-flag"` imports keep
+// working; the implementation lives in lib/format.ts, which the canvas
+// renderers can import without pulling in React.
+export { countryName };
 
 export function CountryFlag({
   code,
