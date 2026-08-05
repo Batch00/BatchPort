@@ -12,6 +12,7 @@ import {
 import { CategoryIcon } from "@/components/category-icon";
 import { CountryFlag } from "@/components/country-flag";
 import { RatingDisplay } from "@/components/rating-display";
+import { TripShareCardButton } from "@/components/share/trip-share-card";
 import { VisitWeatherLine } from "@/components/weather/visit-weather";
 import { journalDayLabel } from "@/lib/journal";
 import { formatKm } from "@/lib/stats-format";
@@ -363,6 +364,9 @@ function SlideView({ slide }: { slide: StorySlide }) {
           </p>
         </div>
       ) : null}
+      {/* The last slide is where someone has just finished reading a trip and
+          is most likely to want to show it to somebody. */}
+      <TripShareCardButton trip={slide.trip} className="mt-10" />
     </div>
   );
 }
@@ -391,6 +395,11 @@ export function TripStory({
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      // The closing slide can open the share card dialog over the story. While
+      // it is up it owns the keyboard: Escape should close the dialog and
+      // leave the story where it was, and the arrow keys should not be
+      // paging slides behind it.
+      if (document.querySelector('[data-slot="dialog-content"]')) return;
       if (event.key === "Escape") {
         event.stopPropagation();
         onClose();

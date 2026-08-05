@@ -176,6 +176,22 @@ The floating control cluster is ranked by how often a control is actually reache
 - Per-trip bests on trip pages, derived from rows the page already fetched
 - All of it comes from one query for the whole stats page; planned experiences and planned trips are excluded
 
+### Map Poster and Share Cards
+
+Two exportable images, both drawn on a canvas from projected geometry rather than captured from the map, so neither is a screenshot and neither has a resolution ceiling set by the screen.
+
+**Map poster.** An "Export poster" action on the stats page opens a dialog with a live preview drawn by the export's own code path, so what downloads is what was on screen. The choices are deliberately few: framing (a Robinson world map, or a globe centred on the traveller's own centre of gravity), theme (Midnight, the app's palette, or Paper, a warm off-white made to be printed), an optional stat block (countries, continents, trips, distance), and a title and subtitle that default to something sensible. Orientation follows the framing rather than being a third thing to choose: a world map is a landscape object and prints 16 x 12 inches, a globe is a square one and prints 12 x 16. Both are the same 12 inches on the short edge, so the type is the same physical size and the two hang as a pair.
+
+The flat map crops the empty polar bands, widened automatically to cover any stop that falls outside them, which is what lets it run the full width of the page instead of floating in the middle of it. The globe framing says out loud how many stops fall on the hidden hemisphere and points at the world map, rather than quietly dropping them.
+
+Output is a PNG at 300 DPI (4800 x 3600 px), or a PDF that states the physical page size so a print shop does not have to guess. Browsers cap canvas area and disagree about where (Safari stops at 16.7 megapixels, under a 300 DPI poster), so the dialog probes what this device can actually allocate, steps down through a ladder of DPIs, and reports the size it achieved instead of promising one it did not.
+
+**Per-trip share cards.** A "Share" action next to the story, on the trip page, on the read-only demo and share surfaces, and on the story's closing slide. The card is the trip's cover photo, a porthole globe carrying the route as it was actually flown or driven, the trip name and dates, the stops in order, and the numbers (stops, countries, distance, best-rated experience). Square for a feed, 9:16 for a story, both at 2160px on the short edge. Download always; where the browser supports sharing files, the OS share sheet as well.
+
+Everything the card draws comes from the same trip payload the story already builds, so it costs no extra query on any surface. A cover that will not load is a designed state, not a broken one: the card falls back to its own gradient and says so.
+
+**Attribution.** The compositions use no basemap tiles at all, only the bundled Natural Earth country outlines, so no tile provider's terms apply and there is nothing to attribute for the map beyond the credit the poster carries anyway. Where a share card's cover came from Wikimedia Commons, the licence's attribution condition does not stop applying because the image was redrawn onto a canvas, so the card prints the credit line.
+
 ### Data Export
 
 - JSON archive: every trip with nested destinations and experiences, plus the bucket list, photo metadata with absolute URLs, and settings
@@ -453,7 +469,10 @@ src/
       bucket-item-dialog.tsx     Create/edit dialog with country or place selection
       country-combobox.tsx       Country picker for bucket items
       fulfill-dialog.tsx         Mark item fulfilled with trip selection
+    poster/
+      poster-export.tsx          Poster dialog: live preview, options, PNG/PDF download
     share/
+      trip-share-card.tsx        Per-trip share card dialog and its launcher
       shared-profile-view.tsx    Shared layout: globe, stats, trip list (used by /demo and /share/[slug])
       share-globe.tsx            Globe instance for public share (read-only, no drilldown links)
       shared-trip-card.tsx       Read-only trip card for share view
@@ -507,6 +526,16 @@ src/
     geocode.ts                   Geocoding cache helpers: readCache, writeCache, parsePhoton, parseNominatim
     wikimedia.ts                 Wikimedia P18 lookup: getWikimediaPhoto() with 90-day cache
     access-token.ts              HMAC-SHA256 token generation and verification for invite links
+    poster/
+      projection.ts              Robinson and orthographic projections, path clipping (pure)
+      countries.ts               Country outline loader, cached per page
+      theme.ts                   Poster palettes (Midnight and Paper)
+      draw-map.ts                Country fills, arcs, and pins painted into a fitted frame
+      poster.ts                  The printable poster: layout, render, PNG/PDF
+      poster-data.ts             Poster inputs assembled from map data and stats
+      share-card.ts              Per-trip share card, derived from a StoryTrip
+      canvas.ts                  Canvas plumbing: DPI probe, fonts, CORS images, download, share
+      pdf.ts                     One-page PDF wrapper stating the physical page size
     landing-data.ts              Landing hero globe data: cached anon read of the demo account
     mock-travel-data.ts          GENERATED static fallback for the landing hero (see generate-mock-globe.ts)
     offline/

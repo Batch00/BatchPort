@@ -206,7 +206,10 @@ function routeDistanceKm(destinations: StoryDestination[]): number | null {
   return Math.round(total);
 }
 
-function closingStats(trip: StoryTrip): StoryClosingStats {
+/** The scoreboard a trip closes on. Exported because the share card is the
+ * same numbers in a different frame, and two derivations of "the best thing on
+ * this trip" would eventually disagree. */
+export function storyClosingStats(trip: StoryTrip): StoryClosingStats {
   const done = trip.destinations.flatMap((destination) =>
     destination.experiences.map((experience) => ({
       experience,
@@ -406,7 +409,7 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
     kind: "closing",
     key: "closing",
     trip,
-    stats: closingStats(trip),
+    stats: storyClosingStats(trip),
   });
 
   return slides;

@@ -8,6 +8,7 @@ import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
 import { PlannedExperienceRowReadOnly } from "@/components/experiences/planned-checklist";
 import { StoryLauncher } from "@/components/trips/story-launcher";
+import { TripShareCardButton } from "@/components/share/trip-share-card";
 import { TransportLegReadOnly } from "@/components/trips/transport-leg";
 import { hasStory, storyTripFromProfile } from "@/lib/story";
 import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
@@ -102,10 +103,18 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
       {/* Outside the expand button, not inside it: a button cannot nest. The
           story is read-only, so it belongs on the public surfaces too. */}
       {hasStory(trip) ? (
-        <StoryLauncher
-          trip={storyTripFromProfile(trip)}
-          className="absolute right-3 top-3 z-10 px-2.5 py-1 text-xs"
-        />
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-1.5">
+          <StoryLauncher
+            trip={storyTripFromProfile(trip)}
+            className="px-2.5 py-1 text-xs"
+          />
+          {/* Generating an image reads nothing and writes nothing, so the
+              read-only surfaces offer it on the same terms as the story. */}
+          <TripShareCardButton
+            trip={storyTripFromProfile(trip)}
+            className="px-2.5 py-1 text-xs"
+          />
+        </div>
       ) : null}
       <button
         type="button"

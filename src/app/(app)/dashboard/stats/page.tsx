@@ -3,6 +3,9 @@ import { ArrowLeftIcon } from "lucide-react";
 
 import { requireUser } from "@/lib/current-user";
 import { getAllStats } from "@/lib/stats-data";
+import { getMapData } from "@/lib/map-data";
+import { buildPosterData, hasPosterData } from "@/lib/poster/poster-data";
+import { PosterExportButton } from "@/components/poster/poster-export";
 import {
   categoryInsight,
   countryInsight,
@@ -32,7 +35,13 @@ export const metadata = { title: "Travel Stats" };
 // one-line insights are computed from the already-fetched view rows.
 export default async function StatsPage() {
   const { user } = await requireUser();
-  const stats = await getAllStats(user.id);
+  // The poster draws the same travel history these numbers describe, so its
+  // data rides along here rather than on a route of its own.
+  const [stats, mapData] = await Promise.all([
+    getAllStats(user.id),
+    getMapData(user.id),
+  ]);
+  const posterData = buildPosterData(mapData, stats);
 
   const records = travelRecords({
     yearly: stats.yearly,
@@ -50,10 +59,22 @@ export default async function StatsPage() {
           <ArrowLeftIcon className="size-4" />
           Back to dashboard
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">Travel Stats</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          The story of your travels, by the numbers
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Travel Stats
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              The story of your travels, by the numbers
+            </p>
+          </div>
+          {/* Absent until there is something to draw: an empty world is not a
+              poster, and offering one would be an empty state with a download
+              button on it. */}
+          {hasPosterData(posterData) ? (
+            <PosterExportButton data={posterData} />
+          ) : null}
+        </div>
       </div>
 
       <StatsOverview

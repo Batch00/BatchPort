@@ -460,6 +460,71 @@ doing less than its label implies; what it actually stores is that trip's photo
 thumbnails, capped at `MAX_THUMBS_PER_TRIP`, removable, with the count and an
 approximate size shown after the fact.
 
+### Exported Images (Poster and Share Cards)
+
+Both exports are drawn onto a canvas from projected vector geometry
+(`lib/poster/`). Nothing in either pipeline touches MapLibre or a basemap tile,
+and that one decision is what the rest follows from. The alternatives both
+lose:
+
+- **Reading back the MapLibre canvas** caps the output at the on-screen size
+  times the device pixel ratio, so a laptop yields roughly 3000px on the long
+  edge and calls it a poster. It also drags in raster tiles, which are blurry
+  enlarged and carry licensing obligations.
+- **Composing SVG and rasterising it through an `<img>`** is resolution
+  independent, which is the right instinct, but an SVG loaded that way is cut
+  off from the document: it cannot see the page's `@font-face` rules, so every
+  label silently falls back to a system face. Embedding the font as a base64
+  data URI to fix that is a lot of machinery to arrive where canvas already is.
+
+Canvas draws the same geometry at any size, uses the page's real typeface (read
+off `document.body` because next/font hashes the family name, so a literal
+`"Inter"` in a canvas font string would miss), and hands back a blob.
+
+Four rules hold the rest together:
+
+- **The preview is the export.** `drawPosterPreview` and `drawShareCardPreview`
+  call the same draw function at a screen size. There is no second layout to
+  keep in step, and nothing can download differently from what was on screen.
+- **Resolution is probed and reported, never promised.** Browsers cap canvas
+  area and disagree about where (Safari at 16,777,216 pixels, under a 300 DPI
+  poster), with no feature query for it. `resolvePrintSize` allocates a
+  candidate, writes the far corner, reads it back, and steps down a DPI ladder
+  until one works. The dialog states what it got. Do not hardcode 300.
+- **The poster's orientation follows its framing**, so it is not a third thing
+  to choose: flat prints 16x12, globe prints 12x16. Type scales off the short
+  edge, which is 12 inches in both, so the pair matches.
+- **Layout is map-first.** The map takes the full content width and the chrome
+  is fitted around whatever is left (`verticalBudget` in `poster.ts`). Sizing
+  the header and stats first and giving the map the remainder is what produced
+  a postage stamp floating in the middle of a page. The flat map also crops the
+  empty polar bands, widened by `posterLatitudeRange` to cover any stop outside
+  them, which is what makes a 1.97:1 map fit a 4:3 page at all.
+
+**CORS is load-bearing.** Photos are drawn with `crossOrigin="anonymous"`,
+without which the image draws fine and then taints the canvas so `toBlob`
+throws at the very end. Both sources cooperate: Supabase Storage answers public
+objects with `access-control-allow-origin: *`, and the Wikimedia proxy is
+same-origin (its 302 lands on that same Storage CDN). The service worker had to
+learn about this: an opaque cached photo cannot answer a cors-mode request (the
+spec turns it into a network error), so `corsPhoto()` in `public/sw.js` serves
+cors requests from a non-opaque hit or the network, and the cors response it
+gets back replaces the cached opaque one. Never route photo requests in these
+compositions through a path that can yield an opaque response.
+
+**Attribution.** No tiles means no tile provider's terms apply; the country
+outlines are Natural Earth (public domain, credited anyway in the poster
+footer). A share card whose cover came from Wikimedia prints the stored
+attribution: the licence condition does not stop applying because the image was
+redrawn onto a canvas. If a future composition draws a third-party image, it
+carries its credit or it does not ship.
+
+The share card takes a `StoryTrip` and nothing else
+(`shareCardFromStoryTrip`), which is why the trip page, /demo, and
+/share/[slug] all offer it with no second data layer and no extra query, and
+why the read-only surfaces can offer it at all: generating an image reads
+nothing and writes nothing.
+
 ### Search, Export, and Home Location
 
 Three surfaces read the current user's own rows and must never take a userId
@@ -550,6 +615,17 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Trip journal editor | `src/components/trips/trip-journal.tsx` |
 | On this day data layer | `src/lib/on-this-day.ts` |
 | On this day dashboard strip | `src/components/dashboard/on-this-day.tsx` |
+| Map projections and path clipping (pure) | `src/lib/poster/projection.ts` |
+| Country outline loader for exports | `src/lib/poster/countries.ts` |
+| Poster palettes (Midnight, Paper) | `src/lib/poster/theme.ts` |
+| Shared map painter (fills, arcs, pins) | `src/lib/poster/draw-map.ts` |
+| Poster layout and render | `src/lib/poster/poster.ts` |
+| Poster inputs from map data and stats | `src/lib/poster/poster-data.ts` |
+| Per-trip share card render | `src/lib/poster/share-card.ts` |
+| Canvas plumbing (DPI probe, fonts, CORS, download) | `src/lib/poster/canvas.ts` |
+| One-page PDF wrapper | `src/lib/poster/pdf.ts` |
+| Poster export dialog | `src/components/poster/poster-export.tsx` |
+| Share card dialog and launcher | `src/components/share/trip-share-card.tsx` |
 | Landing hero globe data (cached anon demo read) | `src/lib/landing-data.ts` |
 | Landing hero static fallback (generated) | `src/lib/mock-travel-data.ts` |
 | Home location read side and distance helpers | `src/lib/home-location.ts` |

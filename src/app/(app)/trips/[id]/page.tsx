@@ -11,6 +11,7 @@ import { TripJournal } from "@/components/trips/trip-journal";
 import { TripOfflineToggle } from "@/components/offline/trip-offline-toggle";
 import { TransportLegRow } from "@/components/trips/transport-leg";
 import { StoryLauncher } from "@/components/trips/story-launcher";
+import { TripShareCardButton } from "@/components/share/trip-share-card";
 import { hasStory, type StoryPhoto, type StoryTrip } from "@/lib/story";
 import { getCategories } from "@/lib/experiences";
 import { getBucketList, getCountries } from "@/lib/bucket-list";
@@ -268,7 +269,15 @@ export default async function TripDetailPage({
 
       <PhotoBanner photo={bannerPhoto} coverPosition={bannerPosition} className="mb-8">
         <div className="absolute right-4 top-4 flex flex-wrap items-center justify-end gap-2">
-          {hasStory(trip) ? <StoryLauncher trip={storyTrip} /> : null}
+          {/* Both read the same storyTrip. The share card is generative and
+              changes nothing, so it sits alongside the story rather than with
+              the edit and delete actions. */}
+          {hasStory(trip) ? (
+            <>
+              <StoryLauncher trip={storyTrip} />
+              <TripShareCardButton trip={storyTrip} />
+            </>
+          ) : null}
           <Link
             href={`/trips/${trip.id}/edit`}
             className={cn(

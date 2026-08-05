@@ -234,6 +234,29 @@ async function cacheFirst(request, cacheName, maxEntries) {
   return response;
 }
 
+// Photos requested in cors mode, which is what an <img crossOrigin="anonymous">
+// sends. The poster and share card exports use that, because a canvas cannot
+// be read back once an image drawn onto it tainted it.
+//
+// An opaque cached entry cannot answer a cors request: the spec turns that
+// into a network error, so serving one would fail an export on exactly the
+// photos the user had already looked at. So a cors request takes a non-opaque
+// hit and otherwise goes to the network, and the cors response it gets back
+// REPLACES whatever was cached. That upgrade is strictly an improvement: a
+// cors response serves a no-cors request perfectly well, and the reverse is
+// what this exists to avoid.
+async function corsPhoto(request) {
+  const cache = await caches.open(PHOTO_CACHE);
+  const hit = await cache.match(request);
+  if (hit && hit.type !== "opaque") return hit;
+
+  const response = await fetch(request);
+  if (response && response.ok) {
+    await cache.put(request, response.clone());
+  }
+  return response;
+}
+
 async function navigationResponse(request, url) {
   try {
     return await fetch(request);
@@ -290,9 +313,10 @@ self.addEventListener("fetch", (event) => {
 
   if (isPhotoRequest(url)) {
     event.respondWith(
-      cacheFirst(request, PHOTO_CACHE).catch(
-        () => new Response("", { status: 504 }),
-      ),
+      (request.mode === "cors"
+        ? corsPhoto(request)
+        : cacheFirst(request, PHOTO_CACHE)
+      ).catch(() => new Response("", { status: 504 })),
     );
     return;
   }
