@@ -449,11 +449,13 @@ function drawShareCard(
   const discBottom = discCenterY + discRadius;
   const discLeft = discCenterX - discRadius;
 
-  // The bottom edge the text block sits on. The square crop had the stat row
-  // almost touching it; both now keep a full margin and a half under the last
-  // line. Known before the block is measured because the title's fit depends
-  // on where the block would land.
-  const bottomInset = margin * (tall ? 1.35 : 1.5);
+  // The bottom edge the text block sits on, and with it how low the block
+  // sits overall. It keeps a shade more clearance than the side margins, which
+  // is enough to stop the last line crowding the edge; anything more and the
+  // block floats up into the middle of the frame, leaving the inset stranded
+  // at the top and squeezing the photograph between them. Known before the
+  // block is measured because the title's fit depends on where it lands.
+  const bottomInset = margin * (tall ? 1 : 1.1);
   const blockBaseline = height - bottomInset;
 
   // --- Measure the text block before drawing anything ----------------------
@@ -491,84 +493,118 @@ function drawShareCard(
     });
   }
 
-  // Highlights: the trip's best-rated experiences, name on the left and rating
-  // set flush right against the same edge the stats rule ends on. That is what
-  // fills the width; a left-aligned star and a short name left two thirds of
-  // the line empty and read as an unfinished thought. Absent entirely when
-  // nothing was rated, so the block shortens instead of leaving a hole.
+  // Highlights: the trip's best-rated experiences, run along a single line and
+  // separated the way the places line is. Stacked rows spent three times the
+  // vertical space on content that sits comfortably across the width, and the
+  // photograph has more use for that room. Absent entirely when nothing was
+  // rated, so the block shortens instead of leaving a hole.
   if (data.highlights.length > 0) {
-    const highlightSize = unit * 0.0215;
-    const ratingSize = unit * 0.019;
     const labelSize = unit * 0.0145;
-    const rowStep = highlightSize * 1.9;
+    const count = data.highlights.length;
+
+    // Shrink through the same ladder the places line uses, and only shorten a
+    // name once the smallest step still overflows.
+    const plan = (() => {
+      const steps = [1, 0.94, 0.88, 0.82, 0.76, 0.7];
+      let fitted = null as null | {
+        nameSize: number;
+        ratingSize: number;
+        starRadius: number;
+        innerGap: number;
+        starGap: number;
+        sepWidth: number;
+        names: string[];
+        ratings: string[];
+      };
+      for (const factor of steps) {
+        const nameSize = unit * 0.0215 * factor;
+        const ratingSize = nameSize * 0.9;
+        const starRadius = ratingSize * 0.42;
+        const innerGap = nameSize * 0.38;
+        const starGap = ratingSize * 0.32;
+        const ratings = data.highlights.map((h) => (h.rating / 2).toFixed(1));
+
+        setFont(context, 600, ratingSize, stack);
+        const ratingWidths = ratings.map((t) => context.measureText(t).width);
+        setFont(context, 500, nameSize, stack);
+        const sepWidth = context.measureText(PLACE_SEPARATOR).width;
+        const names = data.highlights.map((h) => h.name);
+        const nameTotal = names.reduce(
+          (total, name) => total + context.measureText(name).width,
+          0,
+        );
+        const fixed =
+          ratingWidths.reduce((total, width) => total + width, 0) +
+          count * (innerGap + starRadius * 2 + starGap) +
+          sepWidth * (count - 1);
+
+        fitted = {
+          nameSize,
+          ratingSize,
+          starRadius,
+          innerGap,
+          starGap,
+          sepWidth,
+          names,
+          ratings,
+        };
+        if (fixed + nameTotal <= contentWidth) return fitted;
+        if (factor === steps[steps.length - 1]) {
+          const budget = Math.max(unit * 0.045, (contentWidth - fixed) / count);
+          fitted.names = names.map(
+            (name) => wrapText(context, name, budget, 1)[0] ?? name,
+          );
+        }
+      }
+      return fitted!;
+    })();
+
+    // The label sits just clear of the line's cap height, and the gap above it
+    // is wide enough that it does not read as a fourth line of the stats row's
+    // labels, which are small tracked caps at almost the same size.
+    const labelRise = plan.nameSize * 0.75 + labelSize * 0.9;
 
     rows.push({
-      // Baseline to baseline across the rows, then up to the label, then the
-      // gap to whatever sits above. The label hugs its list rather than
-      // floating between the two blocks, and the gap above it is wide enough
-      // that it does not read as a fourth line of the stats row's labels,
-      // which are small tracked caps at almost the same size.
-      height:
-        rowStep * (data.highlights.length - 1) +
-        labelSize * 1.5 +
-        labelSize * 3.4 * lead,
+      height: labelRise + labelSize * 2.6 * lead,
       draw: (baseline) => {
-        // Rows are drawn upward from the last one, so the label lands above.
-        let y = baseline;
-        for (let i = data.highlights.length - 1; i >= 0; i -= 1) {
-          const highlight = data.highlights[i];
-          const rating = (highlight.rating / 2).toFixed(1);
-
-          setFont(context, 600, ratingSize, stack);
-          const ratingWidth = context.measureText(rating).width;
-          const starRadius = ratingSize * 0.42;
-          const ratingBlock = starRadius * 2 + ratingSize * 0.4 + ratingWidth;
-          const ratingLeft = margin + contentWidth - ratingBlock;
+        let x = margin;
+        context.textAlign = "left";
+        for (let i = 0; i < count; i += 1) {
+          setFont(context, 500, plan.nameSize, stack);
+          context.fillStyle = "rgba(255, 255, 255, 0.86)";
+          context.fillText(plan.names[i], x, baseline);
+          x += context.measureText(plan.names[i]).width + plan.innerGap;
 
           starPath(
             context,
-            ratingLeft + starRadius,
-            y - ratingSize * 0.32,
-            starRadius,
+            x + plan.starRadius,
+            baseline - plan.ratingSize * 0.32,
+            plan.starRadius,
           );
           context.fillStyle = "#fbbf24";
           context.fill();
-          context.textAlign = "left";
+          x += plan.starRadius * 2 + plan.starGap;
+
+          setFont(context, 600, plan.ratingSize, stack);
           context.fillStyle = "rgba(255, 255, 255, 0.8)";
-          context.fillText(
-            rating,
-            ratingLeft + starRadius * 2 + ratingSize * 0.4,
-            y,
-          );
+          context.fillText(plan.ratings[i], x, baseline);
+          x += context.measureText(plan.ratings[i]).width;
 
-          // The same discipline as the places line: shrink to fit, and only
-          // ellipsize a name that is still too long at the smallest size.
-          const nameWidth = contentWidth - ratingBlock - unit * 0.03;
-          fitFontSize(
-            context,
-            highlight.name,
-            nameWidth,
-            500,
-            highlightSize,
-            highlightSize * 0.74,
-            stack,
-          );
-          context.fillStyle = "rgba(255, 255, 255, 0.86)";
-          const name = wrapText(context, highlight.name, nameWidth, 1)[0];
-          if (name) context.fillText(name, margin, y);
-
-          y -= rowStep;
+          if (i < count - 1) {
+            setFont(context, 500, plan.nameSize, stack);
+            context.fillStyle = "rgba(255, 255, 255, 0.35)";
+            context.fillText(PLACE_SEPARATOR, x, baseline);
+            x += plan.sepWidth;
+          }
         }
 
         setFont(context, 500, labelSize, stack);
         context.fillStyle = "rgba(255, 255, 255, 0.45)";
         drawTracked(
           context,
-          data.highlights.length === 1 ? "HIGHLIGHT" : "HIGHLIGHTS",
+          count === 1 ? "HIGHLIGHT" : "HIGHLIGHTS",
           margin,
-          // y is one step past the first row, so add it back and lift the
-          // label just clear of it.
-          y + rowStep - labelSize * 1.5,
+          baseline - labelRise,
           labelSize * 0.22,
           "left",
         );
@@ -716,7 +752,10 @@ function drawShareCard(
   const titleLines = title.lines;
 
   rows.push({
-    height: titleSize * 1.1 * (titleLines.length - 1) + titleSize * 1.6,
+    // The trailing multiplier is the gap up to the dates line. Kept tight so
+    // the date reads as a label attached to the title rather than a separate
+    // element floating above it.
+    height: titleSize * 1.1 * (titleLines.length - 1) + titleSize * 1.18,
     draw: (baseline) => {
       setFont(context, 600, titleSize, stack);
       context.textAlign = "left";
