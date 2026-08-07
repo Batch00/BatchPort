@@ -340,6 +340,79 @@ on `date_part`, because Postgres cannot index the latter and this app is not
 adding an index for a thumbnail strip. It returns null when nothing matched;
 callers render nothing. There is no empty state.
 
+### Year in Travel
+
+`lib/year-recap.ts` is pure and takes a `YearRecapInput` the caller assembles
+from `StoryTrip`s it already has, exactly like `lib/story.ts` and for the same
+reason: the recap costs no query on any surface, and /demo and /share can open
+it because building one reads nothing and writes nothing. The launcher does the
+`ProfileTrip` to `StoryTrip` conversion client-side, so nothing new crosses the
+server boundary.
+
+Three rules, and everything in the file follows from them:
+
+- **A year is a slice, not a bucket.** A trip that crosses new year is in both
+  years, and each counts only its own part: days are clipped with
+  `clipToYear`, and a stop, an experience, or a photo lands in the year its own
+  date puts it in (falling back to its stop, then to the trip's first year, and
+  the fallback is stated in the code rather than hidden). Distance counts a leg
+  in the year its **arriving** stop falls in, the same rule transport legs use,
+  so a hop over new year is counted once and on the right side. The map slide is
+  the deliberate exception: it draws whole routes, because cutting a journey in
+  half at midnight would draw a trip nobody took.
+- **Planned is not history**, and a year that has not arrived is not offered.
+  `recapYears` returns only years touched by a non-planned, dated trip, capped
+  at the current year, so the picker can never lead to an empty recap. The
+  closing slide is the one place planned trips appear, and it is explicitly
+  about what is next.
+- **Nothing is padded.** Every slide past the opener has a condition and a thin
+  year simply produces fewer slides. There are no zero tiles on the scoreboard,
+  no moments block without a rating, and no insight invented to fill a category.
+
+**Insights are ranked in bands** (`INSIGHT_BASE` plus a bounded bonus), not on a
+free-running score. Free scores let a wide margin on the weakest question
+("your busiest month") outrank the strongest one ("somewhere new"), which is how
+a recap ends up leading on a fact nobody asked for. Each candidate must also be
+true as stated: "where you went deepest" needs a strict winner, because on a tie
+the caption would be a plain untruth.
+
+`todayIso()` is the one impure function in the file and is called **on the
+server**, in the page, so the offered years and the "so far" label cannot differ
+across hydration. Every check in `scripts/check-year-recap.ts` passes `today`
+explicitly, which is what makes the year logic testable at all
+(`npm run check-year-recap`).
+
+**The map slide reuses the replay engine, not a second timeline.**
+`buildReplayTimeline` / `replayStateAt` / `sliceLeg` decide what has happened;
+`lib/poster/year-map.ts` paints it with the poster's projection and `drawMap`.
+The ocean, graticule, and neutral land go into an offscreen canvas once and are
+blitted per frame, because re-projecting every country outline sixty times a
+second is the difference between this running on a phone and not. Only the
+reached countries, the arcs, and the pins are redrawn. React is kept out of the
+loop: the readout is compared before it is set, so a playback costs a few dozen
+renders rather than a few thousand.
+
+**The frame is fitted to the year** (`boundsOfProjectedPoints` +
+`fitProjectionToBounds` in `poster/projection.ts`), for the same reason the
+share card's inset is fitted to its trip: a year spent in Iceland on a
+whole-world map is a four pixel route in the corner of an empty ocean. The fit
+is *contain*, never cover, so no stop can be cropped out, and the bounds are
+clamped to the projection's own extent so a year that spans everything simply
+gets the whole map back. The year card uses the same call.
+
+**The year card leads with the map, not a photograph.** A year has no single
+cover, and electing one trip's photo to stand for twelve months is a claim the
+data does not support. It shares the trip card's ratios, its canvas plumbing,
+and its parts (`poster/card-parts.ts` holds the places line, the highlights row,
+and the stat tiles, moved there unchanged when the second card needed them).
+
+Entrance animation is one CSS class (`.recap-rise` in `globals.css`) applied
+only while a slide is current, so adding the class is what starts it and there
+is nothing to reset. It and `AnimatedNumber` both stand down under
+`prefers-reduced-motion` (`lib/motion.ts`). `CountUpGroup` takes an optional
+`active` prop for this: the recap's slides are all mounted and toggled by
+opacity, so scrolling into view says nothing about whether they are visible.
+
 ### Transport Legs
 
 How the traveller got from one stop to the next. The model is one sentence:
@@ -663,6 +736,15 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Journal server reads | `src/lib/journal-data.ts` |
 | Journal server action | `src/lib/actions/journal.ts` |
 | Trip story slide builder (pure) | `src/lib/story.ts` |
+| Year in Travel derivation (pure) | `src/lib/year-recap.ts` |
+| Year recap full-screen view | `src/components/year/year-recap.tsx` |
+| Year recap animated map slide | `src/components/year/year-map-slide.tsx` |
+| Year recap entry points | `src/components/year/year-recap-launcher.tsx` |
+| Year card dialog and launcher | `src/components/year/year-share-card.tsx` |
+| Year card render | `src/lib/poster/year-card.ts` |
+| Year recap map painter (canvas) | `src/lib/poster/year-map.ts` |
+| Social card shared parts | `src/lib/poster/card-parts.ts` |
+| prefers-reduced-motion check | `src/lib/motion.ts` |
 | Trip story full-screen view | `src/components/trips/trip-story.tsx` |
 | Trip story entry point | `src/components/trips/story-launcher.tsx` |
 | Trip journal editor | `src/components/trips/trip-journal.tsx` |
@@ -740,4 +822,4 @@ no timezone chip. Nothing in the app prompts the user to set one.
 
 ## Testing
 
-Run `npm run build` to verify type correctness across the whole project (TypeScript strict mode). Run `npm run lint` for ESLint. There is no automated test suite. Interactive features including the globe, photo lightbox, geocoding typeahead, and experience dialog require manual browser testing.
+Run `npm run build` to verify type correctness across the whole project (TypeScript strict mode). Run `npm run lint` for ESLint. There is no automated test suite, with one exception: `npm run check-year-recap` asserts the Year in Travel derivation (year list, slicing across new year, planned exclusion, sparse years, in-progress labelling, insight selection) against fixtures. It is pure, needs no database or dev server, and should be re-run after any change to `lib/year-recap.ts`. Interactive features including the globe, photo lightbox, geocoding typeahead, and experience dialog require manual browser testing.

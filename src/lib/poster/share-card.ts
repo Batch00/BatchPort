@@ -27,9 +27,14 @@ import {
   loadImage,
   releaseCanvas,
   setFont,
-  trackedWidth,
   wrapText,
 } from "@/lib/poster/canvas";
+import {
+  drawHighlights,
+  layoutPlaces,
+  planHighlights,
+  statTileWidth,
+} from "@/lib/poster/card-parts";
 import { loadCountryShapes } from "@/lib/poster/countries";
 import { drawMap, type MapLeg, type MapPin } from "@/lib/poster/draw-map";
 import {
@@ -210,125 +215,6 @@ export interface ShareCardResult {
   height: number;
 }
 
-const PLACE_SEPARATOR = "  ·  ";
-
-/**
- * Greedy wrap that breaks between places and never inside one, and reports
- * failure instead of ellipsizing.
- *
- * Wrapping on spaces would be wrong here: "United States" and "New Zealand"
- * are single items, and a line ending in "New" with "Zealand" below it is a
- * different kind of broken from the truncation this replaced.
- */
-function greedyPlaceLines(
-  context: CanvasRenderingContext2D,
-  places: string[],
-  limit: number,
-): string[] | null {
-  const lines: string[] = [];
-  let line = "";
-  for (const place of places) {
-    // A single place wider than the limit: no wrapping saves this.
-    if (context.measureText(place).width > limit) return null;
-    const candidate = line ? `${line}${PLACE_SEPARATOR}${place}` : place;
-    if (context.measureText(candidate).width <= limit) {
-      line = candidate;
-      continue;
-    }
-    lines.push(line);
-    line = place;
-  }
-  if (line) lines.push(line);
-  return lines.length > 0 ? lines : null;
-}
-
-/**
- * Wrap into balanced lines rather than greedy ones.
- *
- * Greedy filling packs line one to the edge and leaves whatever is left over
- * below it, which is how seven countries ended up as six and then "Spain"
- * alone. Squeezing the allowed width down until the line count is about to
- * rise finds the narrowest width that still fits in the same number of lines,
- * and that is exactly the balanced split: bisection over the width rather than
- * any special case for two lines versus three.
- */
-function balancedPlaceLines(
-  context: CanvasRenderingContext2D,
-  places: string[],
-  maxWidth: number,
-  maxLines: number,
-): string[] | null {
-  const fitted = greedyPlaceLines(context, places, maxWidth);
-  if (!fitted || fitted.length > maxLines) return null;
-  if (fitted.length === 1) return fitted;
-
-  let tooNarrow = 0;
-  let wide = maxWidth;
-  for (let i = 0; i < 22; i += 1) {
-    const mid = (tooNarrow + wide) / 2;
-    const attempt = greedyPlaceLines(context, places, mid);
-    if (attempt && attempt.length <= fitted.length) wide = mid;
-    else tooNarrow = mid;
-  }
-  return greedyPlaceLines(context, places, wide) ?? fitted;
-}
-
-// Shrink further before accepting a wrap, but not without limit: past about
-// three quarters the line stops being readable and two balanced lines at a
-// legible size are the better trade.
-const ONE_LINE_STEPS = [1, 0.94, 0.88, 0.82, 0.76];
-const WRAPPED_STEPS = [1, 0.94, 0.88, 0.82, 0.76, 0.7];
-
-/**
- * Fit the places line. Every size is tried on one line before a second line is
- * considered at all, because a slightly smaller single line reads better than
- * a full-size line with an orphan under it. Showing everything beats showing a
- * "+8", so the ellipsis at the end is a last resort for a trip that cannot
- * exist (thirty countries whose names still overflow three lines of small
- * type).
- */
-function layoutPlaces(
-  context: CanvasRenderingContext2D,
-  places: string[],
-  maxWidth: number,
-  baseSize: number,
-  stack: string,
-): { size: number; lines: string[] } {
-  for (const maxLines of [1, 2, 3]) {
-    const steps = maxLines === 1 ? ONE_LINE_STEPS : WRAPPED_STEPS;
-    for (const factor of steps) {
-      const size = baseSize * factor;
-      setFont(context, 500, size, stack);
-      const lines = balancedPlaceLines(context, places, maxWidth, maxLines);
-      if (lines) return { size, lines };
-    }
-  }
-  const size = baseSize * 0.7;
-  setFont(context, 500, size, stack);
-  return {
-    size,
-    lines: wrapText(context, places.join(PLACE_SEPARATOR), maxWidth, 3),
-  };
-}
-
-function starPath(
-  context: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  radius: number,
-): void {
-  context.beginPath();
-  for (let i = 0; i < 10; i += 1) {
-    const angle = (Math.PI / 5) * i - Math.PI / 2;
-    const r = i % 2 === 0 ? radius : radius * 0.45;
-    const x = cx + Math.cos(angle) * r;
-    const y = cy + Math.sin(angle) * r;
-    if (i === 0) context.moveTo(x, y);
-    else context.lineTo(x, y);
-  }
-  context.closePath();
-}
-
 /** Everything the card needs that has to be fetched. Loaded once by the
  * dialog and reused for the preview and every export, so switching ratio or
  * pressing download twice never refetches the photograph. */
@@ -499,114 +385,23 @@ function drawShareCard(
   // photograph has more use for that room. Absent entirely when nothing was
   // rated, so the block shortens instead of leaving a hole.
   if (data.highlights.length > 0) {
-    const labelSize = unit * 0.0145;
-    const count = data.highlights.length;
-
-    // Shrink through the same ladder the places line uses, and only shorten a
-    // name once the smallest step still overflows.
-    const plan = (() => {
-      const steps = [1, 0.94, 0.88, 0.82, 0.76, 0.7];
-      let fitted = null as null | {
-        nameSize: number;
-        ratingSize: number;
-        starRadius: number;
-        innerGap: number;
-        starGap: number;
-        sepWidth: number;
-        names: string[];
-        ratings: string[];
-      };
-      for (const factor of steps) {
-        const nameSize = unit * 0.0215 * factor;
-        const ratingSize = nameSize * 0.9;
-        const starRadius = ratingSize * 0.42;
-        const innerGap = nameSize * 0.38;
-        const starGap = ratingSize * 0.32;
-        const ratings = data.highlights.map((h) => (h.rating / 2).toFixed(1));
-
-        setFont(context, 600, ratingSize, stack);
-        const ratingWidths = ratings.map((t) => context.measureText(t).width);
-        setFont(context, 500, nameSize, stack);
-        const sepWidth = context.measureText(PLACE_SEPARATOR).width;
-        const names = data.highlights.map((h) => h.name);
-        const nameTotal = names.reduce(
-          (total, name) => total + context.measureText(name).width,
-          0,
-        );
-        const fixed =
-          ratingWidths.reduce((total, width) => total + width, 0) +
-          count * (innerGap + starRadius * 2 + starGap) +
-          sepWidth * (count - 1);
-
-        fitted = {
-          nameSize,
-          ratingSize,
-          starRadius,
-          innerGap,
-          starGap,
-          sepWidth,
-          names,
-          ratings,
-        };
-        if (fixed + nameTotal <= contentWidth) return fitted;
-        if (factor === steps[steps.length - 1]) {
-          const budget = Math.max(unit * 0.045, (contentWidth - fixed) / count);
-          fitted.names = names.map(
-            (name) => wrapText(context, name, budget, 1)[0] ?? name,
-          );
-        }
-      }
-      return fitted!;
-    })();
-
-    // The label sits just clear of the line's cap height, and the gap above it
-    // is wide enough that it does not read as a fourth line of the stats row's
-    // labels, which are small tracked caps at almost the same size.
-    const labelRise = plan.nameSize * 0.75 + labelSize * 0.9;
-
+    const plan = planHighlights(
+      context,
+      data.highlights,
+      contentWidth,
+      unit,
+      stack,
+    );
     rows.push({
-      height: labelRise + labelSize * 2.6 * lead,
+      height: plan.labelRise + plan.labelSize * 2.6 * lead,
       draw: (baseline) => {
-        let x = margin;
-        context.textAlign = "left";
-        for (let i = 0; i < count; i += 1) {
-          setFont(context, 500, plan.nameSize, stack);
-          context.fillStyle = "rgba(255, 255, 255, 0.86)";
-          context.fillText(plan.names[i], x, baseline);
-          x += context.measureText(plan.names[i]).width + plan.innerGap;
-
-          starPath(
-            context,
-            x + plan.starRadius,
-            baseline - plan.ratingSize * 0.32,
-            plan.starRadius,
-          );
-          context.fillStyle = "#fbbf24";
-          context.fill();
-          x += plan.starRadius * 2 + plan.starGap;
-
-          setFont(context, 600, plan.ratingSize, stack);
-          context.fillStyle = "rgba(255, 255, 255, 0.8)";
-          context.fillText(plan.ratings[i], x, baseline);
-          x += context.measureText(plan.ratings[i]).width;
-
-          if (i < count - 1) {
-            setFont(context, 500, plan.nameSize, stack);
-            context.fillStyle = "rgba(255, 255, 255, 0.35)";
-            context.fillText(PLACE_SEPARATOR, x, baseline);
-            x += plan.sepWidth;
-          }
-        }
-
-        setFont(context, 500, labelSize, stack);
-        context.fillStyle = "rgba(255, 255, 255, 0.45)";
-        drawTracked(
+        drawHighlights(
           context,
-          count === 1 ? "HIGHLIGHT" : "HIGHLIGHTS",
+          plan,
           margin,
-          baseline - labelRise,
-          labelSize * 0.22,
-          "left",
+          baseline,
+          stack,
+          data.highlights.length === 1 ? "HIGHLIGHT" : "HIGHLIGHTS",
         );
       },
     });
@@ -631,17 +426,9 @@ function drawShareCard(
   const tileValueSize = unit * 0.046;
   const tileLabelSize = unit * 0.0165;
   const tileGap = unit * 0.075;
-  const tileWidths = tiles.map((tile) => {
-    setFont(context, 600, tileValueSize, stack);
-    const valueWidth = context.measureText(tile.value).width;
-    setFont(context, 500, tileLabelSize, stack);
-    const labelWidth = trackedWidth(
-      context,
-      tile.label.toUpperCase(),
-      tileLabelSize * 0.22,
-    );
-    return Math.max(valueWidth, labelWidth);
-  });
+  const tileWidths = tiles.map((tile) =>
+    statTileWidth(context, tile, tileValueSize, tileLabelSize, stack),
+  );
   const statsValueRise = tileLabelSize * 1.95;
   const statsRuleRise = statsValueRise + tileValueSize * 1.2;
 

@@ -154,6 +154,19 @@ The floating control cluster is ranked by how often a control is actually reache
 - Loads lazily: only the slides adjacent to the current one are mounted, and only the next slide's lead image is preloaded
 - Read-only by construction, so /demo and /share/[slug] offer the same story
 
+### Year in Travel
+
+A full-screen, paced recap of one year, opened from a card on the dashboard, a button on the stats page, and the same card on /demo and /share/[slug]. It reads as a sequence of single ideas rather than a dump of numbers: the year and a photograph from it, the distance covered with the same playful framing the stats page uses, the year drawing itself on a map, the trips, the best-rated moments with their photos, one or two things the data actually says, a scoreboard, and a closing slide about what is next.
+
+- **Any year is replayable.** The picker offers every year with at least one trip that actually happened and is dated, newest first. A year with nothing in it is never offered, and neither is one that has not arrived yet. The current year reads as "2026 so far" throughout, including on the exported card.
+- **A year is a slice, not a bucket.** A trip that crosses new year belongs to both years and each counts only its own part: days are clipped to the year, and a stop, an experience, or a photo lands in the year its own date puts it in. The leg over new year counts once, in the year it arrived.
+- **Nothing is padded.** Every slide past the opening has a condition, so a thin year simply produces fewer slides: no moments without a rating, no map for a single stop, no empty tiles on the scoreboard, and no insight invented to fill a category the data does not support. Planned trips and planned experiences are excluded, as everywhere else; the one place they appear is the closing slide, which is about what is next.
+- **The insights are derived, not fixed.** Four candidates compete and at most two are shown: countries reached for the first time ever, the country the year went deepest into, the longest single trip, and the busiest month. Each has to earn its place (a "deepest" country needs a strict winner, not a tie), and the ranking is banded so a wide margin on the weakest question cannot outrank the strongest one.
+- **The map slide is the globe's own replay engine**, scoped to the year and drawn on a canvas: countries fill in, arcs draw in their transport family's styling, and the month advances in the corner. It plays once when you reach it and offers a replay; under reduced motion it paints the finished year straight away. It is the only thing in the recap that moves on its own, and it never advances the story.
+- **Pacing.** Each slide's pieces rise and fade in on a short stagger and the numbers count up, all of it off under `prefers-reduced-motion`. Advancing is always yours: swipe, arrow keys, click zones, or the buttons.
+
+**The year card.** A shareable image of the year through the same pipeline as the trip share cards: square and 9:16, both 2160px on the short edge. Where a trip card leads with a photograph, the year card leads with the map, because a year has no single cover and picking one trip's photo to stand for twelve months would be a claim the data does not support. The map is framed to the year rather than to the planet, so a year spent in Iceland fills the panel instead of scattering four dots across an empty ocean. Under it: the countries, the headline numbers, and the year's best-rated moments. Offered from the recap's closing slide, and read-only like everything else here, so the demo and share surfaces can generate one too.
+
 ### On This Day
 
 - A dashboard strip of photos taken and experiences logged on today's month and day in earlier years
@@ -353,6 +366,11 @@ npm run setup-shares     # Initialize user_settings rows for existing users
 npm run resync-trip-schedules -- --dry-run
 npm run resync-trip-schedules
 
+# Deterministic checks for the Year in Travel derivation: which years are
+# offered, how a year slices, what counts as planned, and what a thin year
+# produces. Pure functions against fixtures, no database and no dev server.
+npm run check-year-recap
+
 # Find photo rows whose owner entity no longer exists. Report only:
 npm run cleanup-orphan-photos -- --dry-run
 # Delete the rows and their upload Storage objects (idempotent):
@@ -477,6 +495,11 @@ src/
       fulfill-dialog.tsx         Mark item fulfilled with trip selection
     poster/
       poster-export.tsx          Poster dialog: live preview, options, PNG/PDF download
+    year/
+      year-recap-launcher.tsx    Entry card and button, hidden when there is no year
+      year-recap.tsx             The full-screen paced recap and its slide views
+      year-map-slide.tsx         The year animating on a canvas via the replay engine
+      year-share-card.tsx        Year card dialog and its launcher
     share/
       trip-share-card.tsx        Per-trip share card dialog and its launcher
       shared-profile-view.tsx    Shared layout: globe, stats, trip list (used by /demo and /share/[slug])
@@ -518,6 +541,8 @@ src/
     photo-map-data.ts            Photo map mode data layer: coordinate resolution per photo
     map-data.ts                  Globe data layer: getMapData() fetching destinations, arcs, bucket codes
     replay.ts                    Replay timeline construction from destinations
+    year-recap.ts                Year in Travel: year list, slicing, insights, slides (pure)
+    motion.ts                    prefers-reduced-motion check, shared by the animated surfaces
     discover.ts                  Discovery data layer: countries, cities, POIs, climate
     day-plan.ts                  Day assignment helpers for planned experiences
     stats-data.ts                Stats data layer: all SQL view queries and f_distance_traveled RPC
@@ -540,6 +565,9 @@ src/
       poster.ts                  The printable poster: layout, render, PNG/PDF
       poster-data.ts             Poster inputs assembled from map data and stats
       share-card.ts              Per-trip share card, derived from a StoryTrip
+      card-parts.ts              Places line, highlights row, stat tiles shared by both cards
+      year-card.ts               Year card, derived from a YearRecap
+      year-map.ts                The recap's animated map: cached base plus a per-frame overlay
       canvas.ts                  Canvas plumbing: DPI probe, fonts, CORS images, download, share
       pdf.ts                     One-page PDF wrapper stating the physical page size
     landing-data.ts              Landing hero globe data: cached anon read of the demo account
@@ -580,6 +608,7 @@ scripts/
   seed-demo.ts                   Resets the demo account and reseeds the fictional showcase dataset (--reset required)
   demo-dataset.ts                The demo showcase fixture (trips, destinations, experiences, bucket items)
   generate-mock-globe.ts         Regenerates src/lib/mock-travel-data.ts, the landing hero's static fallback
+  check-year-recap.ts            Asserts the Year in Travel slicing and edge cases against fixtures
   backfill-photos.ts             Backfills Wikimedia cover photos for existing destinations
   backfill-thumbnails.ts         Generates {storage_path}_thumb thumbnails and sets photos.thumb_path
   backfill-exif.ts               Backfills date_taken and GPS from stored originals

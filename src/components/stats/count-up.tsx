@@ -9,20 +9,29 @@ import {
   type ReactNode,
 } from "react";
 
+import { prefersReducedMotion } from "@/lib/motion";
+
 // One-time count-up animation for stat numbers. A provider watches its own
 // container with an IntersectionObserver and flips to "active" the first time
 // it scrolls into view; every AnimatedNumber inside then counts from zero to
 // its value. When prefers-reduced-motion is set (or before hydration), numbers
 // render at their final value with no animation.
+//
+// A caller that already knows when its numbers become visible (the year recap,
+// whose slides are all mounted and toggled by opacity, so scrolling into view
+// says nothing) passes `active` and the observer is skipped entirely.
 
 const CountUpContext = createContext<boolean>(true);
 
 export function CountUpGroup({
   children,
   className,
+  active: controlled,
 }: {
   children: ReactNode;
   className?: string;
+  /** Drive activation directly instead of watching for scroll-into-view. */
+  active?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Without IntersectionObserver there is no visibility signal, so the group
@@ -33,6 +42,7 @@ export function CountUpGroup({
 
   useEffect(() => {
     const el = ref.current;
+    if (controlled !== undefined) return;
     if (!el || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -45,21 +55,14 @@ export function CountUpGroup({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [controlled]);
 
   return (
     <div ref={ref} className={className}>
-      <CountUpContext.Provider value={active}>
+      <CountUpContext.Provider value={controlled ?? active}>
         {children}
       </CountUpContext.Provider>
     </div>
-  );
-}
-
-function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
 }
 

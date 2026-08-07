@@ -323,6 +323,101 @@ export function fitProjection(
   };
 }
 
+/**
+ * Fit a projection into a box showing only a sub-region of it, given in the
+ * projection's own unit space. Everything outside that region simply falls off
+ * the canvas.
+ *
+ * This is what lets the recap's map be framed to one year. `fitProjection`
+ * always shows the whole projected world, which is right for a poster and
+ * wrong for a year spent in Iceland: the route ends up four pixels wide in the
+ * corner of an otherwise empty planet. Nothing else has to change, because a
+ * cropped frame's outline is simply larger than the canvas, so the ocean fill
+ * still covers it and the clip is a no-op rather than a hole.
+ */
+export function fitProjectionToBounds(
+  projection: Projection,
+  bounds: [number, number, number, number],
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): MapFrame {
+  const [minX, minY, maxX, maxY] = bounds;
+  const unitWidth = Math.max(1e-6, maxX - minX);
+  const unitHeight = Math.max(1e-6, maxY - minY);
+  // Contain, so every point inside the bounds is on screen. There is no
+  // letterboxing to worry about: the frame is a transform over the whole
+  // projection rather than a crop of a bitmap, so the axis with room to spare
+  // simply shows more of the surrounding world.
+  const scale = Math.min(width / unitWidth, height / unitHeight);
+  const offsetX = x + width / 2 - ((minX + maxX) / 2) * scale;
+  const offsetY = y + height / 2 - ((minY + maxY) / 2) * scale;
+
+  const toCanvas = (point: UnitPoint): UnitPoint => [
+    offsetX + point[0] * scale,
+    offsetY + point[1] * scale,
+  ];
+
+  return {
+    projection,
+    toCanvas,
+    scale,
+    box: [x, y, width, height],
+    point(lng, lat) {
+      const projected = projection.project(lng, lat);
+      return projected ? toCanvas(projected) : null;
+    },
+  };
+}
+
+/**
+ * The unit-space box a set of points occupies, padded and clamped to what the
+ * projection can actually draw.
+ *
+ * `minSpan` stops a single-city year becoming a meaningless close-up of one
+ * coastline: below roughly forty degrees of longitude there is not enough
+ * around a pin to recognise where it is.
+ */
+export function boundsOfProjectedPoints(
+  projection: Projection,
+  points: { lat: number; lng: number }[],
+  { padding = 0.25, minSpan = 0.6 }: { padding?: number; minSpan?: number } = {},
+): [number, number, number, number] {
+  const [extMinX, extMinY, extMaxX, extMaxY] = projection.extent;
+  if (points.length === 0) return [extMinX, extMinY, extMaxX, extMaxY];
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of points) {
+    const projected = projection.project(point.lng, point.lat);
+    if (!projected) continue;
+    minX = Math.min(minX, projected[0]);
+    maxX = Math.max(maxX, projected[0]);
+    minY = Math.min(minY, projected[1]);
+    maxY = Math.max(maxY, projected[1]);
+  }
+  if (!Number.isFinite(minX)) return [extMinX, extMinY, extMaxX, extMaxY];
+
+  const spanX = Math.max(minSpan, (maxX - minX) * (1 + padding * 2));
+  const spanY = Math.max(minSpan * 0.6, (maxY - minY) * (1 + padding * 2));
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+
+  // Never show more world than there is, and never run off its edge: a year
+  // that spans everything simply gets the whole map back.
+  const clampSpan = (span: number, extent: number) => Math.min(span, extent);
+  const halfX = clampSpan(spanX, extMaxX - extMinX) / 2;
+  const halfY = clampSpan(spanY, extMaxY - extMinY) / 2;
+  const clampCenter = (center: number, half: number, low: number, high: number) =>
+    Math.min(Math.max(center, low + half), high - half);
+  const cx = clampCenter(centerX, halfX, extMinX, extMaxX);
+  const cy = clampCenter(centerY, halfY, extMinY, extMaxY);
+  return [cx - halfX, cy - halfY, cx + halfX, cy + halfY];
+}
+
 // --- Path construction ------------------------------------------------------
 
 // Where a segment crosses the horizon of a globe, to within a pixel. Ten

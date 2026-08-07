@@ -4,8 +4,11 @@ import { ArrowLeftIcon } from "lucide-react";
 import { requireUser } from "@/lib/current-user";
 import { getAllStats } from "@/lib/stats-data";
 import { getMapData } from "@/lib/map-data";
+import { getProfileTrips } from "@/lib/share-data";
 import { buildPosterData, hasPosterData } from "@/lib/poster/poster-data";
 import { PosterExportButton } from "@/components/poster/poster-export";
+import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
+import { todayIso } from "@/lib/year-recap";
 import {
   categoryInsight,
   countryInsight,
@@ -37,9 +40,13 @@ export default async function StatsPage() {
   const { user } = await requireUser();
   // The poster draws the same travel history these numbers describe, so its
   // data rides along here rather than on a route of its own.
-  const [stats, mapData] = await Promise.all([
+  const [stats, mapData, trips] = await Promise.all([
     getAllStats(user.id),
     getMapData(user.id),
+    // The year recap is another reading of the same travel history this page
+    // counts, so it belongs next to the poster. It needs the trips themselves
+    // rather than the aggregate views, which is the one query it adds.
+    getProfileTrips(user.id, { story: true }),
   ]);
   const posterData = buildPosterData(mapData, stats);
 
@@ -71,9 +78,17 @@ export default async function StatsPage() {
           {/* Absent until there is something to draw: an empty world is not a
               poster, and offering one would be an empty state with a download
               button on it. */}
-          {hasPosterData(posterData) ? (
-            <PosterExportButton data={posterData} />
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <YearRecapLauncher
+              trips={trips}
+              bucket={stats.bucket}
+              today={todayIso()}
+              variant="button"
+            />
+            {hasPosterData(posterData) ? (
+              <PosterExportButton data={posterData} />
+            ) : null}
+          </div>
         </div>
       </div>
 

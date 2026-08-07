@@ -3,6 +3,8 @@ import { SharedTripCard } from "@/components/share/shared-trip-card";
 import { SharedBucketList } from "@/components/share/shared-bucket-list";
 import { StatsOverview } from "@/components/stats/stats-overview";
 import { DiscoveryProvider } from "@/components/discover/discovery-host";
+import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
+import { todayIso } from "@/lib/year-recap";
 import { placeKey } from "@/lib/geo";
 import type { SharedProfile } from "@/lib/share-data";
 
@@ -26,6 +28,14 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-8">
         <ShareGlobe data={mapData} photoData={photoMapData} />
+
+        {/* Read-only like everything else here: generating a recap or its card
+            reads nothing and writes nothing, so the public surfaces get it. */}
+        <YearRecapLauncher
+          trips={trips}
+          bucket={stats.bucket}
+          today={todayIso()}
+        />
 
         <StatsOverview
           summary={stats.summary}

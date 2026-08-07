@@ -11,6 +11,8 @@ import { getCategories } from "@/lib/experiences";
 import { getPlannedExperiencePoints } from "@/lib/nearby-data";
 import { getOnThisDay } from "@/lib/on-this-day";
 import { OnThisDaySection } from "@/components/dashboard/on-this-day";
+import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
+import { todayIso } from "@/lib/year-recap";
 import { getTripDestinationOptions, getTripOptions } from "@/lib/trips";
 import { placeKey } from "@/lib/geo";
 import { DashboardGlobe } from "@/components/map/dashboard-globe";
@@ -43,7 +45,10 @@ export default async function DashboardPage() {
     plannedPoints,
     memories,
   ] = await Promise.all([
-    getProfileTrips(user.id),
+    // The story payload rides along because the year recap reads it: the
+    // hero image, the photo count, and the journal days all come from it, and
+    // the alternative was a second trip query on the same page.
+    getProfileTrips(user.id, { story: true }),
     getMapData(user.id),
     getPhotoMapData(user.id),
     getSummaryStats(user.id),
@@ -79,6 +84,14 @@ export default async function DashboardPage() {
           categories={categories}
           plannedPoints={plannedPoints}
           isDemo={isDemoUser(user.id)}
+        />
+
+        {/* Absent until a year has something in it, so a new account never
+            sees a recap of nothing. */}
+        <YearRecapLauncher
+          trips={trips}
+          bucket={stats.bucket}
+          today={todayIso()}
         />
 
         <section>

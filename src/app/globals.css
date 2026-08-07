@@ -124,6 +124,32 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Entrance for the Year in Travel recap. Each element on a slide rises and
+   fades in on a short stagger, which is what makes a slide feel deliberate
+   rather than pasted in. The class is only applied while a slide is the
+   current one, so adding it is what starts the animation and there is nothing
+   to reset. Under reduced motion the slide simply appears. */
+@keyframes batchport-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.recap-rise {
+  animation: batchport-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recap-rise {
+    animation: none;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
