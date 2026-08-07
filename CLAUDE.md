@@ -532,7 +532,18 @@ looked fine in isolation and wrong on a photograph:
   because the text block owns the bottom-left and the middle is where a
   photograph puts its subject. A disc in the centre lands on somebody's face
   and reads as a sticker. It carries a drop shadow and a thin ring so it sits
-  *on* the picture; without them it reads as a hole punched through it.
+  *on* the picture; without them it reads as a hole punched through it. Its
+  inset from the corner is deliberately **tighter than the text margin**
+  (`margin * 0.55`), which is what makes it read as anchored to the corner
+  rather than merely near it.
+- **The title is measured against the inset.** It is the only element in the
+  block both wide enough and tall enough to reach that corner: everything
+  below it sits lower, and the dates eyebrow above it is a narrow line. So the
+  title is fitted across the full width, its top is computed, and only if that
+  lands level with the disc is it re-fitted into the column beside it (one
+  extra line allowed there, since the constraint is width). A permanent
+  narrowing would shrink every title to protect against a case most trips
+  never hit, which is why this is a second pass.
 - **It is framed to the trip, not to the planet.** `fitOrthographicRadius`
   fits the stops with padding, and `orthographicProjection` takes that radius
   and reports the smaller circle from `outline`, so the ocean fill, the clip,
@@ -547,9 +558,21 @@ looked fine in isolation and wrong on a photograph:
   rather than to the unit, so it stays in proportion at any scale.
 - **The places line never truncates.** It names countries (a "+8" was hiding
   most of the trip), falls back to stops for a single-country trip, and wraps
-  between places and never inside one: `wrapPlaces` breaks on the separator,
-  not on spaces, because "New Zealand" split across two lines is its own kind
-  of broken. It shrinks first, then takes a second line, then a third.
+  between places and never inside one: `greedyPlaceLines` breaks on the
+  separator, not on spaces, because "New Zealand" split across two lines is
+  its own kind of broken. Two rules on top of that:
+  **every size is tried on one line before a second line is considered at
+  all** (the loops are line count outer, size inner, and reversing them is
+  what put six countries on line one and "Spain" alone underneath); and when a
+  wrap is genuinely needed, `balancedPlaceLines` bisects the allowed width
+  down until the line count is about to rise, which is the balanced split
+  without any special case for two lines versus three.
+- **The highlights block fills the width and collapses cleanly.** Up to three
+  best-rated experiences, name flush left and rating flush right against the
+  edge the stats rule ends on; a single star and a short name left two thirds
+  of the line empty. Names shrink to fit and only ellipsize at the floor. With
+  nothing rated the whole block (label included) is never pushed, so the
+  measured text block simply gets shorter rather than leaving a hole.
 
 The text block is measured into rows before anything is painted, because the
 bottom scrim has to know where the block starts. Sizing that scrim as a

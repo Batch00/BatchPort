@@ -101,7 +101,13 @@ export interface ShareCardData {
   countries: number;
   distanceKm: number | null;
   experiences: number;
-  best: { name: string; rating: number } | null;
+  /**
+   * The trip's best-rated experiences, highest first, at most three. A single
+   * one on a line left the foot of the card looking unfinished; three fill the
+   * area and read as a list somebody meant to put there. Empty when nothing on
+   * the trip was rated, in which case the block is absent rather than blank.
+   */
+  highlights: { name: string; rating: number }[];
 }
 
 /**
@@ -125,6 +131,22 @@ function placesFor(trip: StoryTrip): string[] {
   const names = trip.destinations.map((destination) => destination.name);
   if (names.length > 0) return names;
   return codes.map(countryName);
+}
+
+const MAX_HIGHLIGHTS = 3;
+
+/** The best-rated experiences on the trip, highest first. Ties break on the
+ * name so the same trip always produces the same card. */
+function highlightsFor(trip: StoryTrip): { name: string; rating: number }[] {
+  return trip.destinations
+    .flatMap((destination) => destination.experiences)
+    .filter(
+      (experience): experience is typeof experience & { rating: number } =>
+        experience.rating !== null,
+    )
+    .sort((a, b) => b.rating - a.rating || a.name.localeCompare(b.name))
+    .slice(0, MAX_HIGHLIGHTS)
+    .map((experience) => ({ name: experience.name, rating: experience.rating }));
 }
 
 /** Fold a StoryTrip into the card's inputs. Pure. */
@@ -178,9 +200,7 @@ export function shareCardFromStoryTrip(trip: StoryTrip): ShareCardData {
     countries: stats.countries,
     distanceKm: stats.distanceKm,
     experiences: stats.experiences,
-    best: stats.best
-      ? { name: stats.best.name, rating: stats.best.rating }
-      : null,
+    highlights: highlightsFor(trip),
   };
 }
 
@@ -200,34 +220,72 @@ const PLACE_SEPARATOR = "  ·  ";
  * are single items, and a line ending in "New" with "Zealand" below it is a
  * different kind of broken from the truncation this replaced.
  */
-function wrapPlaces(
+function greedyPlaceLines(
+  context: CanvasRenderingContext2D,
+  places: string[],
+  limit: number,
+): string[] | null {
+  const lines: string[] = [];
+  let line = "";
+  for (const place of places) {
+    // A single place wider than the limit: no wrapping saves this.
+    if (context.measureText(place).width > limit) return null;
+    const candidate = line ? `${line}${PLACE_SEPARATOR}${place}` : place;
+    if (context.measureText(candidate).width <= limit) {
+      line = candidate;
+      continue;
+    }
+    lines.push(line);
+    line = place;
+  }
+  if (line) lines.push(line);
+  return lines.length > 0 ? lines : null;
+}
+
+/**
+ * Wrap into balanced lines rather than greedy ones.
+ *
+ * Greedy filling packs line one to the edge and leaves whatever is left over
+ * below it, which is how seven countries ended up as six and then "Spain"
+ * alone. Squeezing the allowed width down until the line count is about to
+ * rise finds the narrowest width that still fits in the same number of lines,
+ * and that is exactly the balanced split: bisection over the width rather than
+ * any special case for two lines versus three.
+ */
+function balancedPlaceLines(
   context: CanvasRenderingContext2D,
   places: string[],
   maxWidth: number,
   maxLines: number,
 ): string[] | null {
-  const lines: string[] = [];
-  let line = "";
-  for (const place of places) {
-    const candidate = line ? `${line}${PLACE_SEPARATOR}${place}` : place;
-    if (context.measureText(candidate).width <= maxWidth) {
-      line = candidate;
-      continue;
-    }
-    // A single place wider than the whole line: no wrapping saves this.
-    if (!line || context.measureText(place).width > maxWidth) return null;
-    lines.push(line);
-    line = place;
+  const fitted = greedyPlaceLines(context, places, maxWidth);
+  if (!fitted || fitted.length > maxLines) return null;
+  if (fitted.length === 1) return fitted;
+
+  let tooNarrow = 0;
+  let wide = maxWidth;
+  for (let i = 0; i < 22; i += 1) {
+    const mid = (tooNarrow + wide) / 2;
+    const attempt = greedyPlaceLines(context, places, mid);
+    if (attempt && attempt.length <= fitted.length) wide = mid;
+    else tooNarrow = mid;
   }
-  if (line) lines.push(line);
-  return lines.length > 0 && lines.length <= maxLines ? lines : null;
+  return greedyPlaceLines(context, places, wide) ?? fitted;
 }
 
+// Shrink further before accepting a wrap, but not without limit: past about
+// three quarters the line stops being readable and two balanced lines at a
+// legible size are the better trade.
+const ONE_LINE_STEPS = [1, 0.94, 0.88, 0.82, 0.76];
+const WRAPPED_STEPS = [1, 0.94, 0.88, 0.82, 0.76, 0.7];
+
 /**
- * Fit the places line: shrink first, then allow a second line, then a third at
- * the smallest size. Showing everything beats showing a "+8", so the ellipsis
- * at the end is a last resort for a trip that cannot exist (thirty countries
- * whose names still overflow three lines of small type).
+ * Fit the places line. Every size is tried on one line before a second line is
+ * considered at all, because a slightly smaller single line reads better than
+ * a full-size line with an orphan under it. Showing everything beats showing a
+ * "+8", so the ellipsis at the end is a last resort for a trip that cannot
+ * exist (thirty countries whose names still overflow three lines of small
+ * type).
  */
 function layoutPlaces(
   context: CanvasRenderingContext2D,
@@ -236,13 +294,13 @@ function layoutPlaces(
   baseSize: number,
   stack: string,
 ): { size: number; lines: string[] } {
-  for (const factor of [1, 0.94, 0.88, 0.82, 0.76, 0.7]) {
-    const size = baseSize * factor;
-    setFont(context, 500, size, stack);
-    const maxLines = factor === 0.7 ? 3 : 2;
-    for (let lines = 1; lines <= maxLines; lines += 1) {
-      const wrapped = wrapPlaces(context, places, maxWidth, lines);
-      if (wrapped) return { size, lines: wrapped };
+  for (const maxLines of [1, 2, 3]) {
+    const steps = maxLines === 1 ? ONE_LINE_STEPS : WRAPPED_STEPS;
+    for (const factor of steps) {
+      const size = baseSize * factor;
+      setFont(context, 500, size, stack);
+      const lines = balancedPlaceLines(context, places, maxWidth, maxLines);
+      if (lines) return { size, lines };
     }
   }
   const size = baseSize * 0.7;
@@ -368,6 +426,36 @@ function drawShareCard(
 
   context.textBaseline = "alphabetic";
 
+  // --- Inset globe geometry ------------------------------------------------
+  //
+  // Corner-anchored, top-right, in both ratios. The centre is where a photo
+  // puts its subject, and a disc parked there reads as a sticker over the
+  // picture rather than a part of it. The text block owns the bottom-left, so
+  // the top-right is the one corner that is free in both crops.
+  //
+  // The inset sits on a tighter margin than the text (a little over half),
+  // which is what makes it read as anchored to the corner rather than merely
+  // near it, while still leaving enough air that the ring is not crowding the
+  // edge. It stays clear of the wordmark by a wide margin, since that sits at
+  // the opposite corner.
+  //
+  // Measured up here rather than next to its drawing, because both the scrim
+  // and the title need to know where it is.
+  const discInset = margin * 0.55;
+  const discDiameter = unit * (tall ? 0.32 : 0.31);
+  const discRadius = discDiameter / 2;
+  const discCenterX = width - discInset - discRadius;
+  const discCenterY = discInset + discRadius;
+  const discBottom = discCenterY + discRadius;
+  const discLeft = discCenterX - discRadius;
+
+  // The bottom edge the text block sits on. The square crop had the stat row
+  // almost touching it; both now keep a full margin and a half under the last
+  // line. Known before the block is measured because the title's fit depends
+  // on where the block would land.
+  const bottomInset = margin * (tall ? 1.35 : 1.5);
+  const blockBaseline = height - bottomInset;
+
   // --- Measure the text block before drawing anything ----------------------
   //
   // The block is laid out bottom-up, but the scrim behind it has to be drawn
@@ -403,35 +491,86 @@ function drawShareCard(
     });
   }
 
-  if (data.best) {
-    const bestSize = unit * 0.024;
+  // Highlights: the trip's best-rated experiences, name on the left and rating
+  // set flush right against the same edge the stats rule ends on. That is what
+  // fills the width; a left-aligned star and a short name left two thirds of
+  // the line empty and read as an unfinished thought. Absent entirely when
+  // nothing was rated, so the block shortens instead of leaving a hole.
+  if (data.highlights.length > 0) {
+    const highlightSize = unit * 0.0215;
+    const ratingSize = unit * 0.019;
+    const labelSize = unit * 0.0145;
+    const rowStep = highlightSize * 1.9;
+
     rows.push({
-      height: bestSize * 2.7 * lead,
+      // Baseline to baseline across the rows, then up to the label, then the
+      // gap to whatever sits above. The label hugs its list rather than
+      // floating between the two blocks, and the gap above it is wide enough
+      // that it does not read as a fourth line of the stats row's labels,
+      // which are small tracked caps at almost the same size.
+      height:
+        rowStep * (data.highlights.length - 1) +
+        labelSize * 1.5 +
+        labelSize * 3.4 * lead,
       draw: (baseline) => {
-        setFont(context, 500, bestSize, stack);
-        context.textAlign = "left";
-        const starRadius = bestSize * 0.55;
-        const rating = `${(data.best!.rating / 2).toFixed(1)}`;
-        const prefixWidth = context.measureText(`${rating}   `).width;
-        const label = wrapText(
+        // Rows are drawn upward from the last one, so the label lands above.
+        let y = baseline;
+        for (let i = data.highlights.length - 1; i >= 0; i -= 1) {
+          const highlight = data.highlights[i];
+          const rating = (highlight.rating / 2).toFixed(1);
+
+          setFont(context, 600, ratingSize, stack);
+          const ratingWidth = context.measureText(rating).width;
+          const starRadius = ratingSize * 0.42;
+          const ratingBlock = starRadius * 2 + ratingSize * 0.4 + ratingWidth;
+          const ratingLeft = margin + contentWidth - ratingBlock;
+
+          starPath(
+            context,
+            ratingLeft + starRadius,
+            y - ratingSize * 0.32,
+            starRadius,
+          );
+          context.fillStyle = "#fbbf24";
+          context.fill();
+          context.textAlign = "left";
+          context.fillStyle = "rgba(255, 255, 255, 0.8)";
+          context.fillText(
+            rating,
+            ratingLeft + starRadius * 2 + ratingSize * 0.4,
+            y,
+          );
+
+          // The same discipline as the places line: shrink to fit, and only
+          // ellipsize a name that is still too long at the smallest size.
+          const nameWidth = contentWidth - ratingBlock - unit * 0.03;
+          fitFontSize(
+            context,
+            highlight.name,
+            nameWidth,
+            500,
+            highlightSize,
+            highlightSize * 0.74,
+            stack,
+          );
+          context.fillStyle = "rgba(255, 255, 255, 0.86)";
+          const name = wrapText(context, highlight.name, nameWidth, 1)[0];
+          if (name) context.fillText(name, margin, y);
+
+          y -= rowStep;
+        }
+
+        setFont(context, 500, labelSize, stack);
+        context.fillStyle = "rgba(255, 255, 255, 0.45)";
+        drawTracked(
           context,
-          data.best!.name,
-          contentWidth - starRadius * 2.6 - prefixWidth,
-          1,
-        )[0];
-        starPath(
-          context,
-          margin + starRadius,
-          baseline - bestSize * 0.3,
-          starRadius,
-        );
-        context.fillStyle = "#fbbf24";
-        context.fill();
-        context.fillStyle = "rgba(255, 255, 255, 0.75)";
-        context.fillText(
-          `${rating}   ${label ?? ""}`,
-          margin + starRadius * 2.6,
-          baseline,
+          data.highlights.length === 1 ? "HIGHLIGHT" : "HIGHLIGHTS",
+          margin,
+          // y is one step past the first row, so add it back and lift the
+          // label just clear of it.
+          y + rowStep - labelSize * 1.5,
+          labelSize * 0.22,
+          "left",
         );
       },
     });
@@ -529,16 +668,53 @@ function drawShareCard(
   }
 
   // Title.
-  const titleSize = fitFontSize(
-    context,
-    data.name,
-    contentWidth,
-    600,
-    unit * 0.088,
-    unit * 0.05,
-    stack,
-  );
-  const titleLines = wrapText(context, data.name, contentWidth, tall ? 3 : 2);
+  //
+  // Measured against the inset, because it is the only element in the block
+  // both wide enough and tall enough to reach that corner: on a square card a
+  // long enough name wraps to two lines and the upper one runs straight under
+  // the disc. Everything below the title is shorter or sits lower, and the
+  // dates eyebrow above it is a narrow line that never gets near.
+  //
+  // So: fit it across the full width, work out where its top would land, and
+  // only if that is level with the inset re-fit it into the column beside it.
+  // A name that never rises that far keeps the whole width, which is almost
+  // always the case and is why this is a second pass rather than a permanent
+  // narrowing.
+  const titleMax = unit * 0.088;
+  const titleMin = unit * 0.05;
+  const fitTitle = (
+    available: number,
+    maxLines: number,
+  ): { size: number; lines: string[] } => {
+    const size = fitFontSize(
+      context,
+      data.name,
+      available,
+      600,
+      titleMax,
+      titleMin,
+      stack,
+    );
+    return { size, lines: wrapText(context, data.name, available, maxLines) };
+  };
+
+  let title = fitTitle(contentWidth, tall ? 3 : 2);
+  const heightBelowTitle = rows.reduce((total, row) => total + row.height, 0);
+  const titleTopFor = (candidate: { size: number; lines: string[] }): number =>
+    blockBaseline -
+    heightBelowTitle -
+    candidate.size * 1.1 * (candidate.lines.length - 1) -
+    candidate.size * 0.75;
+
+  if (titleTopFor(title) < discBottom + unit * 0.02) {
+    // One more line is allowed here: the constraint is the narrower column,
+    // and a third short line clears the inset where a shrunken second would
+    // still be fighting it.
+    title = fitTitle(discLeft - margin - unit * 0.03, 3);
+  }
+  const titleSize = title.size;
+  const titleLines = title.lines;
+
   rows.push({
     height: titleSize * 1.1 * (titleLines.length - 1) + titleSize * 1.6,
     draw: (baseline) => {
@@ -571,25 +747,8 @@ function drawShareCard(
     },
   });
 
-  // The bottom edge the block sits on. The square crop had the stat row almost
-  // touching it; both now keep a full margin and a half under the last line.
-  const bottomInset = margin * (tall ? 1.35 : 1.5);
-  const blockBaseline = height - bottomInset;
   const blockHeight = rows.reduce((total, row) => total + row.height, 0);
   const blockTop = blockBaseline - blockHeight;
-
-  // --- Inset globe geometry, needed before the scrims ----------------------
-  //
-  // Corner-anchored, top-right, in both ratios. The centre is where a photo
-  // puts its subject, and a disc parked there reads as a sticker over the
-  // picture rather than a part of it. The text block owns the bottom-left, so
-  // the top-right is the one corner that is free in both crops. It is sized as
-  // an inset rather than a feature: roughly a quarter of the width, small
-  // enough to sit beside the photograph instead of competing with it.
-  const discDiameter = unit * (tall ? 0.27 : 0.26);
-  const discRadius = discDiameter / 2;
-  const discCenterX = width - margin - discRadius;
-  const discCenterY = margin + markSize * 2 + discRadius;
 
   // --- Backdrop ------------------------------------------------------------
   context.fillStyle = "#070810";
