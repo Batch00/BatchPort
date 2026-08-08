@@ -31,9 +31,10 @@ export interface SeedExperience {
   lat?: number;
   lng?: number;
   /**
-   * Elect this as one of the trip's featured experiences: what leads the
-   * story, the year recap, and the share card. Ranked in the order they appear
-   * in this file, per trip, and capped there too (see lib/curation.ts).
+   * Elect this into the trip's HIGHLIGHTS slot: the three experiences the
+   * share card lists, the story closes on, and the recap's moments show.
+   * Ranked in the order they appear in this file, per trip (see
+   * lib/curation.ts).
    *
    * The demo deliberately curates only some of its trips. An uncurated trip
    * has to keep looking right on its ratings alone, and the demo is where that
@@ -56,8 +57,11 @@ export interface SeedDestination {
   /** Wikimedia lookup override for places whose bare name has no Wikidata P18
    * image (a nearby landmark or the fuller place name usually does). */
   photoQuery?: string;
-  /** Feature this stop's cover photo, so the demo shows photo curation and not
-   * just experience curation. */
+  /** Elect this stop's cover photo into a photo slot, so the demo shows photo
+   * curation and not just experience curation. The first flagged stop on a
+   * trip becomes the trip's HERO (the recap's opening frame and the share
+   * card's backdrop); any after it become STOP picks, leading their own stop's
+   * story slides. */
   featuredPhoto?: boolean;
   experiences: SeedExperience[];
 }
@@ -716,6 +720,10 @@ export const TRIPS: SeedTrip[] = [
         code: "JP",
         arrival: "2024-05-11",
         departure: "2024-05-14",
+        // Not the trip's hero (Kyoto took that), so this seeds the other photo
+        // slot: a stop pick leading Osaka's story slides. The demo has to show
+        // both, since they are different decisions.
+        featuredPhoto: true,
         experiences: [
           { name: "Dotonbori at night", slug: "nightlife", rating: 9 },
           {

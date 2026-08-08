@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/current-user";
 import { getAllStats } from "@/lib/stats-data";
 import { getMapData } from "@/lib/map-data";
 import { getProfileTrips } from "@/lib/share-data";
+import { getBucketList } from "@/lib/bucket-list";
 import { buildPosterData, hasPosterData } from "@/lib/poster/poster-data";
 import { PosterExportButton } from "@/components/poster/poster-export";
 import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
@@ -40,13 +41,16 @@ export default async function StatsPage() {
   const { user } = await requireUser();
   // The poster draws the same travel history these numbers describe, so its
   // data rides along here rather than on a route of its own.
-  const [stats, mapData, trips] = await Promise.all([
+  const [stats, mapData, trips, bucketItems] = await Promise.all([
     getAllStats(user.id),
     getMapData(user.id),
     // The year recap is another reading of the same travel history this page
     // counts, so it belongs next to the poster. It needs the trips themselves
     // rather than the aggregate views, which is the one query it adds.
     getProfileTrips(user.id, { story: true }),
+    // And the bucket rows, so its closing slide can name the places on the
+    // list instead of only counting them.
+    getBucketList(user.id),
   ]);
   const posterData = buildPosterData(mapData, stats);
 
@@ -82,6 +86,7 @@ export default async function StatsPage() {
             <YearRecapLauncher
               trips={trips}
               bucket={stats.bucket}
+              bucketItems={bucketItems}
               today={todayIso()}
               variant="button"
             />

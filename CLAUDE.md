@@ -418,6 +418,16 @@ across hydration. Every check in `scripts/check-year-recap.ts` passes `today`
 explicitly, which is what makes the year logic testable at all
 (`npm run check-year-recap`).
 
+**The closing slide names bucket list places, it does not score them.** "0 of
+7" is a scoreboard for a thing that is not a game. `yearBucket()` splits the
+list in two: what was ticked off **in this year** (the year's own achievement,
+so it leads) and the highest-ranked places still to go, three of each at most.
+Their photographs come from `lib/bucket-hero.ts`, the same lookup and the same
+session cache the bucket cards use, so one place cannot show two different
+pictures. The totals still come from the SQL view; a surface holding only
+totals still renders the bar with nothing named, and no list at all renders
+nothing.
+
 **The map slide reuses the replay engine, not a second timeline.**
 `buildReplayTimeline` / `replayStateAt` / `sliceLeg` decide what has happened;
 `lib/poster/year-map.ts` paints it with the poster's projection and `drawMap`.
@@ -431,11 +441,25 @@ renders rather than a few thousand.
 **The map slide's pacing is the viewer's.** It offers 1x/2x/4x and a skip, both
 held in refs alongside their state, because the animation loop reads them every
 frame and rebuilding the effect to pick up a change would restart the playback
-from zero. Playback time is **accumulated** (`clock += dt * speed`) rather than
-derived from a start stamp, so raising the speed mid-flight speeds up what is
-left instead of jumping the clock to where it would have been at the new rate
-all along. Both controls disappear once the year is drawn: there is nothing
-left to hurry, and the row becomes the replay button.
+from zero. Playback time is **accumulated** (`advancePlayback` in `lib/replay.ts`,
+`clock + dt * speed`) rather than derived from a start stamp, so raising the
+speed mid-flight speeds up what is left instead of jumping the clock to where it
+would have been at the new rate all along. Both controls disappear once the year
+is drawn: there is nothing left to hurry, and the row becomes the replay button.
+
+**The clock lives OUTSIDE the animation effect**, in a ref, and this is
+load-bearing. The effect has to be rebuilt whenever the canvas is (a resize,
+the outlines arriving), and with the clock inside it every rebuild silently
+restarted the year from zero. Two things then conspired: the header's trip-name
+line dropped out during the gap between two trips, which changed the header's
+height, which resized the canvas; and `setSize` allocated a fresh object on
+every ResizeObserver callback whether or not the numbers had changed. So the
+year could never get past its first trip, and at 4x it hit that wall four times
+sooner, which is why the speed control looked like the cause. All three are
+fixed and must stay fixed: the clock is a ref keyed to its timeline, the trip
+line always renders (a non-breaking space when empty), and `setSize` bails on
+an unchanged measurement. `npm run check-year-map-playback` asserts the pacing
+and the resume-on-rebuild against a real multi-trip timeline.
 
 Its header sits **in the column, not floating over it**, with
 `pt-[calc(3.5rem+env(safe-area-inset-top))]`. The recap's own chrome (the
@@ -464,62 +488,85 @@ is nothing to reset. It and `AnimatedNumber` both stand down under
 `active` prop for this: the recap's slides are all mounted and toggled by
 opacity, so scrolling into view says nothing about whether they are visible.
 
-### Curation (Featured Experiences and Photos)
+### Curation (Slots)
 
 Which experiences and which photos represent a trip in the story, the recap,
 and the social cards. It exists because rating cannot answer that question: a
 five star museum and a five star gelato are both five stars, and only one of
 them belongs on a card.
 
-`lib/curation.ts` is pure and client-safe and holds the whole model. Three
-rules, and everything else follows:
+`lib/curation.ts` holds the model (pure, client-safe), `lib/curation-slots.ts`
+folds a `StoryTrip` into the three slots the panel renders (also pure), and
+`components/trips/trip-curation.tsx` is the panel. Three rules, and everything
+else follows:
 
-- **A rank, not a flag.** `featured_rank` on `experiences` and on `photos` is
-  null (not featured) or a positive integer, and 1 leads. Every consuming
-  surface is a top-N surface (three highlights on a card, three moments in a
-  recap, four photos on a slide), so a boolean would have handed the ordering
-  question straight back to rating, which is the thing curation exists to
-  override. Nothing enforces uniqueness: the write picks the next free rank on
-  the trip, and a duplicate is a cosmetic ordering question, never an error.
-- **Scoped to the trip, surfaced per stop for free.** `setExperienceFeaturedAction`
-  and `setPhotoFeaturedAction` compute the next rank across the whole trip
-  (`ownersForTrip` resolves the photo fan-out, borrowed from the delete
-  cascade), so the numbers are comparable across its stops. A destination's own
-  featured items are just the subset belonging to that stop, which is what lets
-  a story slide lead on a stop's picks with no second column and no extra UI.
-  Do not add a per-destination rank.
-- **Nothing featured means nothing changes.** Every selector layers
-  `compareFeatured` / `compareCurated` on top of the order it already had, and
-  those comparators return 0 for two unfeatured items, so an uncurated trip
-  produces exactly the story, recap, and card it produced before curation
-  existed. `scripts/check-curation.ts` asserts that path specifically; it is
-  the one almost every trip is on.
+- **A rank belongs to a SLOT, and a slot is a place on a real surface.** There
+  are exactly three, and `SLOT_CAPACITY` is their capacity:
+  - **Trip hero (1)**: `photos.featured_slot = 'hero'`, rank 1. The recap's
+    opening frame and the share card's backdrop.
+  - **Stop photos (4 per destination)**: `photos.featured_slot = 'stop'`,
+    ranked **within the destination**. The photos that lead that stop's story
+    slides.
+  - **Highlights (3, ordered)**: `experiences.featured_rank`, ranked across the
+    trip. The share card's list, the story's closing, the recap's moments, and
+    the trip page's own "best of" block.
 
-`MAX_FEATURED_HONORED` is 6. Past it a rank is simply not honoured (it falls
-back into the normal order) and the action refuses to assign one, because a
-"featured" list of thirty is not curation and the slides have to stay paced.
-The surfaces keep their own tighter caps on top of it.
+  A rank with nowhere to sit is what the first version shipped, and it is why
+  nobody could tell what featuring an item had done. Do not add a fourth slot
+  without a surface to point at, and do not let one rank answer two questions:
+  a hero is deliberately not also a stop pick (`stopPhotoRank` returns null for
+  it), because electing a year's opening frame says nothing about which four
+  photos should lead one stop.
 
-Consumers, all of them through the same comparator: story slide photo and
-experience order, `storyClosingStats().best`, the share card's highlights,
-`tripHighlights()` on the trip page (the same three lines as the card, on the
-same page, so they must not disagree), the recap's moments, and the recap's
-opening photograph. The stats page's all-time superlatives are deliberately
-**not** curated: that is a leaderboard, and a rank assigned to pace a slideshow
-has no business reordering it.
+- **A slot is written whole.** `setTripHeroPhotoAction`,
+  `setStopPhotosAction`, and `setTripHighlightsAction` each take the entire
+  slot ("these three, in this order"), so choosing, reordering, and clearing
+  back to automatic are all the same call. There is no rank arithmetic on the
+  client, nothing can end up half-assigned, and the cap is enforced by the
+  caller sending at most as many ids as the slot holds. `ownersForTrip`
+  resolves the photo fan-out, borrowed from the delete cascade.
 
-An unrated featured experience still stays out of the highlights row and the
-"best of" line: those print a star and a number, and featuring is a statement
-about order, not a substitute for rating. Planned experiences cannot be
-featured, since nothing downstream ever sees one.
+- **Nothing featured means nothing changes, and the panel SAYS what that is.**
+  Every selector layers `compareFeatured` / `compareStopPhotos` /
+  `compareCurated` on top of the order it already had, and those comparators
+  return 0 for two uncurated items, so an uncurated trip produces exactly the
+  story, recap, and card it produced before curation existed. Every slot in
+  the panel also renders its automatic answer in the empty state
+  (`HeroSlot.automatic`, `StopPhotoSlot.automatic`, `HighlightsSlot.automatic`),
+  because a blank slot would be telling the user their inaction has no
+  consequence. `scripts/check-curation.ts` asserts both halves.
 
-Degradation before the migration: experiences read through `select *` so a
+`MAX_FEATURED_HONORED` is 6: past it a rank is simply not honoured and falls
+back into the normal order. It is the model's ceiling; the slot capacities are
+tighter and are what the panel enforces.
+
+Consumers, all through the same comparators: story slide photo and experience
+order, `storyClosingStats().best`, the share card's highlights **and its
+backdrop**, `tripHighlights()` on the trip page (the same three lines as the
+card, on the same page, so they must not disagree), the recap's moments, and
+the recap's opening photograph. The stats page's all-time superlatives are
+deliberately **not** curated: that is a leaderboard, and a rank assigned to
+pace a slideshow has no business reordering it.
+
+An unrated experience can be elected but still stays out of the highlights row
+and the "best of" line: those print a star and a number, and featuring is a
+statement about order, not a substitute for rating (the picker says so on the
+row rather than hiding it). Planned experiences never reach these surfaces.
+
+The panel is the only place a slot is edited. The galleries and the experience
+rows show the **result** (a position badge, or a "Hero" mark), never a toggle:
+two mechanisms that could disagree is exactly what was replaced.
+
+Degradation before the migrations: experiences read through `select *` so a
 missing column normalizes to null, and photo reads name their columns so the
-curated ones ask for `featured_rank` and retry without it on 42703
-(`PHOTO_COLUMNS_CURATED`, `isMissingPhotoColumn`). Writes report "Featuring is
-not set up on this database yet" on PGRST204 rather than pretending to have
-saved. Read-only surfaces render the result and offer no toggle; the demo
-account is blocked at the action and hidden in the UI.
+curated ones ask for `featured_rank, featured_slot` and retry without them on
+42703 (`PHOTO_COLUMNS_CURATED`, `isMissingPhotoColumn`). A photo row with a
+rank and **no** slot reads as a stop pick (`photoSlotOf`), which is what a bare
+rank meant before slots existed, so every trip curated under the old model
+keeps leading its story slides. Writes report "Curation is not set up on this
+database yet" on PGRST204 or 42703 rather than pretending to have saved.
+Read-only surfaces render the result and offer no editing; the demo account is
+blocked at the action and told so in the panel.
 
 ### Transport Legs
 
@@ -830,7 +877,10 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Experience data layer and getCategories() | `src/lib/experiences.ts` |
 | Bucket list data layer and auto-fulfill | `src/lib/bucket-list.ts` |
 | Photo helpers (client-safe: resize, upload, URL) | `src/lib/photos.ts` |
-| Featured ranking model and comparators (pure) | `src/lib/curation.ts` |
+| Curation model, slots, and comparators (pure) | `src/lib/curation.ts` |
+| The three slots of one trip, and their automatic answers (pure) | `src/lib/curation-slots.ts` |
+| Curation panel (slot editor, entered from the trip page) | `src/components/trips/trip-curation.tsx` |
+| Bucket list hero lookup and session cache (client) | `src/lib/bucket-hero.ts` |
 | Full-screen photo (full-quality swap, fit rule) | `src/components/photos/slide-image.tsx` |
 | Photo server reads and Wikimedia auto-populate | `src/lib/photos-data.ts` |
 | Shared photo deletion and owner collection | `src/lib/photo-cleanup.ts` |
@@ -892,7 +942,7 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Destination server actions | `src/lib/actions/destinations.ts` |
 | Experience server actions | `src/lib/actions/experiences.ts` |
 | Photo record server actions | `src/lib/actions/photos.ts` |
-| Featured experience and photo actions | `src/lib/actions/curation.ts` |
+| Curation slot server actions (hero, stop photos, highlights) | `src/lib/actions/curation.ts` |
 | Bucket list server actions | `src/lib/actions/bucket-list.ts` |
 | Share settings server action | `src/lib/actions/share-settings.ts` |
 | Globe rendering component | `src/components/map/globe.tsx` |
@@ -938,6 +988,7 @@ no timezone chip. Nothing in the app prompts the user to set one.
 Run `npm run build` to verify type correctness across the whole project (TypeScript strict mode). Run `npm run lint` for ESLint. There is no automated test suite, with two exceptions, both pure, both needing no database or dev server:
 
 - `npm run check-year-recap` asserts the Year in Travel derivation (year list, slicing across new year, planned exclusion, sparse years, in-progress labelling, insight selection). Re-run it after any change to `lib/year-recap.ts`.
-- `npm run check-curation` asserts the featured model end to end (rank order, the cap, rank assignment, and what the story, the share card, and the recap select), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts` or to a selector that consumes it.
+- `npm run check-curation` asserts the curation model end to end (rank order, the cap, the photo slots and their backwards compatibility, the three slots' contents and their automatic answers, and what the story, the share card, and the recap select), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts`, `lib/curation-slots.ts`, or a selector that consumes them.
+- `npm run check-year-map-playback` asserts the recap map slide's clock: that 1x, 2x, and 4x all reach the end of a real multi-trip timeline, that changing speed mid-flight rescales the remaining time rather than jumping or truncating, that skip lands on the finished year, and that rebuilding the animation mid-playback resumes instead of restarting. Re-run it after any change to `advancePlayback` or to the map slide's effect wiring.
 
 Interactive features including the globe, photo lightbox, geocoding typeahead, and experience dialog require manual browser testing.

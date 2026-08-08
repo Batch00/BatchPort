@@ -34,6 +34,7 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
         <YearRecapLauncher
           trips={trips}
           bucket={stats.bucket}
+          bucketItems={bucketItems}
           today={todayIso()}
         />
 

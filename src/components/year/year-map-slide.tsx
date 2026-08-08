@@ -14,6 +14,7 @@ import {
   type YearMapView,
 } from "@/lib/poster/year-map";
 import {
+  advancePlayback,
   buildReplayTimeline,
   replayStateAt,
   sliceLeg,
@@ -97,6 +98,19 @@ export function YearMapSlide({
   const [speed, setSpeed] = useState<MapSpeed>(1);
   const speedRef = useRef<MapSpeed>(1);
   const skipRef = useRef(false);
+  // The playback clock lives OUTSIDE the animation effect, deliberately.
+  //
+  // The effect has to be rebuilt whenever the base picture is (a resize, the
+  // outlines finishing loading), or it would keep drawing onto a stale bitmap.
+  // With the clock inside it, every one of those rebuilds silently restarted
+  // the year from zero, and the header above the canvas changes height the
+  // moment the first trip ends (the trip name line disappears during the gap),
+  // so the year could never get past its first trip. Holding the clock here
+  // means a rebuild repaints where playback actually is and carries on.
+  const clockRef = useRef(0);
+  // Which timeline the clock above is a clock for. A new year is a new
+  // playback, not a resumption of the last one.
+  const clockTimelineRef = useRef<ReplayTimeline | null>(null);
 
   const cycleSpeed = useCallback(() => {
     setSpeed((current) => {
@@ -104,6 +118,14 @@ export function YearMapSlide({
       speedRef.current = next;
       return next;
     });
+  }, []);
+
+  const replay = useCallback(() => {
+    clockRef.current = 0;
+    skipRef.current = false;
+    readoutRef.current = "";
+    setEnded(false);
+    setRun((current) => current + 1);
   }, []);
 
   const timeline = useMemo<ReplayTimeline | null>(
@@ -133,15 +155,30 @@ export function YearMapSlide({
     };
   }, [active, shapes, failed]);
 
+  // Adjusting state to a changed prop, the React-documented way: during
+  // render, never from an effect. The clock and the skip flag are refs and are
+  // reset inside the animation effect below, where mutating them is safe.
+  const [prevTimeline, setPrevTimeline] = useState(timeline);
+  if (prevTimeline !== timeline) {
+    setPrevTimeline(timeline);
+    setEnded(false);
+  }
+
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
+    // Only a real change in dimensions counts. A fresh object with the same
+    // numbers would still be a new identity, which rebuilds the base picture
+    // and the animation loop for nothing.
     const measure = () => {
       const rect = element.getBoundingClientRect();
-      setSize({
-        width: Math.max(1, Math.round(rect.width)),
-        height: Math.max(1, Math.round(rect.height)),
-      });
+      const width = Math.max(1, Math.round(rect.width));
+      const height = Math.max(1, Math.round(rect.height));
+      setSize((current) =>
+        current && current.width === width && current.height === height
+          ? current
+          : { width, height },
+      );
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
@@ -174,7 +211,13 @@ export function YearMapSlide({
 
   // Playback. It depends on the base's own inputs as well as on `run`, so a
   // resize rebuilds the base (in the effect above, which runs first) and then
-  // redraws onto it rather than leaving the old bitmap on screen.
+  // redraws onto it rather than leaving the old bitmap on screen. The clock
+  // itself lives in a ref outside this effect, so a rebuild resumes where
+  // playback was instead of starting the year again.
+  //
+  // It also depends on `active`, which means playback PAUSES when the slide is
+  // not the current one and picks up where it left off on the way back. A year
+  // quietly finishing off screen would be worse than either.
   useEffect(() => {
     if (!active || !timeline) return;
     const view = viewRef.current;
@@ -183,14 +226,16 @@ export function YearMapSlide({
     const context = canvas.getContext("2d");
     if (!context) return;
 
+    if (clockTimelineRef.current !== timeline) {
+      clockTimelineRef.current = timeline;
+      clockRef.current = 0;
+      skipRef.current = false;
+      readoutRef.current = "";
+    }
+
     const reduced = prefersReducedMotion();
     let frame = 0;
     let previous = 0;
-    // Playback time is accumulated rather than read off a start stamp, so a
-    // speed change mid-flight speeds up what is left instead of jumping the
-    // clock to where it would have been at the new rate all along.
-    let clock = 0;
-    skipRef.current = false;
 
     const paint = (t: number) => {
       const state = replayStateAt(timeline, t);
@@ -239,13 +284,19 @@ export function YearMapSlide({
       if (previous === 0) previous = now;
       const dt = (now - previous) / 1000;
       previous = now;
-      if (reduced || skipRef.current) clock = timeline.duration;
-      else clock = Math.min(clock + dt * speedRef.current, timeline.duration);
-      const done = paint(clock);
+      const step = advancePlayback(
+        clockRef.current,
+        dt,
+        speedRef.current,
+        timeline.duration,
+        reduced || skipRef.current ? "skip" : "play",
+      );
+      clockRef.current = step.clock;
+      paint(step.clock);
       // Same value on every frame until the last one, which React bails on,
       // so this costs one render at the start and one at the end.
-      setEnded(done);
-      if (!done) frame = requestAnimationFrame(tick);
+      setEnded(step.ended);
+      if (!step.ended) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
@@ -271,11 +322,12 @@ export function YearMapSlide({
           <p className="mt-0.5 truncate text-xl font-semibold tabular-nums tracking-tight text-white sm:mt-1 sm:text-3xl">
             {readout.month || slide.label}
           </p>
-          {readout.trip ? (
-            <p className="mt-0.5 truncate text-xs text-white/60 sm:text-sm">
-              {readout.trip}
-            </p>
-          ) : null}
+          {/* Always rendered, empty or not. The trip name drops out during
+              the gap between two trips, and letting the line collapse changed
+              the header's height, which resized the canvas below it. */}
+          <p className="mt-0.5 truncate text-xs text-white/60 sm:text-sm">
+            {readout.trip || " "}
+          </p>
         </div>
         <p className="mt-0.5 shrink-0 rounded-full bg-white/[0.06] px-3 py-1 text-xs tabular-nums text-white/70">
           {readout.countries} {readout.countries === 1 ? "country" : "countries"}
@@ -308,7 +360,7 @@ export function YearMapSlide({
         {ended ? (
           <button
             type="button"
-            onClick={() => setRun((current) => current + 1)}
+            onClick={replay}
             className={pill}
           >
             <RotateCcwIcon className="size-3.5" />

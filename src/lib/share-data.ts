@@ -6,7 +6,7 @@ import { getSharedBucketList, type BucketItem } from "@/lib/bucket-list";
 import { getSharedJournalByTrip } from "@/lib/journal-data";
 import { getSharedTransportByTrip } from "@/lib/transport-data";
 import type { TransportLeg } from "@/lib/transport";
-import { featuredRankOf } from "@/lib/curation";
+import { featuredRankOf, photoSlotOf } from "@/lib/curation";
 import {
   getPhotoUrl,
   isMissingPhotoColumn,
@@ -210,6 +210,7 @@ interface FallbackPhotoRow extends PhotoRow {
   attribution?: string | null;
   // Only selected for the story, and only when the curation migration has run.
   featured_rank?: number | null;
+  featured_slot?: string | null;
 }
 
 /** Options for getProfileTrips. `story` adds the journal entries and the full
@@ -310,7 +311,7 @@ export async function getProfileTrips(
           .in("id", coverIds)
       : Promise.resolve({ data: [] as PhotoRow[] }),
     wantStory
-      ? fallbackPhotos(`${storyColumns}, featured_rank`).then((result) =>
+      ? fallbackPhotos(`${storyColumns}, featured_rank, featured_slot`).then((result) =>
           isMissingPhotoColumn(result.error)
             ? fallbackPhotos(storyColumns)
             : result,
@@ -442,6 +443,7 @@ export async function getProfileTrips(
         dateTaken: row.date_taken ?? null,
         attribution: row.attribution ?? null,
         featuredRank: featuredRankOf(row.featured_rank),
+        featuredSlot: photoSlotOf(row.featured_slot, row.featured_rank),
         destinationId,
       });
       storyPhotosByTrip.set(tripId, list);

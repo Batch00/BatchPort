@@ -14,12 +14,21 @@
 
 import {
   MAX_FEATURED_HONORED,
+  SLOT_CAPACITY,
   compareCurated,
   compareFeatured,
   featuredFirst,
+  heroPhoto,
   isFeatured,
+  isHeroPhoto,
   nextFeaturedRank,
+  photoSlot,
+  photoSlotOf,
+  stopPhotoRank,
+  stopPhotosFirst,
+  type PhotoSlot,
 } from "../src/lib/curation";
+import { buildCurationSlots, hasCurationSlots } from "../src/lib/curation-slots";
 import {
   buildStorySlides,
   storyClosingStats,
@@ -90,6 +99,7 @@ function photo(
     dateTaken?: string | null;
     destinationId?: string | null;
     featuredRank?: number | null;
+    featuredSlot?: PhotoSlot | null;
   } = {},
 ): StoryPhoto {
   return {
@@ -99,6 +109,7 @@ function photo(
     dateTaken: options.dateTaken ?? null,
     attribution: null,
     featuredRank: options.featuredRank ?? null,
+    featuredSlot: options.featuredSlot ?? null,
     destinationId: options.destinationId ?? null,
   };
 }
@@ -135,6 +146,7 @@ function trip(
     start?: string | null;
     end?: string | null;
     status?: string;
+    coverUrl?: string | null;
   } = {},
 ): StoryTrip {
   return {
@@ -144,7 +156,7 @@ function trip(
     startDate: options.start ?? null,
     endDate: options.end ?? null,
     notes: null,
-    coverUrl: null,
+    coverUrl: options.coverUrl ?? null,
     coverThumbUrl: null,
     destinations: options.destinations ?? [],
     photos: options.photos ?? [],
@@ -206,6 +218,72 @@ function trip(
       .map((item) => item.name),
     ["Chosen", "Alpha", "Zeta", "Beta"],
   );
+}
+
+// --- Photo slots ------------------------------------------------------------
+
+{
+  equal("no slot and no rank is uncurated", photoSlot({}), null);
+  equal(
+    "an explicit hero slot reads as hero",
+    photoSlot({ featuredSlot: "hero", featuredRank: 1 }),
+    "hero",
+  );
+  equal(
+    "an explicit stop slot reads as stop",
+    photoSlot({ featuredSlot: "stop", featuredRank: 2 }),
+    "stop",
+  );
+  // The backwards compatibility rule, and the only one that matters: every
+  // photo curated before slots existed carries a rank and no slot, and has to
+  // keep leading its stop's story slides exactly as it did.
+  equal(
+    "a rank with no slot is a stop pick",
+    photoSlot({ featuredRank: 3 }),
+    "stop",
+  );
+  equal(
+    "the raw normalizer agrees with the object one",
+    photoSlotOf(null, 3),
+    photoSlot({ featuredRank: 3 }),
+  );
+  equal("an unknown slot value is uncurated", photoSlotOf("banner", null), null);
+
+  check("a hero is a hero", isHeroPhoto({ featuredSlot: "hero" }));
+  check("a stop pick is not a hero", !isHeroPhoto({ featuredRank: 1 }));
+  // A hero answers "open the recap with this", not "lead this stop with this".
+  // Letting it do both is the ambiguity the slot column removed.
+  equal(
+    "a hero holds no stop rank",
+    stopPhotoRank({ featuredSlot: "hero", featuredRank: 1 }),
+    null,
+  );
+  equal(
+    "a stop pick holds its rank",
+    stopPhotoRank({ featuredSlot: "stop", featuredRank: 2 }),
+    2,
+  );
+
+  equal(
+    "stop picks sort first, in their own order",
+    stopPhotosFirst([
+      { featuredRank: null, featuredSlot: null, name: "a" },
+      { featuredRank: 1, featuredSlot: "hero", name: "hero" },
+      { featuredRank: 2, featuredSlot: "stop", name: "second" },
+      { featuredRank: 1, featuredSlot: "stop", name: "first" },
+    ]).map((item) => item.name),
+    ["first", "second", "a", "hero"],
+  );
+
+  equal(
+    "the hero of a set is the one elected into the slot",
+    heroPhoto([
+      { featuredRank: 1, featuredSlot: "stop", name: "stop" },
+      { featuredRank: 1, featuredSlot: "hero", name: "hero" },
+    ])?.name,
+    "hero",
+  );
+  equal("no hero elected is null", heroPhoto([{ featuredRank: 1 }]), null);
 }
 
 // --- Rank assignment --------------------------------------------------------
@@ -366,6 +444,192 @@ function trip(
     unrated.highlights.map((item) => item.name),
     ["A meal"],
   );
+
+  // The backdrop. A cover is chosen to crop into a banner and a card is a
+  // portrait of the trip, so the hero slot overrides it when one is elected.
+  const withHero = shareCardFromStoryTrip(
+    trip("Hero card", {
+      coverUrl: "https://example.test/cover.jpg",
+      photos: [
+        photo("cover"),
+        photo("elected", { featuredSlot: "hero", featuredRank: 1 }),
+      ],
+    }),
+  );
+  equal(
+    "the card's backdrop is the hero photo",
+    withHero.coverUrl,
+    "https://example.test/elected.jpg",
+  );
+
+  const noHero = shareCardFromStoryTrip(
+    trip("Plain card", {
+      coverUrl: "https://example.test/cover.jpg",
+      photos: [photo("cover"), photo("other", { featuredRank: 1 })],
+    }),
+  );
+  equal(
+    "with no hero elected the card still uses the trip cover",
+    noHero.coverUrl,
+    "https://example.test/cover.jpg",
+  );
+}
+
+// --- The slots the panel is built from --------------------------------------
+
+{
+  const paris = stop("Paris", {
+    arrival: "2024-04-01",
+    departure: "2024-04-04",
+    experiences: [
+      experience("Louvre", { rating: 9 }),
+      experience("Pont Neuf at night", { rating: 7 }),
+      experience("A very average sandwich", { rating: 3 }),
+    ],
+  });
+  const rome = stop("Rome", {
+    arrival: "2024-04-05",
+    departure: "2024-04-07",
+    experiences: [experience("Pantheon", { rating: 10 })],
+  });
+  const photos = [
+    photo("p1", { dateTaken: "2024-04-01", destinationId: "Paris" }),
+    photo("p2", { dateTaken: "2024-04-02", destinationId: "Paris" }),
+    photo("p3", { dateTaken: "2024-04-03", destinationId: "Paris" }),
+    photo("r1", { dateTaken: "2024-04-05", destinationId: "Rome" }),
+  ];
+  const plain = trip("Europe", {
+    start: "2024-04-01",
+    end: "2024-04-07",
+    coverUrl: "https://example.test/p2.jpg",
+    destinations: [paris, rome],
+    photos,
+  });
+
+  const slots = buildCurationSlots(plain);
+  check("an uncurated trip is untouched", slots.untouched);
+  check("a trip with photos and experiences can be curated", hasCurationSlots(plain));
+
+  // Every slot resolves to something with nothing elected. A slot that showed
+  // nothing would be telling the user their inaction has no consequence, which
+  // is the opposite of true.
+  equal("the hero slot is empty", slots.hero.chosen, null);
+  equal(
+    "the hero slot previews the trip cover",
+    slots.hero.automatic?.id,
+    "p2",
+  );
+  check(
+    "the hero slot says where its automatic answer comes from",
+    slots.hero.automaticReason.length > 0,
+  );
+  equal(
+    "the hero slot offers every photo on the trip",
+    slots.hero.candidates.length,
+    photos.length,
+  );
+
+  equal("one slot per stop that has photos", slots.stops.length, 2);
+  equal(
+    "a stop slot previews what the story would lead with",
+    slots.stops[0].automatic.map((item) => item.id),
+    ["p1", "p2", "p3"],
+  );
+  equal("a stop slot starts empty", slots.stops[0].chosen.length, 0);
+
+  equal(
+    "the highlights slot previews the best-rated three",
+    slots.highlights.automatic.map((item) => item.name),
+    ["Pantheon", "Louvre", "Pont Neuf at night"],
+  );
+  equal("the highlights slot starts empty", slots.highlights.chosen.length, 0);
+  equal(
+    "the highlights picker groups by stop, in visit order",
+    slots.highlights.candidates.map((item) => item.destinationName),
+    ["Paris", "Paris", "Paris", "Rome"],
+  );
+  equal(
+    "and sorts best-rated first inside each stop",
+    slots.highlights.candidates.map((item) => item.name),
+    ["Louvre", "Pont Neuf at night", "A very average sandwich", "Pantheon"],
+  );
+
+  // The same trip, curated. Positions are what the panel renders as badges, so
+  // they have to be 1..N and in the elected order rather than the raw column.
+  const curatedParis = stop("Paris2", {
+    arrival: "2024-04-01",
+    departure: "2024-04-04",
+    experiences: [
+      experience("Louvre", { rating: 9 }),
+      experience("Pont Neuf at night", { rating: 7, featuredRank: 1 }),
+      experience("A very average sandwich", { rating: 3, featuredRank: 2 }),
+    ],
+  });
+  const curated = trip("Europe curated", {
+    start: "2024-04-01",
+    end: "2024-04-07",
+    destinations: [curatedParis],
+    photos: [
+      photo("c1", { dateTaken: "2024-04-01", destinationId: "Paris2" }),
+      photo("c2", {
+        dateTaken: "2024-04-02",
+        destinationId: "Paris2",
+        featuredSlot: "stop",
+        featuredRank: 2,
+      }),
+      photo("c3", {
+        dateTaken: "2024-04-03",
+        destinationId: "Paris2",
+        featuredSlot: "stop",
+        featuredRank: 1,
+      }),
+      photo("c4", {
+        dateTaken: "2024-04-04",
+        destinationId: "Paris2",
+        featuredSlot: "hero",
+        featuredRank: 1,
+      }),
+    ],
+  });
+  const curatedSlots = buildCurationSlots(curated);
+  check("a curated trip is not untouched", !curatedSlots.untouched);
+  equal("the hero slot holds the elected photo", curatedSlots.hero.chosen?.id, "c4");
+  equal(
+    "a stop slot holds its picks in rank order, renumbered from one",
+    curatedSlots.stops[0].chosen.map((item) => [item.id, item.position]),
+    [
+      ["c3", 1],
+      ["c2", 2],
+    ],
+  );
+  equal(
+    "the highlights slot holds the elected order, not the rating order",
+    curatedSlots.highlights.chosen.map((item) => item.name),
+    ["Pont Neuf at night", "A very average sandwich"],
+  );
+  equal(
+    "and positions them from one",
+    curatedSlots.highlights.chosen.map((item) => item.position),
+    [1, 2],
+  );
+  // The hero is not also a stop pick, so it never crowds out one of the four.
+  check(
+    "the hero photo holds no position in its stop's slot",
+    curatedSlots.stops[0].chosen.every((item) => item.id !== "c4"),
+  );
+
+  // A trip with nothing in it has nothing to curate, so the entry point hides
+  // rather than opening three empty slots.
+  check(
+    "an empty trip offers no curation",
+    !hasCurationSlots(trip("Empty", { destinations: [stop("Nowhere")] })),
+  );
+
+  equal("the slot capacities are the surfaces' own numbers", SLOT_CAPACITY, {
+    hero: 1,
+    stopPhotos: 4,
+    highlights: 3,
+  });
 }
 
 // --- The year recap ---------------------------------------------------------
@@ -394,10 +658,19 @@ function trip(
           destinations: [kyoto],
           photos: [
             photo("early", { dateTaken: "2024-05-06", destinationId: "KyotoY" }),
+            // A stop pick, which must NOT open the year: it is an answer to a
+            // different question (which photos lead this stop's slides).
+            photo("stopPick", {
+              dateTaken: "2024-05-07",
+              destinationId: "KyotoY",
+              featuredRank: 1,
+              featuredSlot: "stop",
+            }),
             photo("chosen", {
               dateTaken: "2024-05-08",
               destinationId: "KyotoY",
               featuredRank: 1,
+              featuredSlot: "hero",
             }),
           ],
         }),
@@ -415,7 +688,7 @@ function trip(
   const opener = recap.slides.find((slide) => slide.kind === "opener");
   if (opener && opener.kind === "opener") {
     equal(
-      "the recap opens on the featured photo, not the earliest one",
+      "the recap opens on the hero photo, not the earliest or the stop pick",
       opener.heroUrl,
       "https://example.test/chosen.jpg",
     );

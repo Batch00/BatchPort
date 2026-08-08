@@ -21,7 +21,7 @@
 //      no "no highlights this year" cards, and no insight invented to fill a
 //      category that the data does not support.
 
-import { compareCurated, featuredFirst } from "@/lib/curation";
+import { compareCurated, heroPhoto, stopPhotosFirst } from "@/lib/curation";
 import { countryName, daysUntil, durationDays, formatDate } from "@/lib/format";
 import { haversineKm } from "@/lib/geo";
 import type { ReplayInputStop } from "@/lib/replay";
@@ -47,6 +47,13 @@ export interface YearRecapInput {
    * same three arc families the globe does. Absent entries draw as air. */
   transportModes?: Record<string, TransportMode>;
   bucket?: { total: number; fulfilled: number } | null;
+  /**
+   * The bucket list itself, in the order the bucket page ranks it. The closing
+   * slide names places rather than counting them: "0 of 7" is a scoreboard,
+   * and the interesting part of a bucket list is which places are on it.
+   * Optional, so a surface that has only the totals still renders the bar.
+   */
+  bucketItems?: YearBucketItem[];
   /** Today as YYYY-MM-DD. Passed in rather than read from the clock so the
    * "so far" year and the countdowns are deterministic and testable. */
   today: string;
@@ -199,12 +206,43 @@ export interface YearUpcoming {
   countryCodes: string[];
 }
 
+/**
+ * One bucket list entry, in the shape the recap needs it. Declared here rather
+ * than imported from lib/bucket-list, which is a server module: the recap is
+ * pure and client-safe, and the launchers already hold the rows.
+ */
+export interface YearBucketItem {
+  id: string;
+  type: "country" | "place";
+  /** Already resolved for display: the country name, or the place name. */
+  name: string;
+  /** For the flag, and for the country hero lookup. */
+  countryCode: string | null;
+  /** Set on place items, and what their hero lookup is keyed on. */
+  placeName: string | null;
+  /** ISO timestamp, or null while it is still on the list. */
+  fulfilledAt: string | null;
+  fulfilledTripName: string | null;
+}
+
+export interface YearBucket {
+  total: number;
+  fulfilled: number;
+  pct: number;
+  /** Ticked off during THIS year. Completing one is the better story, so these
+   * lead the block when there are any. */
+  completed: YearBucketItem[];
+  /** The highest-ranked places still to go, in the order the bucket page puts
+   * them. Empty on a list with nothing left, which is its own good ending. */
+  upNext: YearBucketItem[];
+}
+
 export interface YearClosingSlide {
   kind: "closing";
   key: string;
   year: number;
   label: string;
-  bucket: { total: number; fulfilled: number; pct: number } | null;
+  bucket: YearBucket | null;
   upcoming: YearUpcoming[];
 }
 
@@ -248,6 +286,12 @@ const MAX_MOMENTS = 3;
 const MAX_INSIGHTS = 2;
 const MAX_UPCOMING = 3;
 const MAX_ROUTE_STOPS = 3;
+/** Three tiles fill a row and stay a glance. A bucket list of forty is not
+ * more interesting at forty than at three; it is just a list. */
+const MAX_BUCKET_UP_NEXT = 3;
+/** Ticking one off is the better story, so it gets room, but a year that
+ * cleared eight of them still closes on a slide rather than an inventory. */
+const MAX_BUCKET_COMPLETED = 3;
 
 const MONTHS = [
   "January",
@@ -738,9 +782,9 @@ function buildMoments(yearTrips: YearTrip[]): YearMoment[] {
   }
   rated.sort((a, b) => compareCurated(a.item.experience, b.item.experience));
   return rated.slice(0, MAX_MOMENTS).map(({ entry, item }) => {
-    // A featured photo of that stop beats an arbitrary one, for the same
-    // reason a featured experience beats a merely well-rated one.
-    const atStop = featuredFirst(
+    // A photo elected into that stop's slot beats an arbitrary one, for the
+    // same reason a featured experience beats a merely well-rated one.
+    const atStop = stopPhotosFirst(
       entry.photos.filter(
         (candidate) => candidate.destinationId === item.destination.id,
       ),
@@ -765,25 +809,33 @@ function buildMoments(yearTrips: YearTrip[]): YearMoment[] {
 }
 
 /**
- * The image the recap opens on. A photograph the traveller featured comes
- * first, because that is the one question this picture asks and curation is
- * the only direct answer to it. Otherwise a real photograph from the year,
- * taken as early in it as one is dated, since that is where the year started;
- * otherwise the cover of its longest trip, which is an image somebody (or
- * Wikimedia) already chose as representative.
+ * The image the recap opens on. A photograph elected into a trip's HERO slot
+ * comes first, because that is the one question this picture asks and the hero
+ * slot is the only direct answer to it. A year can hold several trips and so
+ * several heroes; the earliest trip's wins, which is where the year started.
+ * Otherwise a real photograph from the year, taken as early in it as one is
+ * dated; otherwise the cover of its longest trip, which is an image somebody
+ * (or Wikimedia) already chose as representative.
+ *
+ * A stop pick is deliberately not a candidate: electing four photos to lead
+ * one stop's story slides says nothing about which frame should open a year.
  */
 function heroImage(yearTrips: YearTrip[]): {
   url: string | null;
   thumbUrl: string | null;
 } {
+  for (const entry of yearTrips) {
+    const hero = heroPhoto(entry.photos);
+    if (hero) return { url: hero.url, thumbUrl: hero.thumbUrl };
+  }
   const photos = yearTrips.flatMap((entry) => entry.photos);
   const dated = photos
     .filter((photo) => dayOf(photo.dateTaken) !== null)
     .sort((a, b) =>
       (dayOf(a.dateTaken) ?? "").localeCompare(dayOf(b.dateTaken) ?? ""),
     );
-  const ordered = featuredFirst([...dated, ...photos.filter((photo) => dayOf(photo.dateTaken) === null)]);
-  const chosen = ordered[0];
+  const chosen =
+    dated[0] ?? photos.find((photo) => dayOf(photo.dateTaken) === null);
   if (chosen) return { url: chosen.url, thumbUrl: chosen.thumbUrl };
   let longest: YearTrip | null = null;
   for (const entry of yearTrips) {
@@ -824,6 +876,43 @@ function replayStops(
     });
   }
   return stops;
+}
+
+/**
+ * The bucket block on the closing slide. The bar alone said "0 of 7", which is
+ * a scoreboard for a thing that is not a game: what a bucket list is actually
+ * about is the places on it, so the block names them.
+ *
+ * Two halves, and the order between them is deliberate. What was ticked off
+ * THIS year comes first, because that is the year's own achievement and the
+ * recap is about the year. What is still to go follows, in the order the
+ * bucket page ranks it, because the slide is also the one that looks forward.
+ */
+function yearBucket(
+  totals: { total: number; fulfilled: number } | null | undefined,
+  items: YearBucketItem[],
+  year: number,
+): YearBucket | null {
+  // The totals come from the SQL view and are the authority on the count; the
+  // items are what the block draws. Either alone is enough to render nothing
+  // useful, so a list with neither is simply absent.
+  const total = totals?.total ?? items.length;
+  if (total === 0) return null;
+  const fulfilled =
+    totals?.fulfilled ?? items.filter((item) => item.fulfilledAt).length;
+  const completed = items
+    .filter((item) => yearOf(dayOf(item.fulfilledAt)) === year)
+    .slice(0, MAX_BUCKET_COMPLETED);
+  const upNext = items
+    .filter((item) => !item.fulfilledAt)
+    .slice(0, MAX_BUCKET_UP_NEXT);
+  return {
+    total,
+    fulfilled,
+    pct: Math.round((fulfilled / total) * 100),
+    completed,
+    upNext,
+  };
 }
 
 function upcomingTrips(
@@ -1023,16 +1112,7 @@ export function buildYearRecap(
     key: "closing",
     year,
     label,
-    bucket:
-      input.bucket && input.bucket.total > 0
-        ? {
-            total: input.bucket.total,
-            fulfilled: input.bucket.fulfilled,
-            pct: Math.round(
-              (input.bucket.fulfilled / input.bucket.total) * 100,
-            ),
-          }
-        : null,
+    bucket: yearBucket(input.bucket, input.bucketItems ?? [], year),
     upcoming,
   });
 

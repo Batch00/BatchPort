@@ -1,6 +1,8 @@
 // Shared domain types mirroring the batchport Postgres schema. Snake_case
 // matches the columns returned by PostgREST so query results map directly.
 
+import type { PhotoSlot } from "@/lib/curation";
+
 export type TripStatus = "completed" | "ongoing" | "planned";
 
 // Focal-point position stored with a cover photo. Values are percentages (0-100)
@@ -106,11 +108,16 @@ export interface Photo {
   // null for photos uploaded before thumbnails existed (they fall back to the
   // full image).
   thumb_path: string | null;
-  // Curation order for the story and the recap: null = not featured, 1 =
-  // first, scoped to the owning trip. See lib/curation.ts. Optional because
-  // the narrow reads that only need a display url do not select it, and
-  // because a database without the migration does not carry it at all.
+  // Curation. `featured_slot` says which slot the photo was elected into and
+  // `featured_rank` its position in that slot: "hero" is the trip's opening
+  // frame (rank 1, one per trip), "stop" is one of up to four photos leading a
+  // destination's story slides (ranked within that destination). Null in both
+  // means uncurated; a rank with no slot predates the slot column and reads as
+  // a stop pick. See lib/curation.ts. Both optional because the narrow reads
+  // that only need a display url do not select them, and because a database
+  // without the migration does not carry them at all.
   featured_rank?: number | null;
+  featured_slot?: PhotoSlot | null;
   created_at: string;
 }
 

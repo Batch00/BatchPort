@@ -36,11 +36,18 @@ async function selectPhotos(
   return ((data ?? []) as Photo[]).map(normalizePhoto);
 }
 
-/** A row from a database without the curation column reads as not featured. */
+/** A row from a database without the curation columns reads as uncurated. A
+ * row that has a rank but no slot is a stop pick, which is what a bare rank
+ * meant before the slot column existed (see lib/curation.ts). */
 function normalizePhoto(row: Photo): Photo {
-  return typeof row.featured_rank === "number"
-    ? row
-    : { ...row, featured_rank: null };
+  const rank = typeof row.featured_rank === "number" ? row.featured_rank : null;
+  const slot =
+    row.featured_slot === "hero" || row.featured_slot === "stop"
+      ? row.featured_slot
+      : rank !== null
+        ? "stop"
+        : null;
+  return { ...row, featured_rank: rank, featured_slot: slot };
 }
 
 // All photos for one entity, ordered for display.

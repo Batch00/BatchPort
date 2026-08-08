@@ -453,6 +453,53 @@ export function replayStateAt(
   };
 }
 
+// --- Playback clock ---------------------------------------------------------
+
+/**
+ * The largest real interval one frame is allowed to represent. A backgrounded
+ * tab stops receiving animation frames, so the first frame after it comes back
+ * carries the whole gap; without this the year would jump to its end while
+ * nobody was looking at it. Half a second of real time is well past any frame
+ * a foreground tab produces.
+ */
+const MAX_FRAME_SECONDS = 0.5;
+
+export interface PlaybackStep {
+  /** Playback seconds, never past the timeline's duration. */
+  clock: number;
+  ended: boolean;
+}
+
+/**
+ * Advance a playback clock by one frame.
+ *
+ * Time is ACCUMULATED (clock + dt * speed) rather than derived from a start
+ * stamp and a rate, which is the whole reason the speed control works: raising
+ * the speed mid-flight speeds up what is left instead of jumping the clock to
+ * where it would have been at the new rate all along. It also means the clock
+ * survives being handed to a fresh animation loop, so rebuilding the canvas
+ * (a resize, a late-loading asset) resumes rather than restarting.
+ *
+ * Pure, so the pacing can be asserted against a real timeline with no browser
+ * (see scripts/check-year-map-playback.ts).
+ */
+export function advancePlayback(
+  clock: number,
+  dtSeconds: number,
+  speed: number,
+  duration: number,
+  mode: "play" | "skip" = "play",
+): PlaybackStep {
+  if (!(duration > 0)) return { clock: 0, ended: true };
+  if (mode === "skip") return { clock: duration, ended: true };
+  const dt = Number.isFinite(dtSeconds)
+    ? clamp(dtSeconds, 0, MAX_FRAME_SECONDS)
+    : 0;
+  const rate = Number.isFinite(speed) && speed > 0 ? speed : 1;
+  const next = Math.min(clock + dt * rate, duration);
+  return { clock: next, ended: next >= duration };
+}
+
 /**
  * The leading portion of a leg's coordinates for a 0..1 progress value, with
  * the tip linearly interpolated between densified points so growth is smooth.

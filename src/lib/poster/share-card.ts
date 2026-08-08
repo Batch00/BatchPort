@@ -17,7 +17,11 @@ import {
   formatDuration,
 } from "@/lib/format";
 import { formatKm } from "@/lib/stats-format";
-import { storyClosingStats, type StoryTrip } from "@/lib/story";
+import {
+  storyClosingStats,
+  storyHeroPhoto,
+  type StoryTrip,
+} from "@/lib/story";
 import {
   appFontStack,
   canvasToBlob,
@@ -190,17 +194,24 @@ export function shareCardFromStoryTrip(trip: StoryTrip): ShareCardData {
   const dateParts = [formatDateRange(trip.startDate, trip.endDate)];
   if (days) dateParts.push(formatDuration(days));
 
+  // The backdrop is the photo elected into the trip's hero slot, and the trip
+  // cover only when nothing was elected. A cover is chosen to crop well into a
+  // banner; a card is a portrait of the trip, and those are not always the
+  // same picture, which is the whole reason the hero slot exists.
+  //
   // The cover has no attribution of its own, but the photo it came from does,
   // and the trip carries both. Matching on the url is what connects them.
-  const coverPhoto = trip.coverUrl
-    ? trip.photos.find((photo) => photo.url === trip.coverUrl)
-    : undefined;
+  const hero = storyHeroPhoto(trip);
+  const coverUrl = hero?.url ?? trip.coverUrl;
+  const coverPhoto =
+    hero ??
+    (coverUrl ? trip.photos.find((photo) => photo.url === coverUrl) : undefined);
 
   return {
     name: trip.name,
     dateLabel: dateParts.join("  ·  "),
     places: placesFor(trip),
-    coverUrl: trip.coverUrl,
+    coverUrl,
     coverAttribution: coverPhoto?.attribution ?? null,
     pins,
     legs,

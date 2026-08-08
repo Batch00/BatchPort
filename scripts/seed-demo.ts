@@ -413,9 +413,10 @@ async function seedTrips(
     totals.trips += 1;
 
     let tripCoverPhotoId: string | null = null;
-    // Featuring is a rank scoped to the trip (see lib/curation.ts), so the
-    // counters reset per trip and count up in the order the fixture lists
-    // them. Experiences and photos rank independently.
+    // Curation is scoped to the trip (see lib/curation.ts), so the counters
+    // reset per trip and count up in the order the fixture lists them. The
+    // experience counter is the trip's highlights ranking; the photo counter
+    // only decides which flagged stop stands as the trip's hero.
     let featuredExperienceRank = 0;
     let featuredPhotoRank = 0;
 
@@ -475,11 +476,22 @@ async function seedTrips(
           attribution: formatAttribution(photo.attribution, photo.license),
           order_index: 0,
         };
+        // Slots, not a flat rank (see lib/curation.ts). Each stop seeds one
+        // photo, so a stop pick is always rank 1 within its own stop; the
+        // first flagged stop on a trip also stands as the trip's hero, which
+        // is what the recap opens on and the share card is drawn over.
+        const heroHere = dest.featuredPhoto && featuredPhotoRank === 0;
+        if (dest.featuredPhoto) featuredPhotoRank += 1;
         let { data: photoRow, error: photoError } = await supabase
           .from("photos")
           .insert({
             ...photoInsert,
-            featured_rank: dest.featuredPhoto ? ++featuredPhotoRank : null,
+            featured_rank: dest.featuredPhoto ? 1 : null,
+            featured_slot: dest.featuredPhoto
+              ? heroHere
+                ? "hero"
+                : "stop"
+              : null,
           })
           .select("id")
           .single();

@@ -12,6 +12,7 @@ import {
   buildYearRecap,
   hasRecap,
   recapYears,
+  type YearBucketItem,
   type YearRecapInput,
   type YearSlide,
 } from "../src/lib/year-recap";
@@ -655,6 +656,111 @@ function input(trips: StoryTrip[], today: string): YearRecapInput {
     JSON.stringify(buildYearRecap(input(trips, "2026-08-07"), 2023).slides),
     JSON.stringify(recap.slides),
   );
+}
+
+// --- 9. The closing slide names bucket list places, not just a score --------
+
+{
+  const trips = [
+    trip("Peru", {
+      start: "2024-09-01",
+      end: "2024-09-12",
+      destinations: [
+        stop("Cusco", { countryCode: "PE", arrival: "2024-09-01", lat: -13.5, lng: -71.9 }),
+      ],
+    }),
+  ];
+  const bucketItems: YearBucketItem[] = [
+    {
+      id: "b1",
+      type: "country",
+      name: "Japan",
+      countryCode: "JP",
+      placeName: null,
+      fulfilledAt: null,
+      fulfilledTripName: null,
+    },
+    {
+      id: "b2",
+      type: "place",
+      name: "Torres del Paine",
+      countryCode: "CL",
+      placeName: "Torres del Paine",
+      fulfilledAt: null,
+      fulfilledTripName: null,
+    },
+    {
+      id: "b3",
+      type: "country",
+      name: "Peru",
+      countryCode: "PE",
+      placeName: null,
+      fulfilledAt: "2024-09-03T10:00:00Z",
+      fulfilledTripName: "Peru",
+    },
+    {
+      id: "b4",
+      type: "country",
+      name: "Iceland",
+      countryCode: "IS",
+      placeName: null,
+      fulfilledAt: "2021-06-01T10:00:00Z",
+      fulfilledTripName: "Ring Road",
+    },
+  ];
+
+  const recap = buildYearRecap(
+    {
+      trips,
+      today: "2026-08-07",
+      bucket: { total: 4, fulfilled: 2 },
+      bucketItems,
+    },
+    2024,
+  );
+  const closing = recap.slides.find((slide) => slide.kind === "closing");
+  check("the year closes on a closing slide", closing?.kind === "closing");
+  if (closing && closing.kind === "closing" && closing.bucket) {
+    equal(
+      "only items ticked off THIS year lead the block",
+      closing.bucket.completed.map((item) => item.name),
+      ["Peru"],
+    );
+    equal(
+      "a completed item carries the trip that did it",
+      closing.bucket.completed[0]?.fulfilledTripName,
+      "Peru",
+    );
+    equal(
+      "what is still to go comes in the list's own order",
+      closing.bucket.upNext.map((item) => item.name),
+      ["Japan", "Torres del Paine"],
+    );
+    equal("the totals still come from the view", closing.bucket.total, 4);
+    equal("and so does the count completed", closing.bucket.fulfilled, 2);
+    equal("the percentage is derived from them", closing.bucket.pct, 50);
+  } else {
+    check("the closing slide carries a bucket block", false);
+  }
+
+  // A surface holding only the totals still renders the bar. The block simply
+  // names nothing, rather than the slide losing its bucket line entirely.
+  const totalsOnly = buildYearRecap(
+    { trips, today: "2026-08-07", bucket: { total: 4, fulfilled: 2 } },
+    2024,
+  );
+  const bare = totalsOnly.slides.find((slide) => slide.kind === "closing");
+  if (bare && bare.kind === "closing") {
+    equal("totals alone still produce a bucket block", bare.bucket?.total, 4);
+    equal("with nothing named", bare.bucket?.upNext.length, 0);
+  }
+
+  // No list at all is absent, not "0 of 0".
+  const none = buildYearRecap({ trips, today: "2026-08-07" }, 2024);
+  const empty = none.slides.find((slide) => slide.kind === "closing");
+  if (empty && empty.kind === "closing") {
+    equal("an empty bucket list produces no block", empty.bucket, null);
+  }
 }
 
 // --- Report -----------------------------------------------------------------

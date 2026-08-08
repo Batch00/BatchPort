@@ -152,22 +152,28 @@ The floating control cluster is ranked by how often a control is actually reache
 - Opens on a title slide (cover, dates, route, country flags) and closes on a scoreboard (days, stops, countries, experiences, photos, distance, best-rated)
 - Photos are the visual backbone: one fills the frame, two to four tile, the rest are counted. Where a day has none, the stop's cover carries the slide and the writing takes the foreground
 - Photos fit the frame rather than being cropped to it when the two disagree. A shape close enough to the slide's fills it; a portrait phone photo on a wide desktop slide, or a wide landscape shot on a phone, is shown whole over a blurred blow-up of itself, so nobody's head is cropped off and the frame is still full. A two-to-four photo tile is a crop by design and keeps filling its cell
-- Featured experiences and photos lead their slide (see Featured below)
+- The photos and experiences you curated lead their slide (see Curation below)
 - Navigation: swipe on touch (horizontal only, so a long entry still scrolls), arrow keys and click zones on desktop, Escape closes, a segmented progress bar tracks position
 - Loads lazily: only the slides adjacent to the current one are mounted, and only the next slide's lead image is preloaded
 - Read-only by construction, so /demo and /share/[slug] offer the same story
 
-### Featured
+### Curation
 
-Ratings say how good something was. They cannot say what the trip was about: a five star museum and a five star gelato are both five stars, and only one of them belongs on a share card. Featuring is how you say which.
+Ratings say how good something was. They cannot say what the trip was about: a five star museum and a five star gelato are both five stars, and only one of them belongs on a share card. Curation is how you say which.
 
-- Mark an experience or a photo as featured from its overflow menu on the trip and destination pages. Featured items carry a small brand mark so the choice is visible where it was made
-- Featured items lead the trip story, the Year in Travel recap, the per-trip share card, and the "best of this trip" block on the trip page, in the order you featured them. The trip page and the card cannot disagree: they run the same ranking
-- **Nothing featured means nothing changes.** Every one of those surfaces falls back to what it did before: the best-rated experiences, and photos in the order the gallery already shows them. An uncurated trip still looks right with zero effort, which is the point
-- Featuring is per trip, up to six of each kind. Beyond that the extras fall back into the normal order rather than pushing the slides around, and the slideshows keep their own tighter caps (three highlights on a card, three moments in a recap, four photos on a slide)
-- A featured experience still needs a rating to appear in a starred highlights row. Featuring is a statement about order, not a substitute for rating something
-- The all-time superlatives on the stats page are deliberately not affected. That is a leaderboard, and a rank you set to pace a slideshow has no business reordering it
-- Read-only surfaces render the result and offer no toggles; the demo account shows curated trips alongside uncurated ones, so both paths are visible
+It is built around the three **slots** where a curated choice actually shows up, so what you are choosing, and what it will replace, is on screen rather than implied. A "Curate" action on the trip page, next to Story and Share, opens the panel.
+
+- **Trip hero (one photo).** The frame the Year in Travel recap opens on, and the photograph the share card is drawn over. Leave it alone and the card uses the trip cover while the recap uses your earliest photo of the year; the panel says so and previews the picture you would get.
+- **Photos per stop (up to four each).** The photos that lead that stop's slides in the trip story. Left alone, the story takes the stop's first photos in the order they were taken, and the panel shows those.
+- **Trip highlights (three, in order).** The list on the share card, the line the story closes on, the moments in the recap, and the "best of this trip" block on the trip page itself. Left alone, all four use your three best-rated, and the trip page block says out loud that that is what it is showing.
+
+Every picker shows the candidates together, with a **position badge** on the ones you have chosen, so first and second are distinguishable rather than both just "picked". Multi-item slots reorder by dragging or with the arrow buttons beside each one. Clearing a slot puts it back on automatic. Choices save as you make them.
+
+- **Nothing curated means nothing changes.** Every surface falls back to exactly what it did before curation existed. An uncurated trip still looks right with zero effort, which is the point, and it is the path almost every trip is on
+- The photo galleries and the experience rows show the **result** (a position number, or a "Hero" mark) and offer no editing of their own. One mechanism, so nothing can disagree with anything
+- A curated experience still needs a rating to appear in a starred highlights row. Curation is a statement about order, not a substitute for rating something, and the picker says so on the row rather than hiding it
+- The all-time superlatives on the stats page are deliberately not affected. That is a leaderboard, and a position you set to pace a slideshow has no business reordering it
+- Read-only surfaces render the result and offer no editing; the demo account shows curated trips alongside uncurated ones, so both paths are visible
 
 ### Year in Travel
 
@@ -178,6 +184,7 @@ A full-screen, paced recap of one year, opened from a card on the dashboard, a b
 - **Nothing is padded.** Every slide past the opening has a condition, so a thin year simply produces fewer slides: no moments without a rating, no map for a single stop, no empty tiles on the scoreboard, and no insight invented to fill a category the data does not support. Planned trips and planned experiences are excluded, as everywhere else; the one place they appear is the closing slide, which is about what is next.
 - **The insights are derived, not fixed.** Four candidates compete and at most two are shown: countries reached for the first time ever, the country the year went deepest into, the longest single trip, and the busiest month. Each has to earn its place (a "deepest" country needs a strict winner, not a tie), and the ranking is banded so a wide margin on the weakest question cannot outrank the strongest one.
 - **The map slide is the globe's own replay engine**, scoped to the year and drawn on a canvas: countries fill in, arcs draw in their transport family's styling, and the month advances in the corner. It plays once when you reach it and offers a replay; under reduced motion it paints the finished year straight away. It is the only thing in the recap that moves on its own, and it never advances the story. The pace is yours: 1x, 2x, or 4x, or skip straight to the finished year. Changing speed mid-draw speeds up what is left rather than jumping the clock, and both controls give way to the replay button once the year is drawn.
+- **The closing slide names places, it does not score them.** A bucket list is interesting for what is on it, so the slide shows the places: the ones you ticked off during this year first, with the trip that did it, then the top few still to go, each with its photograph (the same one the bucket cards show, from the same cached lookup). The progress bar is underneath as a footnote rather than the whole block, and a list with nothing on it produces no block at all.
 - **Pacing.** Each slide's pieces rise and fade in on a short stagger and the numbers count up, all of it off under `prefers-reduced-motion`. Advancing is always yours: swipe, arrow keys, click zones, or the buttons.
 
 **The year card.** A shareable image of the year through the same pipeline as the trip share cards: square and 9:16, both 2160px on the short edge. Where a trip card leads with a photograph, the year card leads with the map, because a year has no single cover and picking one trip's photo to stand for twelve months would be a claim the data does not support. The map is framed to the year rather than to the planet, so a year spent in Iceland fills the panel instead of scattering four dots across an empty ocean. Under it: the countries, the headline numbers, and the year's best-rated moments. Offered from the recap's closing slide, and read-only like everything else here, so the demo and share surfaces can generate one too.
@@ -386,11 +393,18 @@ npm run resync-trip-schedules
 # produces. Pure functions against fixtures, no database and no dev server.
 npm run check-year-recap
 
-# Deterministic checks for the featured curation model: rank ordering, the
-# per-trip cap, rank assignment, and what the story, share card, and recap
-# actually select, including the uncurated fallback on every one of them.
+# Deterministic checks for the curation model: rank ordering, the cap, the two
+# photo slots and their backwards compatibility, what each slot holds and what
+# it falls back to, and what the story, share card, and recap actually select,
+# including the uncurated path on every one of them.
 # Pure functions against fixtures, no database and no dev server.
 npm run check-curation
+
+# Deterministic checks for the recap map slide's playback clock: that every
+# speed reaches the end of a real multi-trip year, that changing speed
+# mid-flight rescales what is left rather than truncating it, that skip lands
+# on the finished year, and that rebuilding the canvas mid-playback resumes.
+npm run check-year-map-playback
 
 # Find photo rows whose owner entity no longer exists. Report only:
 npm run cleanup-orphan-photos -- --dry-run
@@ -557,7 +571,9 @@ src/
     experiences.ts               Experience data layer and getCategories()
     bucket-list.ts               Bucket list data layer and autoFulfillBucketItems()
     bucket-format.ts             Bucket item display formatting helpers
-    curation.ts                  Featured ranking model and comparators (pure, client-safe)
+    curation.ts                  Curation model, slots, and comparators (pure, client-safe)
+    curation-slots.ts            The three slots of one trip and their automatic answers (pure)
+    bucket-hero.ts               Bucket list hero image lookup and session cache (client)
     photos.ts                    Photo helpers: resizeImage, uploadPhoto, getPhotoUrl (client-safe)
     photos-data.ts               Server photo reads and autoPopulateDestinationCover()
     photo-cleanup.ts             Shared photo deletion: rows, Storage, cover pointers, owner lists
@@ -610,7 +626,7 @@ src/
       destinations.ts            Destination server actions (triggers Wikimedia + bucket auto-fulfill)
       experiences.ts             Experience server actions
       photos.ts                  Photo record server actions (insert, setCover, retag, delete + Storage cleanup)
-      curation.ts                Feature/unfeature an experience or a photo (rank assigned per trip)
+      curation.ts                Curation slot writes: trip hero, a stop's photos, the highlights
       bucket-list.ts             Bucket list server actions
       transport.ts               Transport leg server actions (upsert by stop, delete)
       share-settings.ts          Share settings server action
@@ -633,7 +649,8 @@ scripts/
   demo-dataset.ts                The demo showcase fixture (trips, destinations, experiences, bucket items)
   generate-mock-globe.ts         Regenerates src/lib/mock-travel-data.ts, the landing hero's static fallback
   check-year-recap.ts            Asserts the Year in Travel slicing and edge cases against fixtures
-  check-curation.ts              Asserts the featured model and every surface that selects from it
+  check-curation.ts              Asserts the curation model, its slots, and every surface that selects from them
+  check-year-map-playback.ts     Asserts the recap map slide's clock: every speed, mid-flight changes, skip, rebuilds
   backfill-photos.ts             Backfills Wikimedia cover photos for existing destinations
   backfill-thumbnails.ts         Generates {storage_path}_thumb thumbnails and sets photos.thumb_path
   backfill-exif.ts               Backfills date_taken and GPS from stored originals
@@ -714,15 +731,23 @@ rows out entirely rather than offering a control that cannot save, arcs on the
 globe keep their original styling, the stats page shows no distance breakdown,
 and `npm run seed-demo` still seeds a complete demo account without legs.
 
-Featured curation needs a `featured_rank smallint` column on both
-`batchport.experiences` and `batchport.photos`, plus the two partial indexes
-that serve it. Run `scripts/sql/2026-08-07-featured-curation.sql` in the
-Supabase SQL editor. Until it runs the app degrades cleanly: every surface
-falls back to ratings and the existing photo order exactly as it did before
-featuring existed, photo reads retry without the column, and tapping "Feature
-in story" reports "Featuring is not set up on this database yet" rather than
-pretending to have saved. `npm run seed-demo` also still seeds a complete demo
-account, just with nothing featured.
+Curation needs two migrations, in order. First
+`scripts/sql/2026-08-07-featured-curation.sql`, which adds a `featured_rank
+smallint` column to both `batchport.experiences` and `batchport.photos` plus
+the two partial indexes that serve it. Then
+`scripts/sql/2026-08-08-curation-slots.sql`, which adds
+`batchport.photos.featured_slot text` ('hero' or 'stop') so a photo's rank
+says which of the two photo slots it holds, and its index. Run both in the
+Supabase SQL editor.
+
+Until they run the app degrades cleanly: every surface falls back to ratings
+and the existing photo order exactly as it did before curation existed, photo
+reads retry without the columns, and saving a slot reports "Curation is not set
+up on this database yet" rather than pretending to have saved. A photo row
+carrying a rank but no slot (anything curated before the second migration)
+reads as a stop pick, which is what a bare rank meant then, so nothing that was
+already curated changes. `npm run seed-demo` also still seeds a complete demo
+account, just with nothing curated.
 
 Nearby mode needs no migration. It reads the destinations the globe already has
 and the planned experiences that carry a `geom`, so it works as soon as the

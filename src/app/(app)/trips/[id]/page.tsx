@@ -11,6 +11,7 @@ import { TripJournal } from "@/components/trips/trip-journal";
 import { TripOfflineToggle } from "@/components/offline/trip-offline-toggle";
 import { TransportLegRow } from "@/components/trips/transport-leg";
 import { StoryLauncher } from "@/components/trips/story-launcher";
+import { TripCurationButton } from "@/components/trips/trip-curation";
 import { TripShareCardButton } from "@/components/share/trip-share-card";
 import { hasStory, type StoryPhoto, type StoryTrip } from "@/lib/story";
 import { getCategories } from "@/lib/experiences";
@@ -119,8 +120,14 @@ export default async function TripDetailPage({
   ).length;
 
   // Best of this trip: derived from the experiences already fetched above, so
-  // it costs nothing extra.
+  // it costs nothing extra. Whether the list is the traveller's own or the
+  // automatic top-rated one is said on the block, not left to be inferred.
   const tripBests = tripHighlights(trip.destinations);
+  const highlightsCurated = trip.destinations.some((destination) =>
+    destination.experiences.some(
+      (experience) => (experience.featured_rank ?? 0) > 0,
+    ),
+  );
 
   // Group each destination's photos so we can resolve per-card covers.
   const photosByDestination = new Map<string, Photo[]>();
@@ -200,6 +207,7 @@ export default async function TripDetailPage({
     dateTaken: photo.date_taken,
     attribution: photo.attribution,
     featuredRank: photo.featured_rank ?? null,
+    featuredSlot: photo.featured_slot ?? null,
     destinationId,
   });
   const storyTrip: StoryTrip = {
@@ -283,6 +291,9 @@ export default async function TripDetailPage({
             <>
               <StoryLauncher trip={storyTrip} />
               <TripShareCardButton trip={storyTrip} />
+              {/* Third of the three, and next to them deliberately: it is the
+                  control for what those two show. */}
+              <TripCurationButton trip={storyTrip} isDemo={isDemo} />
             </>
           ) : null}
           <Link
@@ -356,7 +367,7 @@ export default async function TripDetailPage({
         />
       ) : null}
 
-      <TripHighlights highlights={tripBests} />
+      <TripHighlights highlights={tripBests} curated={highlightsCurated} />
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-medium text-foreground/80">Destinations</h2>

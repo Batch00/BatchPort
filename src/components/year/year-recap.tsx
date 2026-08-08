@@ -16,9 +16,18 @@ import { RatingDisplay } from "@/components/rating-display";
 import { AnimatedNumber, CountUpGroup } from "@/components/stats/count-up";
 import { YearMapSlide } from "@/components/year/year-map-slide";
 import { YearShareCardButton } from "@/components/year/year-share-card";
+import {
+  bucketHeroKey,
+  cachedBucketHero,
+  fetchBucketHero,
+  hasCachedBucketHero,
+  rememberBucketHero,
+} from "@/lib/bucket-hero";
 import { cn } from "@/lib/utils";
 import {
   buildYearRecap,
+  type YearBucket,
+  type YearBucketItem,
   type YearClosingSlide,
   type YearInsightSlide,
   type YearMomentsSlide,
@@ -476,6 +485,178 @@ function ScoreboardView({
   );
 }
 
+/**
+ * One bucket list place, with its photograph.
+ *
+ * The image is resolved client-side through the same lookup and the same
+ * session cache the bucket cards use (lib/bucket-hero.ts), so a place cannot
+ * show one picture on the bucket page and another here. A miss is a designed
+ * state: the tile keeps the brand gradient and the name, which is the part
+ * that matters.
+ */
+function BucketTile({
+  item,
+  done,
+}: {
+  item: YearBucketItem;
+  done: boolean;
+}) {
+  const key = bucketHeroKey({
+    type: item.type,
+    countryCode: item.countryCode,
+    placeName: item.placeName,
+  });
+  const [hero, setHero] = useState<string | null>(
+    () => cachedBucketHero(key) ?? null,
+  );
+
+  useEffect(() => {
+    if (hasCachedBucketHero(key)) return;
+    let live = true;
+    fetchBucketHero({
+      type: item.type,
+      countryCode: item.countryCode,
+      placeName: item.placeName,
+    })
+      .then((url) => {
+        rememberBucketHero(key, url);
+        if (live) setHero(url);
+      })
+      .catch(() => {
+        rememberBucketHero(key, null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [key, item.type, item.countryCode, item.placeName]);
+
+  return (
+    <div className="relative isolate aspect-[4/3] overflow-hidden rounded-xl bg-gradient-to-br from-brand/20 via-[#101623] to-[#0a0a0a] ring-1 ring-white/10">
+      {hero ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={hero}
+          alt=""
+          loading="lazy"
+          className={cn(
+            "absolute inset-0 size-full object-cover",
+            done && "saturate-50",
+          )}
+        />
+      ) : null}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
+      {done ? (
+        <span className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full bg-brand text-brand-foreground">
+          <CheckIcon className="size-3" />
+        </span>
+      ) : null}
+      <div className="absolute inset-x-0 bottom-0 p-2 text-left">
+        <p className="flex items-center gap-1.5 text-xs font-medium text-white">
+          {item.countryCode ? (
+            <CountryFlag code={item.countryCode} className="h-3 shrink-0" />
+          ) : null}
+          <span className="truncate">{item.name}</span>
+        </p>
+        {done && item.fulfilledTripName ? (
+          <p className="mt-0.5 truncate text-[10px] text-white/55">
+            {item.fulfilledTripName}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The bucket list on the closing slide.
+ *
+ * It used to be a bar and "0 of 7", which is a scoreboard for something that
+ * is not a game: what a bucket list is about is the places on it. So the
+ * places are the block and the bar is the footnote. What was ticked off this
+ * year leads when there is any, because completing one is the better story and
+ * this is a recap of the year that did it.
+ */
+function BucketBlock({
+  bucket,
+  active,
+}: {
+  bucket: YearBucket;
+  active: boolean;
+}) {
+  const nothingLeft = bucket.upNext.length === 0 && bucket.fulfilled > 0;
+  return (
+    <div className="mt-6">
+      {bucket.completed.length > 0 ? (
+        <Rise active={active} delay={120}>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-brand">
+            Ticked off this year
+          </p>
+          <div
+            className={cn(
+              "mx-auto mt-2.5 grid gap-2",
+              bucket.completed.length === 1
+                ? "max-w-[13rem] grid-cols-1"
+                : bucket.completed.length === 2
+                  ? "max-w-sm grid-cols-2"
+                  : "grid-cols-3",
+            )}
+          >
+            {bucket.completed.map((item) => (
+              <BucketTile key={item.id} item={item} done />
+            ))}
+          </div>
+        </Rise>
+      ) : null}
+
+      {bucket.upNext.length > 0 ? (
+        <Rise active={active} delay={bucket.completed.length > 0 ? 260 : 120}>
+          <p
+            className={cn(
+              "text-[11px] uppercase tracking-[0.18em] text-white/40",
+              bucket.completed.length > 0 && "mt-6",
+            )}
+          >
+            Still on the list
+          </p>
+          <div
+            className={cn(
+              "mx-auto mt-2.5 grid gap-2",
+              bucket.upNext.length === 1
+                ? "max-w-[13rem] grid-cols-1"
+                : bucket.upNext.length === 2
+                  ? "max-w-sm grid-cols-2"
+                  : "grid-cols-3",
+            )}
+          >
+            {bucket.upNext.map((item) => (
+              <BucketTile key={item.id} item={item} done={false} />
+            ))}
+          </div>
+        </Rise>
+      ) : null}
+
+      <Rise active={active} delay={360}>
+        <div className="mx-auto mt-4 max-w-sm">
+          <div className="flex items-baseline justify-between text-xs">
+            <span className="text-white/50">
+              {nothingLeft ? "Bucket list, all done" : "Bucket list"}
+            </span>
+            <span className="tabular-nums text-white/80">
+              {bucket.fulfilled} of {bucket.total}
+            </span>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full rounded-full bg-brand transition-[width] duration-700"
+              style={{ width: active ? `${bucket.pct}%` : "0%" }}
+            />
+          </div>
+        </div>
+      </Rise>
+    </div>
+  );
+}
+
 function ClosingView({
   slide,
   recap,
@@ -499,22 +680,7 @@ function ClosingView({
       </Rise>
 
       {slide.bucket ? (
-        <Rise active={active} delay={120}>
-          <div className="mx-auto mt-6 max-w-sm rounded-xl border border-white/10 bg-white/[0.03] p-4">
-            <div className="flex items-baseline justify-between text-sm">
-              <span className="text-white/60">Bucket list</span>
-              <span className="tabular-nums text-white">
-                {slide.bucket.fulfilled} of {slide.bucket.total}
-              </span>
-            </div>
-            <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white/10">
-              <div
-                className="h-full rounded-full bg-brand transition-[width] duration-700"
-                style={{ width: active ? `${slide.bucket.pct}%` : "0%" }}
-              />
-            </div>
-          </div>
-        </Rise>
+        <BucketBlock bucket={slide.bucket} active={active} />
       ) : null}
 
       {slide.upcoming.length > 0 ? (

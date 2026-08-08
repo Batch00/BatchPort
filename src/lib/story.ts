@@ -1,4 +1,10 @@
-import { compareCurated, featuredFirst } from "@/lib/curation";
+import {
+  compareCurated,
+  featuredFirst,
+  heroPhoto,
+  stopPhotosFirst,
+  type PhotoSlot,
+} from "@/lib/curation";
 import { durationDays } from "@/lib/format";
 import { haversineKm } from "@/lib/geo";
 import { dateRange, destinationForDate } from "@/lib/journal";
@@ -35,8 +41,10 @@ export interface StoryPhoto {
   /** YYYY-MM-DD or a timestamp; only the date part is used for grouping. */
   dateTaken: string | null;
   attribution: string | null;
-  /** Curation order within the trip, or null. See lib/curation.ts. */
+  /** Curation: which slot the photo was elected into, and its position in it.
+   * See lib/curation.ts. */
   featuredRank?: number | null;
+  featuredSlot?: PhotoSlot | null;
   /** The stop this photo hangs off, directly or through its experience. Null
    * for trip-level photos, which are placed by date instead. */
   destinationId: string | null;
@@ -265,26 +273,50 @@ export function storyClosingStats(trip: StoryTrip): StoryClosingStats {
 }
 
 /**
+ * Which stop each of a trip's photos belongs to, and the ones that belong to
+ * none. A photo owned by a stop (or by an experience at one) is already
+ * placed; a trip-level photo is placed by its date, and one with no date and
+ * nothing to place it against opens the story instead.
+ *
+ * Exported because the curation panel offers "this stop's photos" and has to
+ * offer exactly the set the story will actually draw from. Two answers to that
+ * question would mean electing a photo into a slot it never appears in.
+ */
+export function photosByStop(trip: StoryTrip): {
+  byDestination: Map<string, StoryPhoto[]>;
+  unplaced: StoryPhoto[];
+} {
+  const byDestination = new Map<string, StoryPhoto[]>();
+  const unplaced: StoryPhoto[] = [];
+  for (const photo of trip.photos) {
+    if (photo.destinationId) {
+      push(byDestination, photo.destinationId, photo);
+      continue;
+    }
+    const date = dayOf(photo.dateTaken);
+    const destination = date ? nearestDestination(trip.destinations, date) : null;
+    if (destination) push(byDestination, destination.id, photo);
+    else unplaced.push(photo);
+  }
+  return { byDestination, unplaced };
+}
+
+/** The photo elected as this trip's hero: the recap's opening frame and the
+ * share card's backdrop. Null when nothing was elected, in which case both
+ * surfaces fall back to what they used before (see their own callers). */
+export function storyHeroPhoto(trip: StoryTrip): StoryPhoto | null {
+  return heroPhoto(trip.photos);
+}
+
+/**
  * Fold a trip into its slides: an opener, the days (or stops) in visit order,
  * and a closing scoreboard. Always returns at least the opener and the
  * closing, so the view never has to handle an empty sequence.
  */
 export function buildStorySlides(trip: StoryTrip): StorySlide[] {
   // --- Bucket everything by the stop that owns it, then by day -------------
-  const photosByDestination = new Map<string, StoryPhoto[]>();
-  const openerPhotos: StoryPhoto[] = [];
-  for (const photo of trip.photos) {
-    if (photo.destinationId) {
-      push(photosByDestination, photo.destinationId, photo);
-      continue;
-    }
-    // A trip-level photo has no stop of its own, so its date places it. With
-    // no date and nothing to place it against, it opens the story instead.
-    const date = dayOf(photo.dateTaken);
-    const destination = date ? nearestDestination(trip.destinations, date) : null;
-    if (destination) push(photosByDestination, destination.id, photo);
-    else openerPhotos.push(photo);
-  }
+  const { byDestination: photosByDestination, unplaced: openerPhotos } =
+    photosByStop(trip);
 
   const journalDates = Object.keys(trip.journal).sort();
   const journalByDestination = new Map<string, string[]>();
@@ -309,7 +341,7 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
           .filter((code): code is string => Boolean(code)),
       ),
     ),
-    photos: featuredFirst(openerPhotos),
+    photos: stopPhotosFirst(openerPhotos),
   });
 
   // Day numbering runs off the trip's own first day when it has one, so
@@ -380,7 +412,7 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
         // with the rest counted, so on a heavily photographed day this is the
         // difference between the four the traveller chose and the first four
         // the camera happened to take.
-        photos: featuredFirst(photos),
+        photos: stopPhotosFirst(photos),
         experiences: featuredFirst(experiences),
       });
     }
@@ -397,7 +429,7 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
           kind: "stop",
           key: `stop:${destination.id}`,
           destination,
-          photos: featuredFirst(undatedPhotos),
+          photos: stopPhotosFirst(undatedPhotos),
           experiences: featuredFirst(undatedExperiences),
         });
       }
@@ -406,7 +438,7 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
 
     // Undated leftovers ride on the stop's first slide rather than vanishing,
     // and are re-sorted with it so a featured undated photo still leads.
-    daySlides[0].photos = featuredFirst([
+    daySlides[0].photos = stopPhotosFirst([
       ...daySlides[0].photos,
       ...undatedPhotos,
     ]);

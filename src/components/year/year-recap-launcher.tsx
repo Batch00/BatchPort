@@ -4,9 +4,11 @@ import { useMemo, useState } from "react";
 import { SparklesIcon } from "lucide-react";
 
 import { YearRecapView } from "@/components/year/year-recap";
+import { bucketItemName } from "@/lib/bucket-format";
 import { formatKm } from "@/lib/stats-format";
 import { storyTripFromProfile } from "@/lib/story";
 import { cn } from "@/lib/utils";
+import type { BucketItem } from "@/lib/bucket-list";
 import type { ProfileTrip } from "@/lib/share-data";
 import type { TransportMode } from "@/lib/transport";
 import {
@@ -32,12 +34,16 @@ export type YearRecapVariant = "banner" | "button";
 export function YearRecapLauncher({
   trips,
   bucket,
+  bucketItems,
   today,
   variant = "banner",
   className,
 }: {
   trips: ProfileTrip[];
   bucket?: { total: number; fulfilled: number } | null;
+  /** The list itself, so the closing slide can name places rather than count
+   * them. Optional: a surface that has only the totals still shows the bar. */
+  bucketItems?: BucketItem[];
   /** YYYY-MM-DD, resolved on the server so the offered years and the "so far"
    * label are the same on both sides of hydration. */
   today: string;
@@ -57,9 +63,21 @@ export function YearRecapLauncher({
       trips: trips.map(storyTripFromProfile),
       transportModes,
       bucket: bucket ?? null,
+      // Mapped here rather than crossing the boundary in the recap's own
+      // shape, for the same reason the trips are: the recap is pure and the
+      // surfaces already hold these rows.
+      bucketItems: (bucketItems ?? []).map((item) => ({
+        id: item.id,
+        type: item.type,
+        name: bucketItemName(item),
+        countryCode: item.country_code,
+        placeName: item.place_name,
+        fulfilledAt: item.fulfilled_at,
+        fulfilledTripName: item.fulfilled_trip_name,
+      })),
       today,
     };
-  }, [trips, bucket, today]);
+  }, [trips, bucket, bucketItems, today]);
 
   const years = useMemo(
     () => recapYears(input.trips, today),

@@ -91,6 +91,7 @@ export default async function DashboardPage() {
         <YearRecapLauncher
           trips={trips}
           bucket={stats.bucket}
+          bucketItems={bucketItems}
           today={todayIso()}
         />
 

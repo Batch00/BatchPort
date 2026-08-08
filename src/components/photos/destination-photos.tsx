@@ -107,7 +107,6 @@ export function DestinationPhotos({
             editable
             ownerType="destination"
             ownerId={destination.id}
-            tripId={tripId}
             secondaryCoverTarget={() => ({ ownerType: "trip", ownerId: tripId })}
             retagDestinations={[destination]}
             isDemo={isDemo}

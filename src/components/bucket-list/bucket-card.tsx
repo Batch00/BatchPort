@@ -20,6 +20,14 @@ import {
 import { SafeImage } from "@/components/photos/safe-image";
 import { StatusBadge } from "@/components/trips/status-badge";
 import { bucketItemName } from "@/lib/bucket-format";
+import {
+  bucketHeroKey,
+  cachedBucketHero,
+  fetchBucketHero,
+  hasCachedBucketHero,
+  rememberBucketHero,
+  type BucketHeroKey,
+} from "@/lib/bucket-hero";
 import { coverImageStyle } from "@/lib/photos";
 import { CountryFlag } from "@/components/country-flag";
 import { formatDate } from "@/lib/format";
@@ -57,35 +65,14 @@ interface BucketCardProps {
   onDelete?: () => void;
 }
 
-// Session-level hero cache: cards remount on every router.refresh (any
-// mutation), and re-fetching every image each time causes a skeleton flash.
-// The server side is cached in geocode_cache; this only avoids repeat round
-// trips within one browser session.
-const heroCache = new Map<string, string | null>();
-
-function heroCacheKey(item: BucketItem): string {
-  return item.type === "country"
-    ? `country:${item.country_code ?? ""}`
-    : `place:${item.place_name ?? ""}:${item.country_code ?? ""}`;
-}
-
-async function fetchHeroUrl(item: BucketItem): Promise<string | null> {
-  if (item.type === "country") {
-    if (!item.country_code) return null;
-    const response = await fetch(`/api/discover/country?code=${item.country_code}`);
-    if (!response.ok) return null;
-    const data = (await response.json()) as { heroImageUrl?: string | null };
-    // Already proxied by the discover route.
-    return data.heroImageUrl ?? null;
-  }
-  if (!item.place_name) return null;
-  const response = await fetch(
-    `/api/photos/wikimedia?q=${encodeURIComponent(item.place_name)}`,
-  );
-  if (!response.ok) return null;
-  const data = (await response.json()) as { url?: string | null };
-  if (!data.url) return null;
-  return `/api/photos/wikimedia/proxy?url=${encodeURIComponent(data.url)}`;
+/** The lookup and its session cache live in lib/bucket-hero.ts: the recap's
+ * closing slide shows the same places and has to show the same pictures. */
+function heroKeyOf(item: BucketItem): BucketHeroKey {
+  return {
+    type: item.type,
+    countryCode: item.country_code,
+    placeName: item.place_name,
+  };
 }
 
 export function BucketCard({
@@ -102,22 +89,22 @@ export function BucketCard({
 }: BucketCardProps) {
   const fulfilled = Boolean(item.fulfilled_at);
   const name = bucketItemName(item);
-  const cacheKey = heroCacheKey(item);
+  const cacheKey = bucketHeroKey(heroKeyOf(item));
 
   // The trip cover needs no lookup; only Wikimedia heroes are fetched.
   const [hero, setHero] = useState<string | null>(
-    () => heroCache.get(cacheKey) ?? null,
+    () => cachedBucketHero(cacheKey) ?? null,
   );
   const [heroSettled, setHeroSettled] = useState(
-    () => Boolean(tripCover) || heroCache.has(cacheKey),
+    () => Boolean(tripCover) || hasCachedBucketHero(cacheKey),
   );
 
   useEffect(() => {
-    if (tripCover || heroCache.has(cacheKey)) return;
+    if (tripCover || hasCachedBucketHero(cacheKey)) return;
     let active = true;
-    fetchHeroUrl(item)
+    fetchBucketHero(heroKeyOf(item))
       .then((url) => {
-        heroCache.set(cacheKey, url);
+        rememberBucketHero(cacheKey, url);
         if (active) {
           setHero(url);
           setHeroSettled(true);

@@ -1,23 +1,43 @@
-import { TrophyIcon } from "lucide-react";
+import { SparklesIcon, TrophyIcon } from "lucide-react";
 
 import { RatingDisplay } from "@/components/rating-display";
 import type { TripHighlight } from "@/lib/superlatives";
 
-// The best-rated experiences on this trip. Derived from rows the trip page
-// already fetched, so it adds no query. Renders nothing when the trip has too
-// few ratings to rank.
+// The three experiences that represent this trip: the highlights slot, or the
+// best-rated when nothing has been elected into it. Derived from rows the trip
+// page already fetched, so it adds no query. Renders nothing when the trip has
+// too few ratings to rank.
+//
+// The header says WHICH of the two this is. These same three lines are printed
+// on the share card, and somebody looking at a list they did not choose should
+// be able to tell that at a glance rather than by opening the Curate panel to
+// find out.
 export function TripHighlights({
   highlights,
+  curated = false,
 }: {
   highlights: TripHighlight[];
+  curated?: boolean;
 }) {
   if (highlights.length === 0) return null;
 
   return (
     <section className="mb-8">
       <h2 className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-foreground/40">
-        <TrophyIcon className="size-3 text-brand/70" />
-        Best of this trip
+        {curated ? (
+          <>
+            <SparklesIcon className="size-3 text-brand" />
+            Your highlights
+          </>
+        ) : (
+          <>
+            <TrophyIcon className="size-3 text-brand/70" />
+            Best of this trip
+            <span className="font-normal normal-case tracking-normal text-foreground/30">
+              (top rated, until you curate)
+            </span>
+          </>
+        )}
       </h2>
       <ol className="flex flex-col gap-1.5">
         {highlights.map((highlight) => (

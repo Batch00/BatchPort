@@ -39,12 +39,12 @@ export const PHOTO_BUCKET = "batchport";
 export const PHOTO_COLUMNS =
   "id,user_id,owner_type,owner_id,source,storage_path,external_url,attribution,order_index,date_taken,thumb_path,created_at";
 
-// The same list plus the curation column. Separate rather than folded into
-// PHOTO_COLUMNS because that column may not exist yet: a read that names it on
-// a database without the migration fails outright, so only the reads that
-// actually need curation ask for it, and those retry with PHOTO_COLUMNS on
+// The same list plus the curation columns. Separate rather than folded into
+// PHOTO_COLUMNS because those columns may not exist yet: a read that names one
+// on a database without the migration fails outright, so only the reads that
+// actually need curation ask for them, and those retry with PHOTO_COLUMNS on
 // 42703 (see isMissingPhotoColumn).
-export const PHOTO_COLUMNS_CURATED = `${PHOTO_COLUMNS},featured_rank`;
+export const PHOTO_COLUMNS_CURATED = `${PHOTO_COLUMNS},featured_rank,featured_slot`;
 
 /** PostgREST reports a selected column that does not exist as 42703. */
 export function isMissingPhotoColumn(
