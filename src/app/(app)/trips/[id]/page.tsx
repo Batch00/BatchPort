@@ -199,6 +199,7 @@ export default async function TripDetailPage({
     thumbUrl: getPhotoUrl(photo, "thumb"),
     dateTaken: photo.date_taken,
     attribution: photo.attribution,
+    featuredRank: photo.featured_rank ?? null,
     destinationId,
   });
   const storyTrip: StoryTrip = {
@@ -209,6 +210,7 @@ export default async function TripDetailPage({
     endDate: trip.end_date,
     notes: trip.notes,
     coverUrl: bannerPhoto ? getPhotoUrl(bannerPhoto) : null,
+    coverThumbUrl: bannerPhoto ? getPhotoUrl(bannerPhoto, "thumb") : null,
     journal: Object.fromEntries(
       journalEntries.map((entry) => [entry.entry_date.slice(0, 10), entry.body]),
     ),
@@ -231,6 +233,10 @@ export default async function TripDetailPage({
         const cover = destinationCovers.get(destination.id);
         return cover ? getPhotoUrl(cover.photo) : null;
       })(),
+      coverThumbUrl: (() => {
+        const cover = destinationCovers.get(destination.id);
+        return cover ? getPhotoUrl(cover.photo, "thumb") : null;
+      })(),
       // Planned ideas are not part of the record of what happened.
       experiences: destination.experiences
         .filter((experience) => experience.status !== "planned")
@@ -247,6 +253,7 @@ export default async function TripDetailPage({
             categoryLabel: category?.label ?? null,
             categoryIcon: category?.icon ?? null,
             categoryColor: category?.color ?? null,
+            featuredRank: experience.featured_rank,
           };
         }),
     })),

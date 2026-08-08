@@ -68,6 +68,7 @@ The floating control cluster is ranked by how often a control is actually reache
 - Cover photo management on trips and destinations: explicit picker with crop/zoom, or falls back to the first photo; galleries can set a photo as either the destination cover or the trip cover
 - Attribution stored on Wikimedia photos (artist and license from Commons extmetadata)
 - Manual location override: a mislocated photo can be pointed at one of your destinations, or cleared back to its owner's location
+- Photos are requested at the size the surface actually renders: the small gallery thumbnail in a grid tile or a card, the full image anywhere larger. On a story or recap slide the thumbnail is used only as a placeholder that paints instantly and crossfades out when the full image arrives, so nothing is ever a blurry final state and nothing waits on a blank frame
 - Deletion cascade: photos is polymorphic (owner_type and owner_id, no foreign key), so Postgres never cascades to it. Deleting a trip, destination, or experience removes the photos it owned (including its children's, for a trip) along with their upload Storage objects and thumbnails; shared Wikimedia cache files are kept, and any cover pointer on a surviving parent is cleared. Cleanup is best-effort after the entity delete succeeds, so a Storage hiccup can never resurrect a deleted trip. Historical orphans are recoverable with `npm run cleanup-orphan-photos`.
 
 ### Stats Dashboard
@@ -150,9 +151,23 @@ The floating control cluster is ranked by how often a control is actually reache
 - Undated things do not disappear: a photo or experience without a date rides on its stop's first slide, and a stop that produced no dated day gets a single slide of its own
 - Opens on a title slide (cover, dates, route, country flags) and closes on a scoreboard (days, stops, countries, experiences, photos, distance, best-rated)
 - Photos are the visual backbone: one fills the frame, two to four tile, the rest are counted. Where a day has none, the stop's cover carries the slide and the writing takes the foreground
+- Photos fit the frame rather than being cropped to it when the two disagree. A shape close enough to the slide's fills it; a portrait phone photo on a wide desktop slide, or a wide landscape shot on a phone, is shown whole over a blurred blow-up of itself, so nobody's head is cropped off and the frame is still full. A two-to-four photo tile is a crop by design and keeps filling its cell
+- Featured experiences and photos lead their slide (see Featured below)
 - Navigation: swipe on touch (horizontal only, so a long entry still scrolls), arrow keys and click zones on desktop, Escape closes, a segmented progress bar tracks position
 - Loads lazily: only the slides adjacent to the current one are mounted, and only the next slide's lead image is preloaded
 - Read-only by construction, so /demo and /share/[slug] offer the same story
+
+### Featured
+
+Ratings say how good something was. They cannot say what the trip was about: a five star museum and a five star gelato are both five stars, and only one of them belongs on a share card. Featuring is how you say which.
+
+- Mark an experience or a photo as featured from its overflow menu on the trip and destination pages. Featured items carry a small brand mark so the choice is visible where it was made
+- Featured items lead the trip story, the Year in Travel recap, the per-trip share card, and the "best of this trip" block on the trip page, in the order you featured them. The trip page and the card cannot disagree: they run the same ranking
+- **Nothing featured means nothing changes.** Every one of those surfaces falls back to what it did before: the best-rated experiences, and photos in the order the gallery already shows them. An uncurated trip still looks right with zero effort, which is the point
+- Featuring is per trip, up to six of each kind. Beyond that the extras fall back into the normal order rather than pushing the slides around, and the slideshows keep their own tighter caps (three highlights on a card, three moments in a recap, four photos on a slide)
+- A featured experience still needs a rating to appear in a starred highlights row. Featuring is a statement about order, not a substitute for rating something
+- The all-time superlatives on the stats page are deliberately not affected. That is a leaderboard, and a rank you set to pace a slideshow has no business reordering it
+- Read-only surfaces render the result and offer no toggles; the demo account shows curated trips alongside uncurated ones, so both paths are visible
 
 ### Year in Travel
 
@@ -162,7 +177,7 @@ A full-screen, paced recap of one year, opened from a card on the dashboard, a b
 - **A year is a slice, not a bucket.** A trip that crosses new year belongs to both years and each counts only its own part: days are clipped to the year, and a stop, an experience, or a photo lands in the year its own date puts it in. The leg over new year counts once, in the year it arrived.
 - **Nothing is padded.** Every slide past the opening has a condition, so a thin year simply produces fewer slides: no moments without a rating, no map for a single stop, no empty tiles on the scoreboard, and no insight invented to fill a category the data does not support. Planned trips and planned experiences are excluded, as everywhere else; the one place they appear is the closing slide, which is about what is next.
 - **The insights are derived, not fixed.** Four candidates compete and at most two are shown: countries reached for the first time ever, the country the year went deepest into, the longest single trip, and the busiest month. Each has to earn its place (a "deepest" country needs a strict winner, not a tie), and the ranking is banded so a wide margin on the weakest question cannot outrank the strongest one.
-- **The map slide is the globe's own replay engine**, scoped to the year and drawn on a canvas: countries fill in, arcs draw in their transport family's styling, and the month advances in the corner. It plays once when you reach it and offers a replay; under reduced motion it paints the finished year straight away. It is the only thing in the recap that moves on its own, and it never advances the story.
+- **The map slide is the globe's own replay engine**, scoped to the year and drawn on a canvas: countries fill in, arcs draw in their transport family's styling, and the month advances in the corner. It plays once when you reach it and offers a replay; under reduced motion it paints the finished year straight away. It is the only thing in the recap that moves on its own, and it never advances the story. The pace is yours: 1x, 2x, or 4x, or skip straight to the finished year. Changing speed mid-draw speeds up what is left rather than jumping the clock, and both controls give way to the replay button once the year is drawn.
 - **Pacing.** Each slide's pieces rise and fade in on a short stagger and the numbers count up, all of it off under `prefers-reduced-motion`. Advancing is always yours: swipe, arrow keys, click zones, or the buttons.
 
 **The year card.** A shareable image of the year through the same pipeline as the trip share cards: square and 9:16, both 2160px on the short edge. Where a trip card leads with a photograph, the year card leads with the map, because a year has no single cover and picking one trip's photo to stand for twelve months would be a claim the data does not support. The map is framed to the year rather than to the planet, so a year spent in Iceland fills the panel instead of scattering four dots across an empty ocean. Under it: the countries, the headline numbers, and the year's best-rated moments. Offered from the recap's closing slide, and read-only like everything else here, so the demo and share surfaces can generate one too.
@@ -280,7 +295,7 @@ trips
 
 **destinations:** A stop within a trip. Stores a PostGIS `geom geography(Point,4326)` column; `latitude` and `longitude` are generated columns derived from geom and must never be inserted or updated directly. Also holds country_code, admin_region, arrival_date, departure_date, order_index, cover_photo_id, and notes. `order_index` is the route sequence every other feature reads, and it is renumbered to match arrival-date order on every destination write, so dating a stop reorders the route rather than leaving two competing notions of "next".
 
-**experiences:** An activity at a destination. Has category_id, `rating` (smallint 1-10; each unit is half a star, so 10 = five full stars), visited_date, notes, and an optional `geom geography(Point,4326)` set from POI search.
+**experiences:** An activity at a destination. Has category_id, `rating` (smallint 1-10; each unit is half a star, so 10 = five full stars), visited_date, notes, an optional `geom geography(Point,4326)` set from POI search, and `featured_rank` (null = not featured, 1 = first) scoped to the owning trip.
 
 **categories:** Static reference data: slug, label, icon, color, sort_order.
 
@@ -288,7 +303,7 @@ trips
 
 **bucket_list:** Country or place items with type ("country" or "place"), country_code, place_name, optional geom (for place type), priority, target_date, fulfilled_trip_id, and fulfilled_at.
 
-**photos:** Owner_type (trip/destination/experience), owner_id, source (upload/wikimedia/url), storage_path (for uploads), external_url (for wikimedia and url sources), attribution, and order_index.
+**photos:** Owner_type (trip/destination/experience), owner_id, source (upload/wikimedia/url), storage_path (for uploads), external_url (for wikimedia and url sources), attribution, order_index, and `featured_rank` (null = not featured, 1 = first) scoped to the owning trip.
 
 **geocode_cache:** Cached API responses keyed by provider (photon, photon_poi, nominatim, wikimedia, the discover_* family, weather_visit) and query_norm. TTL: 30 days for geocoding responses, 90 days for Wikimedia and discovery responses, 365 days for observed weather (past observations are immutable).
 
@@ -370,6 +385,12 @@ npm run resync-trip-schedules
 # offered, how a year slices, what counts as planned, and what a thin year
 # produces. Pure functions against fixtures, no database and no dev server.
 npm run check-year-recap
+
+# Deterministic checks for the featured curation model: rank ordering, the
+# per-trip cap, rank assignment, and what the story, share card, and recap
+# actually select, including the uncurated fallback on every one of them.
+# Pure functions against fixtures, no database and no dev server.
+npm run check-curation
 
 # Find photo rows whose owner entity no longer exists. Report only:
 npm run cleanup-orphan-photos -- --dry-run
@@ -472,7 +493,8 @@ src/
       visit-weather.tsx          "While you were here" observed-weather line and day expander
     photos/
       photo-upload.tsx           File picker with client-side resize and Storage upload
-      photo-gallery.tsx          Grid gallery with lightbox
+      photo-gallery.tsx          Grid gallery with lightbox, feature toggle, and cover actions
+      slide-image.tsx            Full-screen photo: full-quality swap and the cover/contain fit rule
       photo-banner.tsx           Full-width cover photo banner with overlay
       cover-photo-picker.tsx     Pick or change the cover from existing photos
       destination-photos.tsx     Destination page photo section
@@ -535,6 +557,7 @@ src/
     experiences.ts               Experience data layer and getCategories()
     bucket-list.ts               Bucket list data layer and autoFulfillBucketItems()
     bucket-format.ts             Bucket item display formatting helpers
+    curation.ts                  Featured ranking model and comparators (pure, client-safe)
     photos.ts                    Photo helpers: resizeImage, uploadPhoto, getPhotoUrl (client-safe)
     photos-data.ts               Server photo reads and autoPopulateDestinationCover()
     photo-cleanup.ts             Shared photo deletion: rows, Storage, cover pointers, owner lists
@@ -587,6 +610,7 @@ src/
       destinations.ts            Destination server actions (triggers Wikimedia + bucket auto-fulfill)
       experiences.ts             Experience server actions
       photos.ts                  Photo record server actions (insert, setCover, retag, delete + Storage cleanup)
+      curation.ts                Feature/unfeature an experience or a photo (rank assigned per trip)
       bucket-list.ts             Bucket list server actions
       transport.ts               Transport leg server actions (upsert by stop, delete)
       share-settings.ts          Share settings server action
@@ -609,6 +633,7 @@ scripts/
   demo-dataset.ts                The demo showcase fixture (trips, destinations, experiences, bucket items)
   generate-mock-globe.ts         Regenerates src/lib/mock-travel-data.ts, the landing hero's static fallback
   check-year-recap.ts            Asserts the Year in Travel slicing and edge cases against fixtures
+  check-curation.ts              Asserts the featured model and every surface that selects from it
   backfill-photos.ts             Backfills Wikimedia cover photos for existing destinations
   backfill-thumbnails.ts         Generates {storage_path}_thumb thumbnails and sets photos.thumb_path
   backfill-exif.ts               Backfills date_taken and GPS from stored originals
@@ -688,6 +713,16 @@ editor. Until it runs the app degrades cleanly: the trip page leaves the leg
 rows out entirely rather than offering a control that cannot save, arcs on the
 globe keep their original styling, the stats page shows no distance breakdown,
 and `npm run seed-demo` still seeds a complete demo account without legs.
+
+Featured curation needs a `featured_rank smallint` column on both
+`batchport.experiences` and `batchport.photos`, plus the two partial indexes
+that serve it. Run `scripts/sql/2026-08-07-featured-curation.sql` in the
+Supabase SQL editor. Until it runs the app degrades cleanly: every surface
+falls back to ratings and the existing photo order exactly as it did before
+featuring existed, photo reads retry without the column, and tapping "Feature
+in story" reports "Featuring is not set up on this database yet" rather than
+pretending to have saved. `npm run seed-demo` also still seeds a complete demo
+account, just with nothing featured.
 
 Nearby mode needs no migration. It reads the destinations the globe already has
 and the planned experiences that carry a `geom`, so it works as soon as the

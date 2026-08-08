@@ -9,6 +9,7 @@ import {
   MoreVerticalIcon,
   PencilIcon,
   PlusIcon,
+  SparklesIcon,
   Trash2Icon,
   UndoIcon,
 } from "lucide-react";
@@ -41,6 +42,9 @@ import {
   deleteExperienceAction,
   markExperiencePlannedAction,
 } from "@/lib/actions/experiences";
+import { setExperienceFeaturedAction } from "@/lib/actions/curation";
+import { isFeatured } from "@/lib/curation";
+import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
@@ -92,6 +96,33 @@ export function ExperiencesSection({
   const planned = experiences.filter((e) => e.status === "planned");
   const done = experiences.filter((e) => e.status !== "planned");
   const planning = tripStatus === "planned" || tripStatus === "ongoing";
+
+  // Featuring an experience is what tells the story, the recap, and the share
+  // cards which of five equally-rated things actually represents the trip.
+  // Offered on done rows only: a planned idea is not part of the record, so
+  // the surfaces that consume this never see one.
+  async function toggleFeatured(experience: Experience) {
+    if (isDemo) {
+      toast.error(DEMO_READONLY_MESSAGE);
+      return;
+    }
+    const next = !isFeatured({ featuredRank: experience.featured_rank });
+    const result = await setExperienceFeaturedAction(
+      tripId,
+      experience.id,
+      next,
+    ).catch(() => ({ error: "Could not update the featured experience." }));
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(
+      next
+        ? "Featured. It will lead the story and the share card."
+        : "No longer featured.",
+    );
+    router.refresh();
+  }
 
   function openAdd() {
     setEditing(null);
@@ -197,6 +228,16 @@ export function ExperiencesSection({
                         <div className="min-w-0 flex-1">
                           <div className="break-words font-medium text-foreground">
                             {experience.name}
+                            {isFeatured({
+                              featuredRank: experience.featured_rank,
+                            }) ? (
+                              <span
+                                title="Featured in the story, the recap, and the share card"
+                                className="ml-1.5 inline-flex translate-y-px items-center text-brand"
+                              >
+                                <SparklesIcon className="size-3.5" />
+                              </span>
+                            ) : null}
                           </div>
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                             {category ? <span>{category.label}</span> : null}
@@ -253,6 +294,14 @@ export function ExperiencesSection({
                           onEdit={() => openEdit(experience)}
                           onMarkPlanned={() => setMarkingPlanned(experience)}
                           onDelete={() => setDeleting(experience)}
+                          featured={isFeatured({
+                            featuredRank: experience.featured_rank,
+                          })}
+                          onToggleFeatured={
+                            isDemo
+                              ? undefined
+                              : () => void toggleFeatured(experience)
+                          }
                         />
                       </div>
 
@@ -273,6 +322,7 @@ export function ExperiencesSection({
                               allowSetCover={false}
                               ownerType="experience"
                               ownerId={experience.id}
+                              tripId={tripId}
                               isDemo={isDemo}
                               onChanged={() => router.refresh()}
                             />
@@ -323,15 +373,21 @@ export function ExperiencesSection({
 }
 
 // The per-row overflow menu: edit and delete everywhere, plus "Mark as
-// planned" on done rows (the checkoff undo).
+// planned" on done rows (the checkoff undo) and the feature toggle. Featuring
+// lives in the menu rather than on the row because it is a once-per-trip
+// decision, not something reached for while logging.
 function ExperienceMenu({
   onEdit,
   onMarkPlanned,
   onDelete,
+  featured,
+  onToggleFeatured,
 }: {
   onEdit: () => void;
   onMarkPlanned?: () => void;
   onDelete: () => void;
+  featured?: boolean;
+  onToggleFeatured?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -346,6 +402,12 @@ function ExperienceMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        {onToggleFeatured ? (
+          <DropdownMenuItem onSelect={onToggleFeatured}>
+            <SparklesIcon />
+            {featured ? "Remove from featured" : "Feature in story"}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem onSelect={onEdit}>
           <PencilIcon />
           Edit

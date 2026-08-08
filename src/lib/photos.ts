@@ -39,6 +39,20 @@ export const PHOTO_BUCKET = "batchport";
 export const PHOTO_COLUMNS =
   "id,user_id,owner_type,owner_id,source,storage_path,external_url,attribution,order_index,date_taken,thumb_path,created_at";
 
+// The same list plus the curation column. Separate rather than folded into
+// PHOTO_COLUMNS because that column may not exist yet: a read that names it on
+// a database without the migration fails outright, so only the reads that
+// actually need curation ask for it, and those retry with PHOTO_COLUMNS on
+// 42703 (see isMissingPhotoColumn).
+export const PHOTO_COLUMNS_CURATED = `${PHOTO_COLUMNS},featured_rank`;
+
+/** PostgREST reports a selected column that does not exist as 42703. */
+export function isMissingPhotoColumn(
+  error: { code?: string } | null | undefined,
+): boolean {
+  return error?.code === "42703";
+}
+
 // Thumbnails live next to the full image at "{storage_path}_thumb". The
 // suffix convention (rather than a separate folder) keeps the thumb inside
 // the same user-scoped path prefix, so Storage policies apply unchanged, and

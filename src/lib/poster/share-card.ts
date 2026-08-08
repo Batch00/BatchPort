@@ -9,6 +9,7 @@
 // costs no query anywhere, and every surface that can open the story can also
 // export the card.
 
+import { compareCurated } from "@/lib/curation";
 import {
   countryName,
   durationDays,
@@ -140,8 +141,17 @@ function placesFor(trip: StoryTrip): string[] {
 
 const MAX_HIGHLIGHTS = 3;
 
-/** The best-rated experiences on the trip, highest first. Ties break on the
- * name so the same trip always produces the same card. */
+/**
+ * What the card says was good about the trip: the experiences the traveller
+ * featured, in the order they featured them, then the best-rated of whatever
+ * is left. Ties break on the name so the same trip always produces the same
+ * card, and an uncurated trip produces exactly the card it did before
+ * featuring existed.
+ *
+ * Rated only, in both halves. The row prints a star and a number beside each
+ * name, so an unrated pick has nothing to print there; featuring something is
+ * a statement about order, not a substitute for rating it.
+ */
 function highlightsFor(trip: StoryTrip): { name: string; rating: number }[] {
   return trip.destinations
     .flatMap((destination) => destination.experiences)
@@ -149,7 +159,7 @@ function highlightsFor(trip: StoryTrip): { name: string; rating: number }[] {
       (experience): experience is typeof experience & { rating: number } =>
         experience.rating !== null,
     )
-    .sort((a, b) => b.rating - a.rating || a.name.localeCompare(b.name))
+    .sort(compareCurated)
     .slice(0, MAX_HIGHLIGHTS)
     .map((experience) => ({ name: experience.name, rating: experience.rating }));
 }

@@ -413,6 +413,11 @@ async function seedTrips(
     totals.trips += 1;
 
     let tripCoverPhotoId: string | null = null;
+    // Featuring is a rank scoped to the trip (see lib/curation.ts), so the
+    // counters reset per trip and count up in the order the fixture lists
+    // them. Experiences and photos rank independently.
+    let featuredExperienceRank = 0;
+    let featuredPhotoRank = 0;
 
     for (let i = 0; i < trip.destinations.length; i++) {
       const dest = trip.destinations[i];
@@ -461,19 +466,32 @@ async function seedTrips(
       // resolves also becomes the trip cover.
       const photo = await wikimedia(dest.photoQuery ?? dest.city);
       if (photo?.url) {
-        const { data: photoRow, error: photoError } = await supabase
+        const photoInsert = {
+          user_id: userId,
+          owner_type: "destination",
+          owner_id: destId,
+          source: "wikimedia",
+          external_url: photo.url,
+          attribution: formatAttribution(photo.attribution, photo.license),
+          order_index: 0,
+        };
+        let { data: photoRow, error: photoError } = await supabase
           .from("photos")
           .insert({
-            user_id: userId,
-            owner_type: "destination",
-            owner_id: destId,
-            source: "wikimedia",
-            external_url: photo.url,
-            attribution: formatAttribution(photo.attribution, photo.license),
-            order_index: 0,
+            ...photoInsert,
+            featured_rank: dest.featuredPhoto ? ++featuredPhotoRank : null,
           })
           .select("id")
           .single();
+        // A database without the curation migration still seeds a complete
+        // demo account; it just has nothing featured.
+        if (photoError) {
+          ({ data: photoRow, error: photoError } = await supabase
+            .from("photos")
+            .insert(photoInsert)
+            .select("id")
+            .single());
+        }
         if (!photoError && photoRow) {
           await supabase
             .from("destinations")
@@ -506,7 +524,7 @@ async function seedTrips(
           status === "done"
             ? visitedDateFor(dest, doneIndex++, doneExperiences.length)
             : null;
-        const { error: expError } = await supabase.from("experiences").insert({
+        const expInsert = {
           destination_id: destId,
           user_id: userId,
           name: exp.name,
@@ -520,7 +538,19 @@ async function seedTrips(
             exp.lat !== undefined && exp.lng !== undefined
               ? `SRID=4326;POINT(${exp.lng} ${exp.lat})`
               : null,
+        };
+        let { error: expError } = await supabase.from("experiences").insert({
+          ...expInsert,
+          // Planned ideas never reach the story, so featuring one would be a
+          // rank nothing honours.
+          featured_rank:
+            exp.featured && status === "done" ? ++featuredExperienceRank : null,
         });
+        if (expError) {
+          ({ error: expError } = await supabase
+            .from("experiences")
+            .insert(expInsert));
+        }
         if (expError) {
           console.error(`  Failed to insert experience "${exp.name}":`, expError);
           continue;

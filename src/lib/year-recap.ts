@@ -21,6 +21,7 @@
 //      no "no highlights this year" cards, and no insight invented to fill a
 //      category that the data does not support.
 
+import { compareCurated, featuredFirst } from "@/lib/curation";
 import { countryName, daysUntil, durationDays, formatDate } from "@/lib/format";
 import { haversineKm } from "@/lib/geo";
 import type { ReplayInputStop } from "@/lib/replay";
@@ -77,7 +78,12 @@ export interface YearMoment {
   tripName: string;
   categoryIcon: string | null;
   categoryColor: string | null;
+  /** Full size. The moments slide renders an 80px tile, but the same url is
+   * what a future larger treatment would reach for, and the tile below has a
+   * thumb of its own. */
   photoUrl: string | null;
+  /** Thumbnail, for the moments slide's small square tile. */
+  photoThumbUrl: string | null;
 }
 
 export type YearInsightId =
@@ -101,7 +107,11 @@ export interface YearInsight {
 export interface YearTripSummary {
   id: string;
   name: string;
+  /** Full size: a trip slide is the cover across the whole screen. */
   coverUrl: string | null;
+  /** Thumbnail: the combined "year in trips" slide is a grid of small tiles,
+   * and the placeholder behind the full-screen one. */
+  coverThumbUrl: string | null;
   dateLabel: string;
   /** "Tokyo, Kyoto and 2 more", from the stops that fell in this year. */
   route: string;
@@ -119,7 +129,10 @@ export interface YearOpenerSlide {
   year: number;
   label: string;
   inProgress: boolean;
+  /** Full size: the opener is one photograph filling the screen. */
   heroUrl: string | null;
+  /** The same image at thumbnail size, as its placeholder. */
+  heroThumbUrl: string | null;
   subtitle: string;
 }
 
@@ -689,11 +702,12 @@ function tripSummary(entry: YearTrip): YearTripSummary {
       (experience): experience is StoryExperience & { rating: number } =>
         experience.rating !== null,
     )
-    .sort((a, b) => b.rating - a.rating || a.name.localeCompare(b.name));
+    .sort(compareCurated);
   return {
     id: entry.trip.id,
     name: entry.trip.name,
     coverUrl: entry.trip.coverUrl,
+    coverThumbUrl: entry.trip.coverThumbUrl ?? entry.trip.coverUrl,
     dateLabel: rangeLabel(entry.yearRange),
     route: routeSummary(entry.stops),
     countryCodes: Array.from(
@@ -710,9 +724,10 @@ function tripSummary(entry: YearTrip): YearTripSummary {
   };
 }
 
-/** The year's best-rated experiences, each carrying a photo from the stop it
- * happened at when there is one. Ties break on the name, so the same year
- * always produces the same recap. */
+/** The year's moments: the experiences the traveller featured, then the
+ * best-rated of the rest, each carrying a photo from the stop it happened at
+ * when there is one. Ties break on the name, so the same year always produces
+ * the same recap. */
 function buildMoments(yearTrips: YearTrip[]): YearMoment[] {
   const rated: { entry: YearTrip; item: YearTrip["experiences"][number] }[] = [];
   for (const entry of yearTrips) {
@@ -721,15 +736,16 @@ function buildMoments(yearTrips: YearTrip[]): YearMoment[] {
       rated.push({ entry, item });
     }
   }
-  rated.sort(
-    (a, b) =>
-      (b.item.experience.rating ?? 0) - (a.item.experience.rating ?? 0) ||
-      a.item.experience.name.localeCompare(b.item.experience.name),
-  );
+  rated.sort((a, b) => compareCurated(a.item.experience, b.item.experience));
   return rated.slice(0, MAX_MOMENTS).map(({ entry, item }) => {
-    const photo = entry.photos.find(
-      (candidate) => candidate.destinationId === item.destination.id,
+    // A featured photo of that stop beats an arbitrary one, for the same
+    // reason a featured experience beats a merely well-rated one.
+    const atStop = featuredFirst(
+      entry.photos.filter(
+        (candidate) => candidate.destinationId === item.destination.id,
+      ),
     );
+    const photo = atStop[0];
     return {
       id: item.experience.id,
       name: item.experience.name,
@@ -739,31 +755,45 @@ function buildMoments(yearTrips: YearTrip[]): YearMoment[] {
       categoryIcon: item.experience.categoryIcon,
       categoryColor: item.experience.categoryColor,
       photoUrl: photo?.url ?? item.destination.coverUrl ?? null,
+      photoThumbUrl:
+        photo?.thumbUrl ??
+        item.destination.coverThumbUrl ??
+        item.destination.coverUrl ??
+        null,
     };
   });
 }
 
 /**
- * The image the recap opens on. A real photograph from the year first, taken
- * as early in it as one is dated, since that is where the year started;
+ * The image the recap opens on. A photograph the traveller featured comes
+ * first, because that is the one question this picture asks and curation is
+ * the only direct answer to it. Otherwise a real photograph from the year,
+ * taken as early in it as one is dated, since that is where the year started;
  * otherwise the cover of its longest trip, which is an image somebody (or
  * Wikimedia) already chose as representative.
  */
-function heroImage(yearTrips: YearTrip[]): string | null {
+function heroImage(yearTrips: YearTrip[]): {
+  url: string | null;
+  thumbUrl: string | null;
+} {
   const photos = yearTrips.flatMap((entry) => entry.photos);
   const dated = photos
     .filter((photo) => dayOf(photo.dateTaken) !== null)
     .sort((a, b) =>
       (dayOf(a.dateTaken) ?? "").localeCompare(dayOf(b.dateTaken) ?? ""),
     );
-  const chosen = dated[0] ?? photos[0];
-  if (chosen) return chosen.url;
+  const ordered = featuredFirst([...dated, ...photos.filter((photo) => dayOf(photo.dateTaken) === null)]);
+  const chosen = ordered[0];
+  if (chosen) return { url: chosen.url, thumbUrl: chosen.thumbUrl };
   let longest: YearTrip | null = null;
   for (const entry of yearTrips) {
     if (!entry.trip.coverUrl) continue;
     if (!longest || entry.days > longest.days) longest = entry;
   }
-  return longest?.trip.coverUrl ?? null;
+  return {
+    url: longest?.trip.coverUrl ?? null,
+    thumbUrl: longest?.trip.coverThumbUrl ?? longest?.trip.coverUrl ?? null,
+  };
 }
 
 function replayStops(
@@ -888,13 +918,15 @@ export function buildYearRecap(
 
   const slides: YearSlide[] = [];
 
+  const hero = heroImage(yearTrips);
   slides.push({
     kind: "opener",
     key: "opener",
     year,
     label,
     inProgress,
-    heroUrl: heroImage(yearTrips),
+    heroUrl: hero.url,
+    heroThumbUrl: hero.thumbUrl,
     subtitle: inProgress ? "Your year in travel, so far" : "Your year in travel",
   });
 

@@ -11,6 +11,7 @@ import {
   GripVerticalIcon,
   MapPinIcon,
   MoreVerticalIcon,
+  SparklesIcon,
   Square,
   StarIcon,
   Trash2Icon,
@@ -50,6 +51,8 @@ import {
   retagPhoto,
   reorderPhotos,
 } from "@/lib/actions/photos";
+import { setPhotoFeaturedAction } from "@/lib/actions/curation";
+import { isFeatured } from "@/lib/curation";
 import {
   compareByDateTaken,
   coverImageStyle,
@@ -93,6 +96,10 @@ interface PhotoGalleryProps {
   compact?: boolean;
   ownerType?: PhotoOwnerType;
   ownerId?: string;
+  // The trip these photos belong to. Featuring is scoped to a trip, so the
+  // menu offers it only where the host knows which one; every authenticated
+  // gallery does.
+  tripId?: string;
   isDemo?: boolean;
   onChanged?: () => void;
 }
@@ -111,6 +118,7 @@ export function PhotoGallery({
   compact = false,
   ownerType,
   ownerId,
+  tripId,
   isDemo = false,
   onChanged,
 }: PhotoGalleryProps) {
@@ -316,6 +324,31 @@ export function PhotoGallery({
         : "Destination cover updated.",
     );
     onChanged?.();
+  }
+
+  // Featuring: which photos represent the trip in the story and the recap.
+  // The gallery's own display order is untouched by it, deliberately: this
+  // gallery is where photos are managed, and reshuffling it under the user
+  // every time they feature one would make the grid unusable.
+  async function toggleFeatured(photo: Photo) {
+    if (!tripId) return;
+    if (isDemo) {
+      toast.error(DEMO_READONLY_MESSAGE);
+      return;
+    }
+    const next = !isFeatured({ featuredRank: photo.featured_rank });
+    const result = await setPhotoFeaturedAction(tripId, photo.id, next).catch(
+      () => ({ error: "Could not update the featured photo." }),
+    );
+    if ("error" in result) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(
+      next ? "Featured. It will lead the story." : "No longer featured.",
+    );
+    if (onChanged) onChanged();
+    else router.refresh();
   }
 
   function unhideIds(ids: string[]) {
@@ -610,11 +643,19 @@ export function PhotoGallery({
         : null;
     const showRetag = canRetag && !isReordering;
     const showDelete = allowDelete && !isReordering;
+    const showFeature = Boolean(tripId) && !isDemo && !isReordering;
     // The pinned lead slot is not reorderable, so its tile hides the move items.
     const showReorder = reorderable && !(isExplicitCover && index === 0);
     const isFirst = index <= minIndex;
     const isLast = index === ordered.length - 1;
-    if (!showCover && !secondary && !showDelete && !showRetag && !showReorder) {
+    if (
+      !showCover &&
+      !secondary &&
+      !showDelete &&
+      !showRetag &&
+      !showReorder &&
+      !showFeature
+    ) {
       return null;
     }
     return (
@@ -630,6 +671,17 @@ export function PhotoGallery({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+          {showFeature ? (
+            <DropdownMenuItem onSelect={() => void toggleFeatured(photo)}>
+              <SparklesIcon />
+              {isFeatured({ featuredRank: photo.featured_rank })
+                ? "Remove from featured"
+                : "Feature in story"}
+            </DropdownMenuItem>
+          ) : null}
+          {showFeature && (showCover || secondary) ? (
+            <DropdownMenuSeparator />
+          ) : null}
           {showCover && primaryTarget ? (
             <DropdownMenuItem
               onSelect={() =>
@@ -736,6 +788,21 @@ export function PhotoGallery({
       <span className="pointer-events-none absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-brand/90 px-1.5 py-0.5 text-[0.65rem] font-medium text-brand-foreground">
         <StarIcon className="size-3" />
         Cover
+      </span>
+    );
+  }
+
+  // Bottom-left, so it never argues with the cover, reorder, or selection
+  // badges in the opposite corner. Icon only: the tiles are small and the menu
+  // spells the state out.
+  function featuredBadge(photo: Photo) {
+    if (!isFeatured({ featuredRank: photo.featured_rank })) return null;
+    return (
+      <span
+        title="Featured in the story and the recap"
+        className="pointer-events-none absolute bottom-1.5 left-1.5 flex size-6 items-center justify-center rounded-md bg-brand/90 text-brand-foreground"
+      >
+        <SparklesIcon className="size-3.5" />
       </span>
     );
   }
@@ -870,6 +937,7 @@ export function PhotoGallery({
                   <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover/tile:bg-black/15" />
                   {selectionCheckbox(photo)}
                   {reorderBadge(photo)}
+                  {featuredBadge(photo)}
                   {!isSelecting ? tileMenu(photo, i) : null}
                 </div>
               );
@@ -914,6 +982,7 @@ export function PhotoGallery({
                   {isSelecting
                     ? selectionCheckbox(photo)
                     : (reorderBadge(photo) ?? coverBadge(photo))}
+                  {featuredBadge(photo)}
                   {!isSelecting ? tileMenu(photo, 0) : null}
                 </div>
               ) : null;
@@ -956,6 +1025,7 @@ export function PhotoGallery({
                       <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover/tile:bg-black/15" />
                       {selectionCheckbox(photo)}
                       {reorderBadge(photo)}
+                      {featuredBadge(photo)}
                       {!isSelecting ? tileMenu(photo, i + 1) : null}
                     </div>
                   );

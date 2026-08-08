@@ -1,6 +1,11 @@
 import { requireUser } from "@/lib/current-user";
 import { getWikimediaPhoto } from "@/lib/wikimedia";
-import { PHOTO_COLUMNS, formatWikimediaAttribution } from "@/lib/photos";
+import {
+  PHOTO_COLUMNS,
+  PHOTO_COLUMNS_CURATED,
+  formatWikimediaAttribution,
+  isMissingPhotoColumn,
+} from "@/lib/photos";
 import type { Photo, PhotoOwnerType } from "@/lib/types";
 
 // pickCover lives in the client-safe photos module; re-export it so server
@@ -10,21 +15,49 @@ export { pickCover } from "@/lib/photos";
 // Server-side reads for photos. These run with the user's session, so
 // row-level security scopes every query to the current user.
 
+interface PhotoQueryResult {
+  data: unknown;
+  error: { code?: string } | null;
+}
+
+// Every read here asks for the curation column and retries without it when the
+// database does not have it yet. One helper rather than a retry at each call
+// site: the three reads below feed the trip page, the destination page, and
+// the galleries on both, which is every surface that can feature a photo or
+// render one that was featured.
+async function selectPhotos(
+  build: (columns: string) => PromiseLike<PhotoQueryResult>,
+): Promise<Photo[]> {
+  let { data, error } = await build(PHOTO_COLUMNS_CURATED);
+  if (isMissingPhotoColumn(error)) {
+    ({ data, error } = await build(PHOTO_COLUMNS));
+  }
+  if (error) throw error;
+  return ((data ?? []) as Photo[]).map(normalizePhoto);
+}
+
+/** A row from a database without the curation column reads as not featured. */
+function normalizePhoto(row: Photo): Photo {
+  return typeof row.featured_rank === "number"
+    ? row
+    : { ...row, featured_rank: null };
+}
+
 // All photos for one entity, ordered for display.
 export async function getPhotos(
   ownerType: PhotoOwnerType,
   ownerId: string,
 ): Promise<Photo[]> {
   const { supabase } = await requireUser();
-  const { data, error } = await supabase
-    .from("photos")
-    .select(PHOTO_COLUMNS)
-    .eq("owner_type", ownerType)
-    .eq("owner_id", ownerId)
-    .order("order_index", { ascending: true })
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as Photo[];
+  return selectPhotos((columns) =>
+    supabase
+      .from("photos")
+      .select(columns)
+      .eq("owner_type", ownerType)
+      .eq("owner_id", ownerId)
+      .order("order_index", { ascending: true })
+      .order("created_at", { ascending: true }),
+  );
 }
 
 // Photos for many entities of the same type in one query. Used to gather every
@@ -35,15 +68,15 @@ export async function getPhotosForOwners(
 ): Promise<Photo[]> {
   if (ownerIds.length === 0) return [];
   const { supabase } = await requireUser();
-  const { data, error } = await supabase
-    .from("photos")
-    .select(PHOTO_COLUMNS)
-    .eq("owner_type", ownerType)
-    .in("owner_id", ownerIds)
-    .order("order_index", { ascending: true })
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as Photo[];
+  return selectPhotos((columns) =>
+    supabase
+      .from("photos")
+      .select(columns)
+      .eq("owner_type", ownerType)
+      .in("owner_id", ownerIds)
+      .order("order_index", { ascending: true })
+      .order("created_at", { ascending: true }),
+  );
 }
 
 // Resolve specific photo records by id. Used to look up trip cover photos for
@@ -51,12 +84,9 @@ export async function getPhotosForOwners(
 export async function getPhotosByIds(ids: string[]): Promise<Photo[]> {
   if (ids.length === 0) return [];
   const { supabase } = await requireUser();
-  const { data, error } = await supabase
-    .from("photos")
-    .select(PHOTO_COLUMNS)
-    .in("id", ids);
-  if (error) throw error;
-  return (data ?? []) as Photo[];
+  return selectPhotos((columns) =>
+    supabase.from("photos").select(columns).in("id", ids),
+  );
 }
 
 // Best-effort: fetch a Wikimedia lead image for a freshly created destination,

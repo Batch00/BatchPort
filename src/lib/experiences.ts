@@ -2,6 +2,7 @@ import { cache } from "react";
 
 import { createClient } from "@/utils/supabase/server";
 import { requireUser } from "@/lib/current-user";
+import { featuredRankOf } from "@/lib/curation";
 import { pointEwkt } from "@/lib/geo";
 import type { Category, Experience, ExperienceStatus } from "@/lib/types";
 
@@ -27,9 +28,10 @@ export interface ExperienceInput {
 // logged activities, so missing reads as "done". Likewise planned_day predates
 // nothing being assigned, so missing reads as null (unassigned).
 export function normalizeExperience(
-  row: Omit<Experience, "status" | "planned_day"> & {
+  row: Omit<Experience, "status" | "planned_day" | "featured_rank"> & {
     status?: string | null;
     planned_day?: number | null;
+    featured_rank?: number | null;
   },
 ): Experience {
   return {
@@ -37,6 +39,7 @@ export function normalizeExperience(
     status: row.status === "planned" ? "planned" : "done",
     planned_day:
       typeof row.planned_day === "number" ? row.planned_day : null,
+    featured_rank: featuredRankOf(row.featured_rank),
   } as Experience;
 }
 

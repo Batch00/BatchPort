@@ -91,6 +91,42 @@ POI search for experiences uses `GET /api/geocode/poi?q=...&lat=...&lng=...` (Ph
 
 Wikimedia auto-population on destination create: `createDestinationAction` calls `autoPopulateDestinationCover(destination)` after the insert. This calls `getWikimediaPhoto(destination.name)` using the destination name only (not "city, country"). It searches Wikidata for the entity, reads the P18 (image) claim, builds the canonical upload.wikimedia.org URL, fetches attribution from Commons extmetadata, caches the result in geocode_cache under provider="wikimedia" for 90 days, inserts a photo record, and sets it as the destination cover. Any failure is swallowed silently so it never blocks destination creation.
 
+### Which Photo Size a Surface Requests
+
+`getPhotoUrl(photo)` is the full image (up to 1920x1080). `getPhotoUrl(photo,
+"thumb")` is the 400px gallery thumbnail. Picking between them is not a matter
+of taste, and getting it wrong is invisible in code review and glaring on
+screen: a thumbnail across a full-screen story slide is the blur that produced
+this rule.
+
+- **Grid tiles and small chips take the thumbnail.** Gallery cells, the
+  dashboard and share trip cards, the recap's "year in trips" grid, the
+  moments row, the On This Day strip, the offline photo cache.
+- **Anything larger than a card takes the full image.** Story slides, recap
+  slides, banners, the lightbox, the cover position editor, and both canvas
+  exports. A card cover baked into a 2160px share card is the same mistake as
+  one stretched across a slide.
+- **Never both from one field.** Data layers that feed a card *and* a
+  full-screen surface carry both urls (`ProfileTrip.coverUrl` /
+  `coverFullUrl`, `StoryPhoto.thumbUrl` / `url`, `YearMoment.photoThumbUrl` /
+  `photoUrl`). Making one field mean "whatever the biggest consumer needs" is
+  how a dashboard ends up shipping twenty full-size JPEGs.
+- **Warm-up must match.** The story's and the recap's "preload the next
+  slide's lead image" effects fetch the exact url that slide will request. A
+  warm-up that fetches the other size is two requests and no benefit.
+
+`components/photos/slide-image.tsx` is how the full-screen surfaces render one
+photo, and it owns both halves of the problem. Quality: the thumbnail paints
+immediately as a placeholder and crossfades out when the full image arrives, so
+nothing waits on a blank frame and nothing ships a blurry final state. Fit: it
+measures its own frame and the image's natural size, and switches from
+`object-cover` to `object-contain` over a blurred blow-up of the same photo once
+the two aspect ratios disagree by more than 1.8x. That threshold puts a portrait
+phone photo on a phone into cover (it fills, crop is modest) and the same photo
+on a desktop slide into contain (nothing cropped). Mosaic cells pass
+`allowContain={false}`: a four-photo grid is crops by design, and letterboxing
+each cell turns one composition into four small pictures floating in blur.
+
 ### Photo Deletion Cascade
 
 `photos` is polymorphic (`owner_type` + `owner_id`, no foreign key), so Postgres cascades never touch it: deleting a trip cascades to its destinations and experiences but leaves every photo row behind as an invisible orphan. `src/lib/photo-cleanup.ts` owns the fix and is shared by the photo delete action and the three entity delete actions.
@@ -392,6 +428,21 @@ reached countries, the arcs, and the pins are redrawn. React is kept out of the
 loop: the readout is compared before it is set, so a playback costs a few dozen
 renders rather than a few thousand.
 
+**The map slide's pacing is the viewer's.** It offers 1x/2x/4x and a skip, both
+held in refs alongside their state, because the animation loop reads them every
+frame and rebuilding the effect to pick up a change would restart the playback
+from zero. Playback time is **accumulated** (`clock += dt * speed`) rather than
+derived from a start stamp, so raising the speed mid-flight speeds up what is
+left instead of jumping the clock to where it would have been at the new rate
+all along. Both controls disappear once the year is drawn: there is nothing
+left to hurry, and the row becomes the replay button.
+
+Its header sits **in the column, not floating over it**, with
+`pt-[calc(3.5rem+env(safe-area-inset-top))]`. The recap's own chrome (the
+progress bar, then the year picker and close button one safe-area inset below
+it) grows with the notch; a header positioned against the viewport did not, and
+was clipped on any phone that has one.
+
 **The frame is fitted to the year** (`boundsOfProjectedPoints` +
 `fitProjectionToBounds` in `poster/projection.ts`), for the same reason the
 share card's inset is fitted to its trip: a year spent in Iceland on a
@@ -412,6 +463,63 @@ is nothing to reset. It and `AnimatedNumber` both stand down under
 `prefers-reduced-motion` (`lib/motion.ts`). `CountUpGroup` takes an optional
 `active` prop for this: the recap's slides are all mounted and toggled by
 opacity, so scrolling into view says nothing about whether they are visible.
+
+### Curation (Featured Experiences and Photos)
+
+Which experiences and which photos represent a trip in the story, the recap,
+and the social cards. It exists because rating cannot answer that question: a
+five star museum and a five star gelato are both five stars, and only one of
+them belongs on a card.
+
+`lib/curation.ts` is pure and client-safe and holds the whole model. Three
+rules, and everything else follows:
+
+- **A rank, not a flag.** `featured_rank` on `experiences` and on `photos` is
+  null (not featured) or a positive integer, and 1 leads. Every consuming
+  surface is a top-N surface (three highlights on a card, three moments in a
+  recap, four photos on a slide), so a boolean would have handed the ordering
+  question straight back to rating, which is the thing curation exists to
+  override. Nothing enforces uniqueness: the write picks the next free rank on
+  the trip, and a duplicate is a cosmetic ordering question, never an error.
+- **Scoped to the trip, surfaced per stop for free.** `setExperienceFeaturedAction`
+  and `setPhotoFeaturedAction` compute the next rank across the whole trip
+  (`ownersForTrip` resolves the photo fan-out, borrowed from the delete
+  cascade), so the numbers are comparable across its stops. A destination's own
+  featured items are just the subset belonging to that stop, which is what lets
+  a story slide lead on a stop's picks with no second column and no extra UI.
+  Do not add a per-destination rank.
+- **Nothing featured means nothing changes.** Every selector layers
+  `compareFeatured` / `compareCurated` on top of the order it already had, and
+  those comparators return 0 for two unfeatured items, so an uncurated trip
+  produces exactly the story, recap, and card it produced before curation
+  existed. `scripts/check-curation.ts` asserts that path specifically; it is
+  the one almost every trip is on.
+
+`MAX_FEATURED_HONORED` is 6. Past it a rank is simply not honoured (it falls
+back into the normal order) and the action refuses to assign one, because a
+"featured" list of thirty is not curation and the slides have to stay paced.
+The surfaces keep their own tighter caps on top of it.
+
+Consumers, all of them through the same comparator: story slide photo and
+experience order, `storyClosingStats().best`, the share card's highlights,
+`tripHighlights()` on the trip page (the same three lines as the card, on the
+same page, so they must not disagree), the recap's moments, and the recap's
+opening photograph. The stats page's all-time superlatives are deliberately
+**not** curated: that is a leaderboard, and a rank assigned to pace a slideshow
+has no business reordering it.
+
+An unrated featured experience still stays out of the highlights row and the
+"best of" line: those print a star and a number, and featuring is a statement
+about order, not a substitute for rating. Planned experiences cannot be
+featured, since nothing downstream ever sees one.
+
+Degradation before the migration: experiences read through `select *` so a
+missing column normalizes to null, and photo reads name their columns so the
+curated ones ask for `featured_rank` and retry without it on 42703
+(`PHOTO_COLUMNS_CURATED`, `isMissingPhotoColumn`). Writes report "Featuring is
+not set up on this database yet" on PGRST204 rather than pretending to have
+saved. Read-only surfaces render the result and offer no toggle; the demo
+account is blocked at the action and hidden in the UI.
 
 ### Transport Legs
 
@@ -682,6 +790,8 @@ no timezone chip. Nothing in the app prompts the user to set one.
 
 - **Admin client is not schema-scoped:** `createAdminClient()` returns a service-role client with no default schema. Every call must chain `.schema("batchport")` before `.from(...)`. Forgetting this silently queries the `public` schema and returns empty results or cryptic errors.
 
+- **Photo reads name their columns:** `PHOTO_COLUMNS` is an explicit list, so adding a column to it breaks every photo query on a database where the migration has not run. That is why `featured_rank` lives in a separate `PHOTO_COLUMNS_CURATED` used only by the reads that need it, each retrying with the base list on 42703. Do not fold a new optional column into `PHOTO_COLUMNS`.
+
 - **Generated lat/lng columns:** `destinations.latitude` and `destinations.longitude` are generated from `geom`. Never include them in INSERT or UPDATE payloads. Write only `geom` with EWKT: `SRID=4326;POINT(lng lat)`. The same rule applies to the experiences `geom` column.
 
 - **Async cookies():** `cookies()` from `next/headers` is async in Next.js 16. The `createClient()` server factory is already async for this reason. Any new Route Handler or Server Action that needs the server client must `await createClient()`.
@@ -720,6 +830,8 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Experience data layer and getCategories() | `src/lib/experiences.ts` |
 | Bucket list data layer and auto-fulfill | `src/lib/bucket-list.ts` |
 | Photo helpers (client-safe: resize, upload, URL) | `src/lib/photos.ts` |
+| Featured ranking model and comparators (pure) | `src/lib/curation.ts` |
+| Full-screen photo (full-quality swap, fit rule) | `src/components/photos/slide-image.tsx` |
 | Photo server reads and Wikimedia auto-populate | `src/lib/photos-data.ts` |
 | Shared photo deletion and owner collection | `src/lib/photo-cleanup.ts` |
 | Photo map mode data layer | `src/lib/photo-map-data.ts` |
@@ -780,6 +892,7 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Destination server actions | `src/lib/actions/destinations.ts` |
 | Experience server actions | `src/lib/actions/experiences.ts` |
 | Photo record server actions | `src/lib/actions/photos.ts` |
+| Featured experience and photo actions | `src/lib/actions/curation.ts` |
 | Bucket list server actions | `src/lib/actions/bucket-list.ts` |
 | Share settings server action | `src/lib/actions/share-settings.ts` |
 | Globe rendering component | `src/components/map/globe.tsx` |
@@ -822,4 +935,9 @@ no timezone chip. Nothing in the app prompts the user to set one.
 
 ## Testing
 
-Run `npm run build` to verify type correctness across the whole project (TypeScript strict mode). Run `npm run lint` for ESLint. There is no automated test suite, with one exception: `npm run check-year-recap` asserts the Year in Travel derivation (year list, slicing across new year, planned exclusion, sparse years, in-progress labelling, insight selection) against fixtures. It is pure, needs no database or dev server, and should be re-run after any change to `lib/year-recap.ts`. Interactive features including the globe, photo lightbox, geocoding typeahead, and experience dialog require manual browser testing.
+Run `npm run build` to verify type correctness across the whole project (TypeScript strict mode). Run `npm run lint` for ESLint. There is no automated test suite, with two exceptions, both pure, both needing no database or dev server:
+
+- `npm run check-year-recap` asserts the Year in Travel derivation (year list, slicing across new year, planned exclusion, sparse years, in-progress labelling, insight selection). Re-run it after any change to `lib/year-recap.ts`.
+- `npm run check-curation` asserts the featured model end to end (rank order, the cap, rank assignment, and what the story, the share card, and the recap select), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts` or to a selector that consumes it.
+
+Interactive features including the globe, photo lightbox, geocoding typeahead, and experience dialog require manual browser testing.

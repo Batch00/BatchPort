@@ -65,6 +65,10 @@ export interface Experience {
   // Day-planning slot: day 1 = the destination's arrival date, null =
   // unassigned. Rows predating the column read as null in the data layer.
   planned_day: number | null;
+  // Curation order for the story, the recap, and the share cards: null = not
+  // featured, 1 = first, scoped to the owning trip. See lib/curation.ts. Rows
+  // predating the column read as null.
+  featured_rank: number | null;
   // PostGIS point as EWKB hex when POI coordinates were saved; select * reads
   // carry it along and the day planner decodes it for proximity hints.
   geom?: string | null;
@@ -102,6 +106,11 @@ export interface Photo {
   // null for photos uploaded before thumbnails existed (they fall back to the
   // full image).
   thumb_path: string | null;
+  // Curation order for the story and the recap: null = not featured, 1 =
+  // first, scoped to the owning trip. See lib/curation.ts. Optional because
+  // the narrow reads that only need a display url do not select it, and
+  // because a database without the migration does not carry it at all.
+  featured_rank?: number | null;
   created_at: string;
 }
 

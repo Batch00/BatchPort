@@ -6,7 +6,12 @@ import { getSharedBucketList, type BucketItem } from "@/lib/bucket-list";
 import { getSharedJournalByTrip } from "@/lib/journal-data";
 import { getSharedTransportByTrip } from "@/lib/transport-data";
 import type { TransportLeg } from "@/lib/transport";
-import { getPhotoUrl, resolveCoverPhoto } from "@/lib/photos";
+import { featuredRankOf } from "@/lib/curation";
+import {
+  getPhotoUrl,
+  isMissingPhotoColumn,
+  resolveCoverPhoto,
+} from "@/lib/photos";
 import { chronologicalDestinations, resolveTripDates } from "@/lib/trip-dates";
 import { DEMO_USER_ID } from "@/lib/constants";
 import type { JournalEntry } from "@/lib/journal";
@@ -31,6 +36,9 @@ export interface ProfileExperience {
   // Day-planning slot (1 = arrival date), null when unassigned or predating
   // the column. Lets the read-only card group ideas by day.
   planned_day: number | null;
+  // Curation order within the trip; null when not featured or predating the
+  // column. The read-only surfaces render the result and offer no toggle.
+  featured_rank: number | null;
   category: { label: string; icon: string | null; color: string | null } | null;
 }
 
@@ -44,7 +52,11 @@ export interface ProfileDestination {
    * observed-weather line is simply absent for those. */
   latitude: number | null;
   longitude: number | null;
+  /** Card-sized: the gallery thumbnail, which is all a card renders. */
   coverUrl: string | null;
+  /** The same photo at full size, for the surfaces that put a cover across a
+   * whole screen (the story, the recap) or bake it into an exported image. */
+  coverFullUrl: string | null;
   cover_position: { x: number; y: number } | null;
   experiences: ProfileExperience[];
 }
@@ -56,7 +68,10 @@ export interface ProfileTrip {
   end_date: string | null;
   status: string;
   notes: string | null;
+  /** Card-sized: the gallery thumbnail. */
   coverUrl: string | null;
+  /** The same photo at full size, for full-screen and exported use. */
+  coverFullUrl: string | null;
   // The explicit cover photo id, when set. Lets the dashboard cover editor
   // mark the current cover; the read-only share view ignores it.
   cover_photo_id: string | null;
@@ -144,6 +159,8 @@ interface ExperienceRow {
   status?: string | null;
   // Absent until the planned_day migration runs; missing means unassigned.
   planned_day?: number | null;
+  // Absent until the curation migration runs; missing means not featured.
+  featured_rank?: number | null;
   categories: {
     label: string;
     icon: string | null;
@@ -191,6 +208,8 @@ interface FallbackPhotoRow extends PhotoRow {
   // Only selected when the story payload was asked for.
   date_taken?: string | null;
   attribution?: string | null;
+  // Only selected for the story, and only when the curation migration has run.
+  featured_rank?: number | null;
 }
 
 /** Options for getProfileTrips. `story` adds the journal entries and the full
@@ -261,12 +280,25 @@ export async function getProfileTrips(
   // that day) and needs the capture date to place them, so it widens both the
   // owner filter and the column list. Without it the query stays exactly as
   // narrow as the covers need.
-  const fallbackColumns = wantStory
-    ? "id, owner_type, owner_id, source, storage_path, external_url, thumb_path, date_taken, attribution"
-    : "id, owner_type, owner_id, source, storage_path, external_url, thumb_path";
+  const storyColumns =
+    "id, owner_type, owner_id, source, storage_path, external_url, thumb_path, date_taken, attribution";
+  const coverOnlyColumns =
+    "id, owner_type, owner_id, source, storage_path, external_url, thumb_path";
   const fallbackOwnerTypes = wantStory
     ? ["trip", "destination", "experience"]
     : ["trip", "destination"];
+
+  // The story is the only consumer of curation here, so only it asks for the
+  // column, and it retries without it on a database where the migration has
+  // not run (see isMissingPhotoColumn). A card cover needs no rank.
+  const fallbackPhotos = (columns: string) =>
+    supabase
+      .from("photos")
+      .select(columns)
+      .eq("user_id", userId)
+      .in("owner_type", fallbackOwnerTypes)
+      .order("order_index", { ascending: true })
+      .order("created_at", { ascending: true });
 
   const [coversResult, fallbacksResult, journalByTrip, transportByTrip] =
     await Promise.all([
@@ -277,13 +309,13 @@ export async function getProfileTrips(
           .eq("user_id", userId)
           .in("id", coverIds)
       : Promise.resolve({ data: [] as PhotoRow[] }),
-    supabase
-      .from("photos")
-      .select(fallbackColumns)
-      .eq("user_id", userId)
-      .in("owner_type", fallbackOwnerTypes)
-      .order("order_index", { ascending: true })
-      .order("created_at", { ascending: true }),
+    wantStory
+      ? fallbackPhotos(`${storyColumns}, featured_rank`).then((result) =>
+          isMissingPhotoColumn(result.error)
+            ? fallbackPhotos(storyColumns)
+            : result,
+        )
+      : fallbackPhotos(coverOnlyColumns),
     wantStory
       ? getSharedJournalByTrip(userId)
       : Promise.resolve(new Map<string, JournalEntry[]>()),
@@ -304,9 +336,14 @@ export async function getProfileTrips(
     photoById.set(photo.id, photo);
   }
   // Card covers render at card size, so the thumbnail is enough; photos
-  // without one resolve to the full image inside getPhotoUrl.
+  // without one resolve to the full image inside getPhotoUrl. The full url is
+  // carried alongside rather than instead: a cover appears both on a 320px
+  // card and across a full-screen story slide, and a 400px thumbnail stretched
+  // over the second one is the blur this pair exists to prevent.
   const thumbUrl = (photo: PhotoRow | null | undefined): string | null =>
     photo ? getPhotoUrl(photo, "thumb") : null;
+  const fullUrl = (photo: PhotoRow | null | undefined): string | null =>
+    photo ? getPhotoUrl(photo) : null;
 
   // Group destinations under their trip, in visit order. PostgREST can only
   // order by the stored order_index, so the date-aware sequence is applied
@@ -336,6 +373,7 @@ export async function getProfileTrips(
           | "done",
         planned_day:
           typeof exp.planned_day === "number" ? exp.planned_day : null,
+        featured_rank: featuredRankOf(exp.featured_rank),
         category: exp.categories
           ? {
               label: exp.categories.label,
@@ -360,6 +398,7 @@ export async function getProfileTrips(
       latitude: dest.latitude,
       longitude: dest.longitude,
       coverUrl: thumbUrl(cover?.photo),
+      coverFullUrl: fullUrl(cover?.photo),
       // The stored crop position describes the explicit cover only.
       cover_position: cover?.explicit ? (dest.cover_position ?? null) : null,
       experiences,
@@ -402,6 +441,7 @@ export async function getProfileTrips(
         thumbUrl: getPhotoUrl(row, "thumb"),
         dateTaken: row.date_taken ?? null,
         attribution: row.attribution ?? null,
+        featuredRank: featuredRankOf(row.featured_rank),
         destinationId,
       });
       storyPhotosByTrip.set(tripId, list);
@@ -415,8 +455,9 @@ export async function getProfileTrips(
     const explicit = trip.cover_photo_id
       ? photoById.get(trip.cover_photo_id)
       : undefined;
-    const firstDestCover =
-      destinations.find((d) => d.coverUrl)?.coverUrl ?? null;
+    const firstDestWithCover = destinations.find((d) => d.coverUrl);
+    const firstDestCover = firstDestWithCover?.coverUrl ?? null;
+    const firstDestCoverFull = firstDestWithCover?.coverFullUrl ?? null;
     const tripFallback = firstByOwner.get(`trip:${trip.id}`);
     // Dated stops define the range; the stored columns are the fallback for a
     // trip nobody has dated a stop on.
@@ -429,6 +470,8 @@ export async function getProfileTrips(
       status: trip.status,
       notes: trip.notes,
       coverUrl: thumbUrl(explicit) ?? firstDestCover ?? thumbUrl(tripFallback),
+      coverFullUrl:
+        fullUrl(explicit) ?? firstDestCoverFull ?? fullUrl(tripFallback),
       cover_photo_id: trip.cover_photo_id,
       cover_position: explicit ? (trip.cover_position ?? null) : null,
       destinations,

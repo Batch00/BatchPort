@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2Icon, RotateCcwIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FastForwardIcon, Loader2Icon, RotateCcwIcon } from "lucide-react";
 
 import { prefersReducedMotion } from "@/lib/motion";
+import { cn } from "@/lib/utils";
 import { loadCountryShapes } from "@/lib/poster/countries";
 import { posterTheme } from "@/lib/poster/theme";
 import {
@@ -34,6 +35,12 @@ import type { YearMapSlide as YearMapSlideData } from "@/lib/year-recap";
 // becomes the current slide, stops at the end, and offers a replay. Under
 // prefers-reduced-motion it renders the finished year immediately: the same
 // picture, without the journey to it.
+
+/** The same ladder the globe's replay offers, plus a third step: a recap can
+ * run to ninety seconds and the map is the one slide that makes somebody wait
+ * for it. Skipping ahead is the fourth option and it is a button, not a speed. */
+const SPEEDS = [1, 2, 4] as const;
+type MapSpeed = (typeof SPEEDS)[number];
 
 const MONTHS_SHORT = [
   "Jan",
@@ -84,6 +91,20 @@ export function YearMapSlide({
   // out of the animation loop.
   const readoutRef = useRef("");
   const [ended, setEnded] = useState(false);
+  // Speed and skip are refs as well as state: the animation loop reads them
+  // every frame and must not be torn down and rebuilt to pick up a change,
+  // which would restart the playback from zero.
+  const [speed, setSpeed] = useState<MapSpeed>(1);
+  const speedRef = useRef<MapSpeed>(1);
+  const skipRef = useRef(false);
+
+  const cycleSpeed = useCallback(() => {
+    setSpeed((current) => {
+      const next = SPEEDS[(SPEEDS.indexOf(current) + 1) % SPEEDS.length];
+      speedRef.current = next;
+      return next;
+    });
+  }, []);
 
   const timeline = useMemo<ReplayTimeline | null>(
     () => buildReplayTimeline(slide.stops),
@@ -164,7 +185,12 @@ export function YearMapSlide({
 
     const reduced = prefersReducedMotion();
     let frame = 0;
-    let start = 0;
+    let previous = 0;
+    // Playback time is accumulated rather than read off a start stamp, so a
+    // speed change mid-flight speeds up what is left instead of jumping the
+    // clock to where it would have been at the new rate all along.
+    let clock = 0;
+    skipRef.current = false;
 
     const paint = (t: number) => {
       const state = replayStateAt(timeline, t);
@@ -210,9 +236,12 @@ export function YearMapSlide({
     // rather than the journey to it. Going through the same loop keeps the
     // end state in one place instead of two.
     const tick = (now: number) => {
-      if (start === 0) start = now;
-      const elapsed = reduced ? timeline.duration : (now - start) / 1000;
-      const done = paint(Math.min(elapsed, timeline.duration));
+      if (previous === 0) previous = now;
+      const dt = (now - previous) / 1000;
+      previous = now;
+      if (reduced || skipRef.current) clock = timeline.duration;
+      else clock = Math.min(clock + dt * speedRef.current, timeline.duration);
+      const done = paint(clock);
       // Same value on every frame until the last one, which React bails on,
       // so this costs one render at the start and one at the end.
       setEnded(done);
@@ -222,23 +251,33 @@ export function YearMapSlide({
     return () => cancelAnimationFrame(frame);
   }, [active, timeline, run, shapes, size]);
 
+  const pill =
+    "inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-1.5 text-xs font-medium text-white/80 transition-colors hover:bg-white/[0.12]";
+
   return (
     <div className="relative flex size-full flex-col bg-[#0a0a0a]">
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-3 p-5 pt-12 sm:p-8 sm:pt-14">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-white/45">
+      {/* The header is IN the column, not floating over it, and its top
+          padding clears the recap's own chrome: the progress bar, and the year
+          picker and close button that sit one safe-area inset below it. Sized
+          absolutely against the viewport it was cut off on any phone with a
+          notch, because the chrome above it grows with the inset and this did
+          not. It also shrinks its own type on short screens rather than
+          pushing the map off the bottom. */}
+      <div className="z-10 flex shrink-0 items-start justify-between gap-3 px-5 pb-3 pt-[calc(3.5rem+env(safe-area-inset-top))] sm:px-8 sm:pb-4">
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-[0.22em] text-white/45 sm:text-[11px]">
             {slide.label} on the map
           </p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-white sm:text-3xl">
+          <p className="mt-0.5 truncate text-xl font-semibold tabular-nums tracking-tight text-white sm:mt-1 sm:text-3xl">
             {readout.month || slide.label}
           </p>
           {readout.trip ? (
-            <p className="mt-1 max-w-[16rem] truncate text-sm text-white/60">
+            <p className="mt-0.5 truncate text-xs text-white/60 sm:text-sm">
               {readout.trip}
             </p>
           ) : null}
         </div>
-        <p className="shrink-0 rounded-full bg-white/[0.06] px-3 py-1 text-xs tabular-nums text-white/70">
+        <p className="mt-0.5 shrink-0 rounded-full bg-white/[0.06] px-3 py-1 text-xs tabular-nums text-white/70">
           {readout.countries} {readout.countries === 1 ? "country" : "countries"}
         </p>
       </div>
@@ -263,18 +302,39 @@ export function YearMapSlide({
         ) : null}
       </div>
 
-      <div className="flex items-center justify-center p-5 pb-16 sm:pb-20">
+      {/* Pace and skip. Both are gone once the year is drawn: there is nothing
+          left to hurry, and the row becomes the single replay button. */}
+      <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 p-5 pb-16 sm:pb-20">
         {ended ? (
           <button
             type="button"
             onClick={() => setRun((current) => current + 1)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-1.5 text-xs font-medium text-white/80 transition-colors hover:bg-white/[0.12]"
+            className={pill}
           >
             <RotateCcwIcon className="size-3.5" />
             Play again
           </button>
         ) : (
-          <span className="text-xs text-white/35">Drawing your year</span>
+          <>
+            <button
+              type="button"
+              onClick={cycleSpeed}
+              aria-label={`Drawing speed ${speed}x. Tap to change.`}
+              className={cn(pill, "tabular-nums")}
+            >
+              {speed}x
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                skipRef.current = true;
+              }}
+              className={pill}
+            >
+              <FastForwardIcon className="size-3.5" />
+              Skip to the end
+            </button>
+          </>
         )}
       </div>
     </div>

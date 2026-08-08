@@ -11,6 +11,7 @@ import {
 
 import { CategoryIcon } from "@/components/category-icon";
 import { CountryFlag } from "@/components/country-flag";
+import { SlideImage } from "@/components/photos/slide-image";
 import { RatingDisplay } from "@/components/rating-display";
 import { TripShareCardButton } from "@/components/share/trip-share-card";
 import { VisitWeatherLine } from "@/components/weather/visit-weather";
@@ -52,20 +53,24 @@ const SWIPE_THRESHOLD = 50;
 function PhotoFrame({
   photo,
   priority,
+  mosaic = false,
   className,
 }: {
   photo: StoryPhoto;
   priority: boolean;
+  /** One cell of a two-to-four photo grid rather than the whole frame. */
+  mosaic?: boolean;
   className?: string;
 }) {
+  // The FULL image, with the thumbnail only as its placeholder. A slide is the
+  // whole viewport; the 400px gallery thumb is not a source for one.
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
+    <SlideImage
       src={photo.url}
-      alt=""
-      loading={priority ? "eager" : "lazy"}
-      decoding="async"
-      className={cn("size-full object-cover", className)}
+      thumbSrc={photo.thumbUrl}
+      priority={priority}
+      allowContain={!mosaic}
+      className={className}
     />
   );
 }
@@ -94,7 +99,7 @@ function PhotoBackdrop({ photos }: { photos: StoryPhoto[] }) {
                 shown.length === 3 && index === 0 && "row-span-2",
               )}
             >
-              <PhotoFrame photo={photo} priority={index < 2} />
+              <PhotoFrame photo={photo} priority={index < 2} mosaic />
             </div>
           ))}
         </div>
@@ -179,13 +184,14 @@ function DaySlideView({ slide }: { slide: StoryDaySlide }) {
       {hasPhotos ? (
         <PhotoBackdrop photos={slide.photos} />
       ) : destination?.coverUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={destination.coverUrl}
-          alt=""
-          loading="lazy"
-          className="absolute inset-0 size-full object-cover opacity-40 blur-[2px]"
-        />
+        // A day with no photos of its own: the stop's cover carries the slide
+        // behind the writing, dimmed so the text is the subject.
+        <div className="absolute inset-0 opacity-40 blur-[2px]">
+          <SlideImage
+            src={destination.coverUrl}
+            thumbSrc={destination.coverThumbUrl}
+          />
+        </div>
       ) : null}
 
       <SlideBody dense={!hasPhotos}>
@@ -232,13 +238,13 @@ function StopSlideView({ slide }: { slide: StoryStopSlide }) {
       {hasPhotos ? (
         <PhotoBackdrop photos={slide.photos} />
       ) : destination.coverUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={destination.coverUrl}
-          alt=""
-          loading="lazy"
-          className="absolute inset-0 size-full object-cover"
-        />
+        <div className="absolute inset-0">
+          <SlideImage
+            src={destination.coverUrl}
+            thumbSrc={destination.coverThumbUrl}
+            priority
+          />
+        </div>
       ) : null}
       <SlideBody dense={!hasPhotos && !destination.coverUrl}>
         <p className="flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-white/50">
@@ -267,12 +273,13 @@ function SlideView({ slide }: { slide: StorySlide }) {
     return (
       <div className="relative size-full bg-[#0a0a0a]">
         {trip.coverUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={trip.coverUrl}
-            alt=""
-            className="absolute inset-0 size-full object-cover"
-          />
+          <div className="absolute inset-0">
+            <SlideImage
+              src={trip.coverUrl}
+              thumbSrc={trip.coverThumbUrl}
+              priority
+            />
+          </div>
         ) : slide.photos.length > 0 ? (
           <PhotoBackdrop photos={slide.photos} />
         ) : null}

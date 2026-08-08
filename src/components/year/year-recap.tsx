@@ -11,6 +11,7 @@ import {
 
 import { CategoryIcon } from "@/components/category-icon";
 import { CountryFlag } from "@/components/country-flag";
+import { SlideImage } from "@/components/photos/slide-image";
 import { RatingDisplay } from "@/components/rating-display";
 import { AnimatedNumber, CountUpGroup } from "@/components/stats/count-up";
 import { YearMapSlide } from "@/components/year/year-map-slide";
@@ -122,12 +123,13 @@ function OpenerView({
   return (
     <div className="relative size-full bg-[#0a0a0a]">
       {slide.heroUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={slide.heroUrl}
-          alt=""
-          className="absolute inset-0 size-full object-cover"
-        />
+        <div className="absolute inset-0">
+          <SlideImage
+            src={slide.heroUrl}
+            thumbSrc={slide.heroThumbUrl}
+            priority
+          />
+        </div>
       ) : null}
       {/* A flat wash so the year reads over a bright photograph at any
           exposure, then the gradient that grounds the frame. Either alone
@@ -212,12 +214,13 @@ function TripView({ slide, active }: { slide: YearTripSlide; active: boolean }) 
   return (
     <div className="relative size-full bg-[#0a0a0a]">
       {trip.coverUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={trip.coverUrl}
-          alt=""
-          className="absolute inset-0 size-full object-cover"
-        />
+        <div className="absolute inset-0">
+          <SlideImage
+            src={trip.coverUrl}
+            thumbSrc={trip.coverThumbUrl}
+            priority
+          />
+        </div>
       ) : null}
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30" />
       <div className="relative flex size-full items-end justify-center overflow-y-auto p-6 pb-20 sm:p-10 sm:pb-24">
@@ -298,11 +301,13 @@ function TripsView({ slide, active }: { slide: YearTripsSlide; active: boolean }
             delay={200 + index * 70}
             className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]"
           >
+            {/* A grid tile is roughly thumbnail-sized, which is the one place
+                in this file the thumbnail is the right source. */}
             <div className="relative aspect-[4/3] w-full bg-white/[0.04]">
-              {trip.coverUrl ? (
+              {trip.coverThumbUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={trip.coverUrl}
+                  src={trip.coverThumbUrl}
                   alt=""
                   loading="lazy"
                   className="size-full object-cover"
@@ -352,10 +357,10 @@ function MomentsView({
             className="flex items-center gap-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left"
           >
             <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-white/[0.05] sm:size-20">
-              {moment.photoUrl ? (
+              {moment.photoThumbUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={moment.photoUrl}
+                  src={moment.photoThumbUrl}
                   alt=""
                   loading="lazy"
                   className="size-full object-cover"
@@ -614,12 +619,14 @@ function SlideView({
   }
 }
 
-/** The lead image a slide would render, for warming the next one. */
+/** The lead image a slide would render, for warming the next one. Exactly the
+ * url that slide requests, thumbnail or full, or the warm-up fetches a
+ * different file from the one the slide then asks for. */
 function leadImage(slide: YearSlide): string | null {
   if (slide.kind === "opener") return slide.heroUrl;
   if (slide.kind === "trip") return slide.trip.coverUrl;
-  if (slide.kind === "trips") return slide.trips[0]?.coverUrl ?? null;
-  if (slide.kind === "moments") return slide.moments[0]?.photoUrl ?? null;
+  if (slide.kind === "trips") return slide.trips[0]?.coverThumbUrl ?? null;
+  if (slide.kind === "moments") return slide.moments[0]?.photoThumbUrl ?? null;
   return null;
 }
 

@@ -30,6 +30,16 @@ export interface SeedExperience {
   /** POI coordinates, which light up the planner's proximity hints. */
   lat?: number;
   lng?: number;
+  /**
+   * Elect this as one of the trip's featured experiences: what leads the
+   * story, the year recap, and the share card. Ranked in the order they appear
+   * in this file, per trip, and capped there too (see lib/curation.ts).
+   *
+   * The demo deliberately curates only some of its trips. An uncurated trip
+   * has to keep looking right on its ratings alone, and the demo is where that
+   * is visible.
+   */
+  featured?: boolean;
 }
 
 export interface SeedDestination {
@@ -46,6 +56,9 @@ export interface SeedDestination {
   /** Wikimedia lookup override for places whose bare name has no Wikidata P18
    * image (a nearby landmark or the fuller place name usually does). */
   photoQuery?: string;
+  /** Feature this stop's cover photo, so the demo shows photo curation and not
+   * just experience curation. */
+  featuredPhoto?: boolean;
   experiences: SeedExperience[];
 }
 
@@ -122,7 +135,15 @@ export const TRIPS: SeedTrip[] = [
             notes: "First entry slot, worth the early alarm",
           },
           { name: "Anne Frank House", slug: "museum", rating: 10 },
-          { name: "Canal boat at dusk", slug: "activity", rating: 9 },
+          // Featured over the two tens above it on purpose: this is the whole
+          // point of curation, and the demo should show it doing something a
+          // rating sort would not.
+          {
+            name: "Canal boat at dusk",
+            slug: "activity",
+            rating: 9,
+            featured: true,
+          },
           { name: "Vondelpark picnic", slug: "nature", rating: 8 },
           { name: "Foodhallen", slug: "restaurant", rating: 7 },
           {
@@ -179,6 +200,7 @@ export const TRIPS: SeedTrip[] = [
             slug: "viewpoint",
             rating: 9,
             notes: "Empty at five, mobbed by seven",
+            featured: true,
           },
           { name: "Prague Castle", slug: "attraction", rating: 7 },
           {
@@ -226,9 +248,15 @@ export const TRIPS: SeedTrip[] = [
         code: "HU",
         arrival: "2019-08-11",
         departure: "2019-08-14",
+        featuredPhoto: true,
         experiences: [
           { name: "Szechenyi Thermal Baths", slug: "activity", rating: 9 },
-          { name: "Gellert Hill at sunset", slug: "viewpoint", rating: 10 },
+          {
+            name: "Gellert Hill at sunset",
+            slug: "viewpoint",
+            rating: 10,
+            featured: true,
+          },
           { name: "Fishermans Bastion", slug: "viewpoint", rating: 9 },
           { name: "Ruin bar crawl", slug: "nightlife", rating: 8 },
           { name: "Parliament tour", slug: "attraction", rating: 8 },
@@ -600,6 +628,7 @@ export const TRIPS: SeedTrip[] = [
             slug: "viewpoint",
             rating: 10,
             notes: "Sunset slots sell out a month ahead",
+            featured: true,
           },
           {
             name: "teamLab Planets",
@@ -643,7 +672,7 @@ export const TRIPS: SeedTrip[] = [
         departure: "2024-05-06",
         photoQuery: "Kanazawa Castle",
         experiences: [
-          { name: "Kenrokuen", slug: "nature", rating: 10 },
+          { name: "Kenrokuen", slug: "nature", rating: 10, featured: true },
           { name: "Omicho Market", slug: "restaurant", rating: 9 },
           { name: "21st Century Museum", slug: "museum", rating: 8 },
           { name: "Higashi Chaya district", slug: "attraction", rating: 8 },
@@ -658,12 +687,14 @@ export const TRIPS: SeedTrip[] = [
         code: "JP",
         arrival: "2024-05-06",
         departure: "2024-05-11",
+        featuredPhoto: true,
         experiences: [
           {
             name: "Fushimi Inari before dawn",
             slug: "attraction",
             rating: 10,
             notes: "Start at 5:30 and the gates are yours",
+            featured: true,
           },
           { name: "Kiyomizudera", slug: "attraction", rating: 9 },
           { name: "Nishiki Market", slug: "restaurant", rating: 8 },

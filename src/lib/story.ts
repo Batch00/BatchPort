@@ -1,3 +1,4 @@
+import { compareCurated, featuredFirst } from "@/lib/curation";
 import { durationDays } from "@/lib/format";
 import { haversineKm } from "@/lib/geo";
 import { dateRange, destinationForDate } from "@/lib/journal";
@@ -19,7 +20,14 @@ import type { ProfileTrip } from "@/lib/share-data";
 // disappear: they fall back to the stop that owns them, on that stop's first
 // slide, or onto a stop slide when the stop produced no days at all.
 
-/** A photo, already resolved to display URLs by the caller. */
+/**
+ * A photo, already resolved to display URLs by the caller.
+ *
+ * Both urls are carried, and which one a surface uses is not a matter of
+ * taste: `url` is the full image and is what anything drawing a photo larger
+ * than a grid tile must request, `thumbUrl` is the 400px gallery thumbnail and
+ * is a grid tile or a low-quality placeholder and nothing else.
+ */
 export interface StoryPhoto {
   id: string;
   url: string;
@@ -27,6 +35,8 @@ export interface StoryPhoto {
   /** YYYY-MM-DD or a timestamp; only the date part is used for grouping. */
   dateTaken: string | null;
   attribution: string | null;
+  /** Curation order within the trip, or null. See lib/curation.ts. */
+  featuredRank?: number | null;
   /** The stop this photo hangs off, directly or through its experience. Null
    * for trip-level photos, which are placed by date instead. */
   destinationId: string | null;
@@ -41,6 +51,8 @@ export interface StoryExperience {
   categoryLabel: string | null;
   categoryIcon: string | null;
   categoryColor: string | null;
+  /** Curation order within the trip, or null. See lib/curation.ts. */
+  featuredRank?: number | null;
 }
 
 export interface StoryDestination {
@@ -51,7 +63,10 @@ export interface StoryDestination {
   departureDate: string | null;
   latitude: number | null;
   longitude: number | null;
+  /** Full size: a stop's cover fills a whole slide when the day has no photos. */
   coverUrl: string | null;
+  /** The same cover at thumbnail size, as the placeholder behind it. */
+  coverThumbUrl?: string | null;
   experiences: StoryExperience[];
 }
 
@@ -62,7 +77,10 @@ export interface StoryTrip {
   startDate: string | null;
   endDate: string | null;
   notes: string | null;
+  /** Full size: the opener slide and the exported share card both use it. */
   coverUrl: string | null;
+  /** The same cover at thumbnail size, as the placeholder behind it. */
+  coverThumbUrl?: string | null;
   destinations: StoryDestination[];
   photos: StoryPhoto[];
   /** Journal bodies keyed by YYYY-MM-DD. */
@@ -221,17 +239,20 @@ export function storyClosingStats(trip: StoryTrip): StoryClosingStats {
       .map((destination) => destination.countryCode)
       .filter((code): code is string => Boolean(code)),
   );
-  let best: StoryClosingStats["best"] = null;
-  for (const { experience, destinationName } of done) {
-    if (experience.rating === null) continue;
-    if (best === null || experience.rating > best.rating) {
-      best = {
-        name: experience.name,
-        rating: experience.rating,
-        destinationName,
-      };
-    }
-  }
+  // "Best of the trip" is the curated pick when there is one, and the highest
+  // rating otherwise. A featured item with no rating is still not offered
+  // here: the line prints a star beside it, and inventing a rating to fill it
+  // would be a claim the data does not make.
+  const rated = done
+    .filter(({ experience }) => experience.rating !== null)
+    .sort((a, b) => compareCurated(a.experience, b.experience));
+  const best: StoryClosingStats["best"] = rated[0]
+    ? {
+        name: rated[0].experience.name,
+        rating: rated[0].experience.rating as number,
+        destinationName: rated[0].destinationName,
+      }
+    : null;
   return {
     days: durationDays(trip.startDate, trip.endDate),
     countries: countries.size,
@@ -288,7 +309,7 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
           .filter((code): code is string => Boolean(code)),
       ),
     ),
-    photos: openerPhotos,
+    photos: featuredFirst(openerPhotos),
   });
 
   // Day numbering runs off the trip's own first day when it has one, so
@@ -355,8 +376,12 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
         destination,
         opensDestination: daySlides.length === 0,
         journal,
-        photos,
-        experiences,
+        // Curated picks lead their slide. A slide shows at most four photos
+        // with the rest counted, so on a heavily photographed day this is the
+        // difference between the four the traveller chose and the first four
+        // the camera happened to take.
+        photos: featuredFirst(photos),
+        experiences: featuredFirst(experiences),
       });
     }
 
@@ -372,19 +397,23 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
           kind: "stop",
           key: `stop:${destination.id}`,
           destination,
-          photos: undatedPhotos,
-          experiences: undatedExperiences,
+          photos: featuredFirst(undatedPhotos),
+          experiences: featuredFirst(undatedExperiences),
         });
       }
       continue;
     }
 
-    // Undated leftovers ride on the stop's first slide rather than vanishing.
-    daySlides[0].photos = [...daySlides[0].photos, ...undatedPhotos];
-    daySlides[0].experiences = [
+    // Undated leftovers ride on the stop's first slide rather than vanishing,
+    // and are re-sorted with it so a featured undated photo still leads.
+    daySlides[0].photos = featuredFirst([
+      ...daySlides[0].photos,
+      ...undatedPhotos,
+    ]);
+    daySlides[0].experiences = featuredFirst([
       ...daySlides[0].experiences,
       ...undatedExperiences,
-    ];
+    ]);
     slides.push(...daySlides);
   }
 
@@ -435,7 +464,10 @@ export function storyTripFromProfile(trip: ProfileTrip): StoryTrip {
     startDate: trip.start_date,
     endDate: trip.end_date,
     notes: trip.notes,
-    coverUrl: trip.coverUrl,
+    // The FULL cover, not the card thumbnail: this feeds full-screen slides
+    // and a 2160px exported card.
+    coverUrl: trip.coverFullUrl ?? trip.coverUrl,
+    coverThumbUrl: trip.coverUrl,
     photos: trip.photos,
     journal,
     destinations: trip.destinations.map((destination) => ({
@@ -446,7 +478,8 @@ export function storyTripFromProfile(trip: ProfileTrip): StoryTrip {
       departureDate: destination.departure_date,
       latitude: destination.latitude,
       longitude: destination.longitude,
-      coverUrl: destination.coverUrl,
+      coverUrl: destination.coverFullUrl ?? destination.coverUrl,
+      coverThumbUrl: destination.coverUrl,
       experiences: destination.experiences
         .filter((experience) => experience.status !== "planned")
         .map((experience) => ({
@@ -458,6 +491,7 @@ export function storyTripFromProfile(trip: ProfileTrip): StoryTrip {
           categoryLabel: experience.category?.label ?? null,
           categoryIcon: experience.category?.icon ?? null,
           categoryColor: experience.category?.color ?? null,
+          featuredRank: experience.featured_rank,
         })),
     })),
   };

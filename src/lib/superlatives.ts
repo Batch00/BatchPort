@@ -6,6 +6,7 @@
 // Ratings are the raw smallint 1-10 (each step is half a star) throughout;
 // only the display layer divides by two.
 
+import { compareCurated } from "@/lib/curation";
 import type { DestinationWithExperiences } from "@/lib/types";
 
 export interface RatedExperience {
@@ -111,12 +112,24 @@ const TRIP_HIGHLIGHT_COUNT = 3;
 // One rated stop is not a ranking. Two is the minimum for "the best of".
 const TRIP_HIGHLIGHT_MIN_POOL = 2;
 
-/** The best-rated experiences on one trip, from the destination rows the trip
- * page has already loaded. Empty when there is nothing worth ranking. */
+/**
+ * The best of one trip, from the destination rows the trip page has already
+ * loaded: the experiences the traveller featured, then the best-rated of the
+ * rest. Empty when there is nothing worth ranking.
+ *
+ * Curated for the same reason the share card is, and with the same comparator:
+ * this block and that card show the same three lines to the same person on the
+ * same page, and two rankings of "the best of this trip" that disagree would
+ * be a bug nobody could explain.
+ *
+ * The stats page's all-time superlatives above are deliberately NOT curated:
+ * that is a leaderboard, and a rank the user assigned to pace a slideshow has
+ * no business reordering it.
+ */
 export function tripHighlights(
   destinations: DestinationWithExperiences[],
 ): TripHighlight[] {
-  const rated: TripHighlight[] = [];
+  const rated: (TripHighlight & { featuredRank: number | null })[] = [];
   for (const destination of destinations) {
     for (const experience of destination.experiences) {
       if (experience.status === "planned") continue;
@@ -126,11 +139,18 @@ export function tripHighlights(
         name: experience.name,
         rating: experience.rating,
         destinationName: destination.name,
+        featuredRank: experience.featured_rank,
       });
     }
   }
   if (rated.length < TRIP_HIGHLIGHT_MIN_POOL) return [];
   return rated
-    .sort((a, b) => b.rating - a.rating)
-    .slice(0, TRIP_HIGHLIGHT_COUNT);
+    .sort(compareCurated)
+    .slice(0, TRIP_HIGHLIGHT_COUNT)
+    .map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      rating: entry.rating,
+      destinationName: entry.destinationName,
+    }));
 }

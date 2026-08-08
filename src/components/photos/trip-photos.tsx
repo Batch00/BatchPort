@@ -204,6 +204,7 @@ export function TripPhotosSection({
                 editable
                 ownerType="trip"
                 ownerId={tripId}
+                tripId={tripId}
                 secondaryCoverTarget={(photo) => {
                   const destination = destinationForPhoto(photo);
                   return destination
