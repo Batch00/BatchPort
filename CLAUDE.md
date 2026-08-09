@@ -405,6 +405,24 @@ Three rules, and everything in the file follows from them:
   year simply produces fewer slides. There are no zero tiles on the scoreboard,
   no moments block without a rating, and no insight invented to fill a category.
 
+**A moment shows a photograph of the experience it names, or says it does
+not.** `buildMoments` filters on `StoryPhoto.experienceId`, which is why that
+field is carried separately from `destinationId`: collapsing the two made the
+slide caption the first photo at the *stop* with the name of one experience at
+it. Where the experience has no photo of its own the stop's cover is offered
+as `photoOf: "place"` and the slide renders it dimmed under the category mark,
+so it reads as the place rather than passing for the thing.
+
+**The scoreboard is ranked, not listed.** Eight identical tiles is a report
+footer at the exact moment a recap should land, so `buildScoreboard` splits the
+numbers into one or two `leads` at real scale (distance and countries first,
+in a fixed order rather than by size, or a big photo count outranks the year
+itself), a quiet `stats` strip for the rest with no number appearing in both,
+the year's own photograph as the backdrop, and a `closingLine` chosen from a
+ladder of true statements. Null when there is nothing true to say; nothing is
+padded here either. The trip story's closing slide is the same composition for
+the same reason.
+
 **Insights are ranked in bands** (`INSIGHT_BASE` plus a bounded bonus), not on a
 free-running score. Free scores let a wide margin on the weakest question
 ("your busiest month") outrank the strongest one ("somewhere new"), which is how
@@ -504,9 +522,11 @@ else follows:
   are exactly three, and `SLOT_CAPACITY` is their capacity:
   - **Trip hero (1)**: `photos.featured_slot = 'hero'`, rank 1. The recap's
     opening frame and the share card's backdrop.
-  - **Stop photos (4 per destination)**: `photos.featured_slot = 'stop'`,
+  - **Stop photos (8 per destination)**: `photos.featured_slot = 'stop'`,
     ranked **within the destination**. The photos that lead that stop's story
-    slides.
+    slides. Eight, not the four one slide draws, because the picks are spread
+    **across** the stop's days (see below), so the slot's capacity is a
+    statement about the stay and `SLIDE_PHOTO_CAP` is the one about a slide.
   - **Highlights (3, ordered)**: `experiences.featured_rank`, ranked across the
     trip. The share card's list, the story's closing, the recap's moments, and
     the trip page's own "best of" block.
@@ -536,9 +556,45 @@ else follows:
   because a blank slot would be telling the user their inaction has no
   consequence. `scripts/check-curation.ts` asserts both halves.
 
-`MAX_FEATURED_HONORED` is 6: past it a rank is simply not honoured and falls
-back into the normal order. It is the model's ceiling; the slot capacities are
-tighter and are what the panel enforces.
+**A stop's picks are spread across its DAYS, not piled on its first slide.**
+A slide is a day and a pick is per destination, so `distributeStopPhotos`
+(pure, in `lib/curation.ts`) is the mapping between them, and both
+`buildStorySlides` (which places the photographs) and the panel (which
+describes the placement before anything is saved) call it. Three rules:
+a pick **dated** to one of the stop's own day slides leads that day, because
+moving it would print a photograph under another day's date; everything else
+is dealt in rank order onto the emptiest days, one pass at a time, so five
+picks over four days go 2, 1, 1, 1 rather than 5, 0, 0, 0; and no day takes
+more than `SLIDE_PHOTO_CAP`. A pick whose own day is already full stays an
+ordinary photo of that day rather than being relocated. Days with no pick fall
+back to their own photos, then the stop cover, exactly as before: curation
+governs the lead and the composition, never exclusivity. With nothing elected
+the plan is empty and every line of it is a no-op.
+
+The panel states the result rather than the rule (`describeStopSelection`,
+`suggestStopCount` in `lib/curation-slots.ts`), generated from the same
+function that does the placing, so the sentence cannot promise a spread the
+slides do not make. `StopPhotoSlot.dayDates` is read off the real day slides,
+not recomputed from the stay, because a day nobody photographed is not a slide
+and would make every count in the panel one too many.
+
+`MAX_FEATURED_HONORED` is 8: past it a rank is simply not honoured and falls
+back into the normal order. It is the model's ceiling and no slot capacity may
+exceed it (`check-curation` asserts this), or the panel could elect a rank
+nothing reads.
+
+**The panel is bounded, because Radix mounts a dialog's whole subtree in one
+synchronous commit.** Every photo on the trip is a hero candidate and every
+photo of a stop is a stop candidate, so an unbounded panel built hundreds of
+tiles before it could paint; `loading="lazy"` defers the fetch and none of the
+element, state, or layout cost. Three bounds, and they must stay: a section
+longer than `LONG_SECTION` opens collapsed and mounts nothing, an open grid
+renders `PAGE_SIZE` candidates at a time behind a "show more", and a grid tile
+is a plain `<img>` (`Thumb`) rather than `SafeImage`, whose skeleton and
+three hooks are worth paying for once on the hero preview and not sixty times
+in a grid. `buildCurationSlots` also runs only while the dialog is open: it
+folds the whole trip and builds its story slides, which is not work to do on
+every render of a page whose dialog is shut.
 
 Consumers, all through the same comparators: story slide photo and experience
 order, `storyClosingStats().best`, the share card's highlights **and its
@@ -988,7 +1044,7 @@ no timezone chip. Nothing in the app prompts the user to set one.
 Run `npm run build` to verify type correctness across the whole project (TypeScript strict mode). Run `npm run lint` for ESLint. There is no automated test suite, with two exceptions, both pure, both needing no database or dev server:
 
 - `npm run check-year-recap` asserts the Year in Travel derivation (year list, slicing across new year, planned exclusion, sparse years, in-progress labelling, insight selection). Re-run it after any change to `lib/year-recap.ts`.
-- `npm run check-curation` asserts the curation model end to end (rank order, the cap, the photo slots and their backwards compatibility, the three slots' contents and their automatic answers, and what the story, the share card, and the recap select), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts`, `lib/curation-slots.ts`, or a selector that consumes them.
+- `npm run check-curation` asserts the curation model end to end (rank order, the cap, the photo slots and their backwards compatibility, the three slots' contents and their automatic answers, the spread of a stop's picks across its day slides for equal, fewer, and more picks than days, that a moment shows its own experience's photograph and marks a place fallback as one, and what the story, the share card, and the recap select), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts`, `lib/curation-slots.ts`, or a selector that consumes them.
 - `npm run check-year-map-playback` asserts the recap map slide's clock: that 1x, 2x, and 4x all reach the end of a real multi-trip timeline, that changing speed mid-flight rescales the remaining time rather than jumping or truncating, that skip lands on the finished year, and that rebuilding the animation mid-playback resumes instead of restarting. Re-run it after any change to `advancePlayback` or to the map slide's effect wiring.
 
 Interactive features including the globe, photo lightbox, geocoding typeahead, and experience dialog require manual browser testing.

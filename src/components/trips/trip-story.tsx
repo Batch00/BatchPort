@@ -311,69 +311,118 @@ function SlideView({ slide }: { slide: StorySlide }) {
     );
   }
 
+  // The closing scoreboard, ranked rather than listed. Six identical tiles
+  // read as a report footer at the exact moment a story should land, so the
+  // two numbers that carry the trip get real scale, the rest are one quiet
+  // strip, and the trip's own photograph sits a long way behind all of it.
+  // Same shape as the year recap's scoreboard, deliberately.
   const stats = slide.stats;
-  const tiles: { label: string; value: string }[] = [];
-  if (stats.days) tiles.push({ label: "Days", value: String(stats.days) });
-  tiles.push({
-    label: stats.destinations === 1 ? "Stop" : "Stops",
-    value: String(stats.destinations),
-  });
-  if (stats.countries > 0) {
-    tiles.push({
+  const leads: { label: string; value: string }[] = [];
+  if (stats.distanceKm !== null) {
+    leads.push({ label: "Travelled", value: formatKm(stats.distanceKm) });
+  }
+  if (stats.days) leads.push({ label: "Days", value: String(stats.days) });
+  if (leads.length < 2 && stats.countries > 0) {
+    leads.push({
       label: stats.countries === 1 ? "Country" : "Countries",
       value: String(stats.countries),
     });
   }
-  if (stats.experiences > 0) {
-    tiles.push({ label: "Experiences", value: String(stats.experiences) });
-  }
-  if (stats.photos > 0) {
-    tiles.push({ label: "Photos", value: String(stats.photos) });
-  }
-  if (stats.distanceKm !== null) {
-    tiles.push({ label: "Travelled", value: formatKm(stats.distanceKm) });
-  }
+  const led = new Set(leads.map((lead) => lead.label));
 
+  const rest: { label: string; value: string }[] = [];
+  const supporting = (label: string, value: string) => {
+    if (!led.has(label)) rest.push({ label, value });
+  };
+  supporting(
+    stats.destinations === 1 ? "Stop" : "Stops",
+    String(stats.destinations),
+  );
+  if (stats.countries > 0) {
+    supporting(
+      stats.countries === 1 ? "Country" : "Countries",
+      String(stats.countries),
+    );
+  }
+  if (stats.days) supporting("Days", String(stats.days));
+  if (stats.experiences > 0) {
+    supporting("Experiences", String(stats.experiences));
+  }
+  if (stats.photos > 0) supporting("Photos", String(stats.photos));
+
+  const cover = slide.trip.coverUrl;
   return (
-    <div className="relative flex size-full flex-col items-center justify-center overflow-y-auto bg-[#0a0a0a] p-6 text-center sm:p-10">
-      <p className="text-xs uppercase tracking-[0.22em] text-white/40">
-        That was
-      </p>
-      <h2 className="mt-2 max-w-3xl break-words text-3xl font-semibold tracking-tight text-white sm:text-5xl">
-        {slide.trip.name}
-      </h2>
-      <dl className="mt-8 grid w-full max-w-lg grid-cols-2 gap-3 sm:grid-cols-3">
-        {tiles.map((tile) => (
-          <div
-            key={tile.label}
-            className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-4"
-          >
-            <dd className="text-2xl font-semibold tabular-nums text-white">
-              {tile.value}
-            </dd>
-            <dt className="mt-0.5 text-[11px] uppercase tracking-wide text-white/40">
-              {tile.label}
-            </dt>
-          </div>
-        ))}
-      </dl>
-      {stats.best ? (
-        <div className="mt-8 max-w-md">
-          <p className="text-[11px] uppercase tracking-wide text-white/40">
-            Best of the trip
-          </p>
-          <p className="mt-1 break-words text-lg text-white">
-            {stats.best.name}
-          </p>
-          <p className="mt-0.5 flex items-center justify-center gap-2 text-xs text-white/50">
-            {stats.best.destinationName}
-            <RatingDisplay rating={stats.best.rating} size={12} />
-          </p>
+    <div className="relative size-full bg-[#0a0a0a]">
+      {cover ? (
+        <div className="absolute inset-0">
+          <SlideImage src={cover} thumbSrc={slide.trip.coverThumbUrl} />
         </div>
       ) : null}
-      {/* The last slide is where someone has just finished reading a trip and
-          is most likely to want to show it to somebody. */}
-      <TripShareCardButton trip={slide.trip} className="mt-10" />
+      <div className="absolute inset-0 bg-black/75" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/75 to-black/50" />
+
+      <div className="relative flex size-full flex-col items-center justify-center overflow-y-auto p-6 text-center sm:p-10">
+        <p className="text-xs uppercase tracking-[0.22em] text-white/45">
+          That was
+        </p>
+        <h2 className="mt-1.5 max-w-3xl break-words text-3xl font-semibold tracking-tight text-white sm:text-5xl">
+          {slide.trip.name}
+        </h2>
+
+        {leads.length > 0 ? (
+          <div
+            className={cn(
+              "mt-9 grid w-full max-w-lg gap-7",
+              leads.length > 1 && "sm:grid-cols-2 sm:gap-6",
+            )}
+          >
+            {leads.map((lead) => (
+              <div key={lead.label}>
+                <p className="text-4xl font-semibold leading-none tabular-nums tracking-tight text-white sm:text-6xl">
+                  {lead.value}
+                </p>
+                <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                  {lead.label}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {rest.length > 0 ? (
+          <dl className="mt-8 grid w-full max-w-lg grid-cols-3 gap-y-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] px-2 py-4 sm:grid-cols-4">
+            {rest.map((tile) => (
+              <div key={tile.label} className="px-2">
+                <dd className="text-lg font-medium tabular-nums text-white/90">
+                  {tile.value}
+                </dd>
+                <dt className="mt-0.5 text-[10px] uppercase tracking-wide text-white/40">
+                  {tile.label}
+                </dt>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+
+        {stats.best ? (
+          <div className="mt-8 max-w-md">
+            <p className="text-[11px] uppercase tracking-wide text-white/40">
+              Best of the trip
+            </p>
+            <p className="mt-1 break-words text-lg text-white">
+              {stats.best.name}
+            </p>
+            <p className="mt-0.5 flex items-center justify-center gap-2 text-xs text-white/50">
+              {stats.best.destinationName}
+              <RatingDisplay rating={stats.best.rating} size={12} />
+            </p>
+          </div>
+        ) : null}
+
+        {/* The last slide is where someone has just finished reading a trip
+            and is most likely to want to show it to somebody. */}
+        <TripShareCardButton trip={slide.trip} className="mt-9" />
+      </div>
     </div>
   );
 }

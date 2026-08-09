@@ -365,18 +365,28 @@ function MomentsView({
             delay={220 + index * 130}
             className="flex items-center gap-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left"
           >
-            <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-white/[0.05] sm:size-20">
+            {/* A photo OF the experience is shown plainly. The stop's own
+                picture is not: it is dimmed under the category mark so it
+                reads as the place, which is what it is, rather than passing
+                for a photograph of the thing this row names. */}
+            <div className="relative isolate size-16 shrink-0 overflow-hidden rounded-lg bg-white/[0.05] sm:size-20">
               {moment.photoThumbUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={moment.photoThumbUrl}
                   alt=""
                   loading="lazy"
-                  className="size-full object-cover"
+                  aria-hidden
+                  className={cn(
+                    "size-full object-cover",
+                    moment.photoOf === "place" &&
+                      "opacity-45 saturate-[0.6] blur-[1px]",
+                  )}
                 />
-              ) : (
+              ) : null}
+              {moment.photoOf === "experience" ? null : (
                 <span
-                  className="flex size-full items-center justify-center text-white/40"
+                  className="absolute inset-0 flex items-center justify-center text-white/50"
                   style={
                     moment.categoryColor
                       ? { color: moment.categoryColor }
@@ -439,6 +449,16 @@ function InsightView({
   );
 }
 
+/**
+ * The year in numbers, and the last thing before the closing slide.
+ *
+ * It was eight identical tiles, which reads as a report footer at exactly the
+ * moment a recap should land. Three things fix that and none of them is
+ * decoration: the year's own photograph behind it, so the payoff looks like
+ * the opener it answers; one or two numbers at real scale with a line of
+ * framing, so there is something to actually read; and everything else demoted
+ * into one quiet strip instead of nine boxes competing for the same attention.
+ */
 function ScoreboardView({
   slide,
   active,
@@ -446,42 +466,108 @@ function ScoreboardView({
   slide: YearScoreboardSlide;
   active: boolean;
 }) {
+  const wide = slide.leads.length > 1;
   return (
-    <Panel>
-      <CountUpGroup active={active}>
-        <Rise active={active}>
-          <p className="text-xs uppercase tracking-[0.22em] text-white/40">
-            That was
-          </p>
-        </Rise>
-        <Rise active={active} delay={90}>
-          <p className="mt-2 text-4xl font-semibold tracking-tight text-white sm:text-6xl">
-            {slide.label}
-          </p>
-        </Rise>
-        <dl className="mt-9 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {slide.tiles.map((tile, index) => (
-            <Rise
-              key={tile.label}
-              active={active}
-              delay={200 + index * 70}
-              className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-4"
-            >
-              <dd className="text-2xl font-semibold tabular-nums text-white">
-                {tile.numeric === null ? (
-                  tile.value
-                ) : (
-                  <AnimatedNumber value={tile.numeric} />
-                )}
-              </dd>
-              <dt className="mt-0.5 text-[11px] uppercase tracking-wide text-white/40">
-                {tile.label}
-              </dt>
+    <div className="relative size-full bg-[#0a0a0a]">
+      {slide.heroUrl ? (
+        <div className="absolute inset-0">
+          <SlideImage src={slide.heroUrl} thumbSrc={slide.heroThumbUrl} />
+        </div>
+      ) : null}
+      {/* The numbers are the subject, so the photograph is pushed a long way
+          back: a flat wash for legibility at any exposure, then a gradient to
+          ground the frame. The same pair the opener uses, darker. */}
+      <div className="absolute inset-0 bg-black/72" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/45" />
+
+      <div className="relative flex size-full flex-col items-center justify-center overflow-y-auto px-6 py-16 text-center sm:px-10 sm:py-20">
+        <div className="w-full max-w-2xl">
+          <CountUpGroup active={active}>
+            <Rise active={active}>
+              <p className="text-xs uppercase tracking-[0.22em] text-white/45">
+                That was
+              </p>
             </Rise>
-          ))}
-        </dl>
-      </CountUpGroup>
-    </Panel>
+            <Rise active={active} delay={90}>
+              <p className="mt-1.5 text-4xl font-semibold tracking-tight text-white sm:text-6xl">
+                {slide.label}
+              </p>
+            </Rise>
+
+            {slide.leads.length > 0 ? (
+              <div
+                className={cn(
+                  "mt-10 grid gap-8",
+                  wide && "sm:grid-cols-2 sm:gap-6",
+                )}
+              >
+                {slide.leads.map((lead, index) => (
+                  <Rise key={lead.id} active={active} delay={200 + index * 150}>
+                    <p
+                      className={cn(
+                        "font-semibold tabular-nums leading-[0.95] tracking-tight text-white",
+                        wide ? "text-5xl sm:text-7xl" : "text-6xl sm:text-8xl",
+                      )}
+                    >
+                      <AnimatedNumber value={lead.value} />
+                      {lead.unit ? (
+                        <span className="ml-1.5 text-2xl text-white/45 sm:text-4xl">
+                          {lead.unit}
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                      {lead.label}
+                    </p>
+                    {lead.caption ? (
+                      <p className="mt-1.5 text-sm text-brand">{lead.caption}</p>
+                    ) : null}
+                  </Rise>
+                ))}
+              </div>
+            ) : null}
+
+            <Rise active={active} delay={480}>
+              <FlagRow
+                codes={slide.countryCodes}
+                className="mt-8 justify-center"
+              />
+            </Rise>
+
+            {/* One strip, hairline-divided, rather than a box per number. The
+                supporting stats are read as a group or not at all. */}
+            {slide.stats.length > 0 ? (
+              <Rise active={active} delay={560}>
+                <dl className="mt-8 grid grid-cols-3 gap-y-5 rounded-2xl border border-white/[0.09] bg-white/[0.03] px-2 py-5 sm:grid-cols-4">
+                  {slide.stats.map((stat) => (
+                    <div key={stat.label} className="px-2">
+                      <dd className="text-lg font-medium tabular-nums text-white/90">
+                        {stat.numeric === null ? (
+                          stat.value
+                        ) : (
+                          <AnimatedNumber value={stat.numeric} />
+                        )}
+                      </dd>
+                      <dt className="mt-0.5 text-[10px] uppercase tracking-wide text-white/40">
+                        {stat.label}
+                      </dt>
+                    </div>
+                  ))}
+                </dl>
+              </Rise>
+            ) : null}
+
+            {slide.closingLine ? (
+              <Rise active={active} delay={660}>
+                <p className="mx-auto mt-8 max-w-md text-[15px] leading-relaxed text-white/70">
+                  {slide.closingLine}
+                </p>
+              </Rise>
+            ) : null}
+          </CountUpGroup>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -793,6 +879,7 @@ function leadImage(slide: YearSlide): string | null {
   if (slide.kind === "trip") return slide.trip.coverUrl;
   if (slide.kind === "trips") return slide.trips[0]?.coverThumbUrl ?? null;
   if (slide.kind === "moments") return slide.moments[0]?.photoThumbUrl ?? null;
+  if (slide.kind === "scoreboard") return slide.heroUrl;
   return null;
 }
 

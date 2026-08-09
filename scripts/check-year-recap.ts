@@ -434,11 +434,14 @@ function input(trips: StoryTrip[], today: string): YearRecapInput {
     !recap.slides.some((slide) => slide.kind === "map"),
   );
   check(
-    "the scoreboard has no zero tiles",
+    "the scoreboard has no zero numbers",
     recap.slides.every(
       (slide) =>
         slide.kind !== "scoreboard" ||
-        slide.tiles.every((tile) => tile.numeric === null || tile.numeric > 0),
+        (slide.leads.every((lead) => lead.value > 0) &&
+          slide.stats.every(
+            (stat) => stat.numeric === null || stat.numeric > 0,
+          )),
     ),
   );
   const scoreboard = recap.slides.find((slide) => slide.kind === "scoreboard");
@@ -446,8 +449,24 @@ function input(trips: StoryTrip[], today: string): YearRecapInput {
     "the scoreboard is present and non-empty",
     scoreboard !== undefined &&
       scoreboard.kind === "scoreboard" &&
-      scoreboard.tiles.length > 0,
+      (scoreboard.leads.length > 0 || scoreboard.stats.length > 0),
   );
+  if (scoreboard && scoreboard.kind === "scoreboard") {
+    // Hierarchy, not a list: at most two numbers carry the slide, and a number
+    // that leads is not repeated in the supporting strip underneath it.
+    check("the scoreboard leads on at most two numbers", scoreboard.leads.length <= 2);
+    const ledLabels = new Set(scoreboard.leads.map((lead) => lead.label));
+    check(
+      "a lead is not repeated in the supporting stats",
+      scoreboard.stats.every((stat) => !ledLabels.has(stat.label)),
+    );
+    // Denmark was new this year, so the slide has something true to end on.
+    equal(
+      "the scoreboard closes on the year's strongest true line",
+      scoreboard.closingLine,
+      "And one country you had never set foot in before.",
+    );
+  }
 }
 
 // A thin year with nothing new to say about it produces no insight at all,

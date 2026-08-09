@@ -200,6 +200,7 @@ export default async function TripDetailPage({
   const toStoryPhoto = (
     photo: Photo,
     destinationId: string | null,
+    experienceId: string | null = null,
   ): StoryPhoto => ({
     id: photo.id,
     url: getPhotoUrl(photo),
@@ -209,6 +210,7 @@ export default async function TripDetailPage({
     featuredRank: photo.featured_rank ?? null,
     featuredSlot: photo.featured_slot ?? null,
     destinationId,
+    experienceId,
   });
   const storyTrip: StoryTrip = {
     id: trip.id,
@@ -225,8 +227,15 @@ export default async function TripDetailPage({
     photos: [
       ...tripPhotos.map((photo) => toStoryPhoto(photo, null)),
       ...destPhotos.map((photo) => toStoryPhoto(photo, photo.owner_id)),
+      // The experience id is carried, not just its stop: the recap's moments
+      // name one experience and must not illustrate it with a photograph of
+      // something else at the same stop.
       ...expPhotos.map((photo) =>
-        toStoryPhoto(photo, destinationOfExperience.get(photo.owner_id) ?? null),
+        toStoryPhoto(
+          photo,
+          destinationOfExperience.get(photo.owner_id) ?? null,
+          photo.owner_id,
+        ),
       ),
     ],
     destinations: trip.destinations.map((destination) => ({

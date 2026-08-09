@@ -34,7 +34,9 @@ import {
 import { SLOT_CAPACITY } from "@/lib/curation";
 import {
   buildCurationSlots,
+  describeStopSelection,
   hasCurationSlots,
+  suggestStopCount,
   type HeroSlot,
   type HighlightsSlot,
   type SlotExperience,
@@ -60,10 +62,205 @@ import { cn } from "@/lib/utils";
 // choosing, there is no rank arithmetic anywhere on the client, and a failure
 // rolls the slot back to what the server last confirmed.
 
-const PANEL_SECTION =
-  "rounded-xl border border-white/10 bg-white/[0.02] p-4 sm:p-5";
+const PANEL_SECTION = "rounded-xl border border-white/10 bg-white/[0.02]";
+
+// --- What the dialog is allowed to render at once ---------------------------
+//
+// COST, AND WHY IT IS CAPPED HERE RATHER THAN LEFT TO THE BROWSER
+//
+// Radix mounts a dialog's whole subtree in one synchronous commit when it
+// opens. The panel used to put every photo on the trip into the hero grid, and
+// every photo of a stop into that stop's grid, so a trip with 300 photographs
+// built 300+ tiles (600 on a single-stop trip, whose only section opened by
+// default) before the dialog could paint. `loading="lazy"` defers the network
+// fetch and nothing else: the elements, their React state, and their layout
+// are all paid for up front, and the old skeleton-per-tile added 300 running
+// CSS animations on top.
+//
+// So the panel is bounded three ways: a long section starts collapsed and
+// mounts nothing, an open grid renders one page at a time, and a tile is a
+// plain image rather than a component with three hooks and a pulse.
+
+/** Candidate thumbnails revealed per page. Four rows on a phone, four on a
+ * desktop grid of six. */
+const PAGE_SIZE = 24;
+/** Past this many candidates a section is long enough to open collapsed. */
+const LONG_SECTION = 12;
 
 // --- Shared bits ------------------------------------------------------------
+
+/**
+ * A grid thumbnail. Deliberately not SafeImage: one state hook and no skeleton
+ * element, because this renders in the dozens and the placeholder is the
+ * parent's background. It keeps the one behaviour that matters, falling back
+ * to the full image when a thumbnail is missing from Storage.
+ */
+function Thumb({
+  src,
+  fallbackSrc,
+  className,
+}: {
+  src: string;
+  fallbackSrc?: string;
+  className?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const active = failed && fallbackSrc ? fallbackSrc : src;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={active}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+      className={className}
+    />
+  );
+}
+
+/** A collapsible slot section: the summary is always readable, the contents
+ * mount only once it is opened. The same disclosure the stop rows use, so the
+ * whole panel reads as one list of things that can be folded away. */
+function SlotSection({
+  title,
+  where,
+  status,
+  accent,
+  summary,
+  defaultOpen,
+  children,
+}: {
+  title: string;
+  where: string;
+  status: string;
+  /** True when the slot is doing something the traveller chose. */
+  accent: boolean;
+  /** A glance at what the slot currently resolves to, shown open or closed. */
+  summary?: React.ReactNode;
+  defaultOpen: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className={PANEL_SECTION}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex w-full items-start gap-3 p-4 text-left sm:p-5"
+      >
+        <ChevronDownIcon
+          className={cn(
+            "mt-0.5 size-4 shrink-0 text-foreground/40 transition-transform",
+            !open && "-rotate-90",
+          )}
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-foreground">
+            {title}
+          </span>
+          <span className="mt-0.5 block text-xs text-foreground/45">
+            {where}
+          </span>
+        </span>
+        {summary}
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-2 py-0.5 text-[0.7rem] font-medium",
+            accent ? "bg-brand/15 text-brand" : "bg-white/[0.06] text-foreground/50",
+          )}
+        >
+          {status}
+        </span>
+      </button>
+      {open ? (
+        <div className="border-t border-white/[0.07] p-4 sm:p-5">{children}</div>
+      ) : null}
+    </section>
+  );
+}
+
+/** A strip of up to four thumbnails, as a section header's glance. */
+function ThumbStrip({ photos, dim }: { photos: SlotPhoto[]; dim: boolean }) {
+  if (photos.length === 0) return null;
+  return (
+    <span className="hidden shrink-0 -space-x-2 sm:flex">
+      {photos.slice(0, 4).map((photo) => (
+        <span
+          key={photo.id}
+          className={cn(
+            "size-7 overflow-hidden rounded-md ring-2 ring-card",
+            dim && "opacity-55",
+          )}
+        >
+          <Thumb
+            src={photo.thumbUrl}
+            fallbackSrc={photo.url}
+            className="size-full object-cover"
+          />
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * A candidate grid, one page at a time.
+ *
+ * Paging rather than virtualising: the tiles are a uniform square grid inside
+ * a dialog that also runs pointer hit-testing for the reorder drag, and a
+ * windowed list would have to lie about the scroll height for both. A button
+ * that says how many are left is also the more honest interface on a gallery
+ * of six hundred.
+ */
+function CandidateGrid({
+  photos,
+  positionOf,
+  labelOf,
+  onPick,
+  disabled,
+}: {
+  photos: SlotPhoto[];
+  positionOf: (photo: SlotPhoto) => number | null;
+  labelOf: (photo: SlotPhoto, chosen: boolean) => string;
+  onPick: (photo: SlotPhoto) => void;
+  disabled?: boolean;
+}) {
+  const [shown, setShown] = useState(PAGE_SIZE);
+  const visible = photos.slice(0, shown);
+  const remaining = photos.length - visible.length;
+  return (
+    <>
+      <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+        {visible.map((photo) => {
+          const position = positionOf(photo);
+          return (
+            <PhotoTile
+              key={photo.id}
+              photo={photo}
+              position={position}
+              disabled={disabled}
+              label={labelOf(photo, position !== null)}
+              onClick={() => onPick(photo)}
+            />
+          );
+        })}
+      </div>
+      {remaining > 0 ? (
+        <button
+          type="button"
+          onClick={() =>
+            setShown((current) => Math.min(photos.length, current + PAGE_SIZE))
+          }
+          className="mt-2.5 w-full rounded-lg border border-white/10 py-2 text-xs text-foreground/60 transition-colors hover:bg-white/[0.04] hover:text-foreground"
+        >
+          Show {Math.min(PAGE_SIZE, remaining)} more ({remaining} left)
+        </button>
+      ) : null}
+    </>
+  );
+}
 
 function PositionBadge({
   position,
@@ -81,50 +278,6 @@ function PositionBadge({
     >
       {position}
     </span>
-  );
-}
-
-function SlotHeader({
-  title,
-  where,
-  status,
-  saving,
-  onClear,
-}: {
-  title: string;
-  where: string;
-  status: string;
-  saving: boolean;
-  onClear?: () => void;
-}) {
-  return (
-    <div className="mb-3 flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-      <div className="min-w-0">
-        <h3 className="text-sm font-medium text-foreground">{title}</h3>
-        <p className="mt-0.5 text-xs text-foreground/45">{where}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[0.7rem] font-medium",
-            status === "Automatic"
-              ? "bg-white/[0.06] text-foreground/50"
-              : "bg-brand/15 text-brand",
-          )}
-        >
-          {saving ? "Saving..." : status}
-        </span>
-        {onClear ? (
-          <button
-            type="button"
-            onClick={onClear}
-            className="-my-1 px-1 py-2 text-xs text-foreground/50 transition-colors hover:text-foreground"
-          >
-            Use automatic
-          </button>
-        ) : null}
-      </div>
-    </div>
   );
 }
 
@@ -299,12 +452,10 @@ function PhotoTile({
         disabled && "cursor-default opacity-60",
       )}
     >
-      <SafeImage
+      <Thumb
         src={photo.thumbUrl}
         fallbackSrc={photo.url}
-        alt=""
-        loading="lazy"
-        className="size-full object-cover"
+        className="size-full bg-white/[0.04] object-cover"
       />
       {position !== null ? (
         <span className="absolute inset-0 bg-brand/15" />
@@ -363,15 +514,18 @@ function HeroSlotSection({
   }
 
   return (
-    <section className={PANEL_SECTION}>
-      <SlotHeader
-        title="Trip hero"
-        where="Opens the Year in Travel recap and backs the share card."
-        status={isAutomatic ? "Automatic" : "Chosen"}
-        saving={saving}
-        onClear={isAutomatic ? undefined : () => void save(null)}
-      />
-
+    <SlotSection
+      title="Trip hero"
+      where="Opens the Year in Travel recap and backs the share card."
+      status={saving ? "Saving..." : isAutomatic ? "Automatic" : "Chosen"}
+      accent={!isAutomatic}
+      summary={preview ? <ThumbStrip photos={[preview]} dim={isAutomatic} /> : undefined}
+      // Every photo on the trip is a candidate here, so this is the section
+      // that gets long first and the one that most needs to start folded.
+      defaultOpen={slot.candidates.length <= LONG_SECTION}
+    >
+      {/* The one full-size image in the panel, and the one place SafeImage's
+          skeleton and error state earn what they cost. */}
       <div className="relative isolate aspect-[16/9] w-full overflow-hidden rounded-lg bg-white/[0.04] ring-1 ring-foreground/10">
         {preview ? (
           <SafeImage
@@ -395,32 +549,40 @@ function HeroSlotSection({
           {isAutomatic ? "Automatic" : "Your pick"}
         </span>
       </div>
-      {isAutomatic ? (
-        <p className="mt-2 text-xs text-foreground/45">{slot.automaticReason}</p>
-      ) : null}
+      <div className="mt-2 flex items-start justify-between gap-3">
+        <p className="text-xs text-foreground/45">
+          {isAutomatic ? slot.automaticReason : "Your pick opens the recap."}
+        </p>
+        {isAutomatic ? null : (
+          <button
+            type="button"
+            onClick={() => void save(null)}
+            className="shrink-0 text-xs text-foreground/50 transition-colors hover:text-foreground"
+          >
+            Use automatic
+          </button>
+        )}
+      </div>
 
       {slot.candidates.length > 0 ? (
-        <div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-6">
-          {slot.candidates.map((photo) => (
-            <PhotoTile
-              key={photo.id}
-              photo={photo}
-              position={photo.id === chosenId ? 1 : null}
-              label={
-                photo.id === chosenId
-                  ? "Remove as the trip hero"
-                  : "Use as the trip hero"
-              }
-              onClick={() => void save(photo.id === chosenId ? null : photo.id)}
-            />
-          ))}
+        <div className="mt-4">
+          <CandidateGrid
+            photos={slot.candidates}
+            positionOf={(photo) => (photo.id === chosenId ? 1 : null)}
+            labelOf={(_photo, chosen) =>
+              chosen ? "Remove as the trip hero" : "Use as the trip hero"
+            }
+            onPick={(photo) =>
+              void save(photo.id === chosenId ? null : photo.id)
+            }
+          />
         </div>
       ) : (
         <p className="mt-3 text-xs text-foreground/45">
           No photos on this trip yet.
         </p>
       )}
-    </section>
+    </SlotSection>
   );
 }
 
@@ -509,6 +671,8 @@ function StopSlotSection({
   }
 
   const isAutomatic = ids.length === 0;
+  const dayCount = slot.dayDates.length;
+  const suggestion = suggestStopCount(slot, chosen);
 
   return (
     <div className="rounded-lg border border-white/[0.07] bg-white/[0.02]">
@@ -524,28 +688,20 @@ function StopSlotSection({
             !open && "-rotate-90",
           )}
         />
-        <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-          {slot.destinationName}
-        </span>
-        <span className="flex shrink-0 -space-x-2">
-          {(isAutomatic ? slot.automatic : chosen).slice(0, 4).map((photo) => (
-            <span
-              key={photo.id}
-              className={cn(
-                "size-7 overflow-hidden rounded-md ring-2 ring-card",
-                isAutomatic && "opacity-55",
-              )}
-            >
-              <SafeImage
-                src={photo.thumbUrl}
-                fallbackSrc={photo.url}
-                alt=""
-                loading="lazy"
-                className="size-full object-cover"
-              />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm text-foreground">
+            {slot.destinationName}
+          </span>
+          {dayCount > 0 ? (
+            <span className="block text-[0.7rem] text-foreground/40">
+              {dayCount} {dayCount === 1 ? "day slide" : "day slides"}
             </span>
-          ))}
+          ) : null}
         </span>
+        <ThumbStrip
+          photos={isAutomatic ? slot.automatic : chosen}
+          dim={isAutomatic}
+        />
         <span
           className={cn(
             "shrink-0 rounded-full px-2 py-0.5 text-[0.7rem] font-medium",
@@ -566,12 +722,21 @@ function StopSlotSection({
         <div className="border-t border-white/[0.07] p-3">
           {isAutomatic ? (
             <p className="mb-3 text-xs text-foreground/45">
-              Automatic: the first photos of this stop, in the order they were
-              taken. Pick up to {SLOT_CAPACITY.stopPhotos} to lead its slides
-              instead.
+              {dayCount > 0
+                ? `Automatic: ${dayCount === 1 ? "this stop's one day slide leads" : `these ${dayCount} day slides lead`} with the earliest photos of each. Pick up to ${SLOT_CAPACITY.stopPhotos} and they are spread across the same days instead.`
+                : `Automatic: the first photos of this stop, in the order they were taken. Pick up to ${SLOT_CAPACITY.stopPhotos} to lead its slides instead.`}
             </p>
           ) : (
             <>
+              {/* What this selection will actually produce, from the same
+                  function the story places the photographs with. A rule the
+                  traveller has to infer is a rule nobody follows. */}
+              <p className="mb-1 text-xs text-foreground/70">
+                {describeStopSelection(slot, chosen)}
+              </p>
+              {suggestion ? (
+                <p className="mb-2 text-xs text-foreground/40">{suggestion}</p>
+              ) : null}
               <p className="mb-2 text-xs text-foreground/45">
                 Drag to reorder, or use the arrows.
               </p>
@@ -589,12 +754,10 @@ function StopSlotSection({
                       drag.draggingId === photo.id && "opacity-60",
                     )}
                   >
-                    <span className="relative block aspect-square overflow-hidden rounded-lg ring-2 ring-brand">
-                      <SafeImage
+                    <span className="relative block aspect-square overflow-hidden rounded-lg bg-white/[0.04] ring-2 ring-brand">
+                      <Thumb
                         src={photo.thumbUrl}
                         fallbackSrc={photo.url}
-                        alt=""
-                        loading="lazy"
                         className="size-full object-cover"
                       />
                       <PositionBadge
@@ -639,24 +802,19 @@ function StopSlotSection({
             </>
           )}
 
-          <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-            {slot.candidates.map((photo) => {
+          <CandidateGrid
+            photos={slot.candidates}
+            positionOf={(photo) => {
               const position = ids.indexOf(photo.id);
-              return (
-                <PhotoTile
-                  key={photo.id}
-                  photo={photo}
-                  position={position === -1 ? null : position + 1}
-                  label={
-                    position === -1
-                      ? `Add to ${slot.destinationName}`
-                      : `Remove from ${slot.destinationName}`
-                  }
-                  onClick={() => toggle(photo.id)}
-                />
-              );
-            })}
-          </div>
+              return position === -1 ? null : position + 1;
+            }}
+            labelOf={(_photo, chosenHere) =>
+              chosenHere
+                ? `Remove from ${slot.destinationName}`
+                : `Add to ${slot.destinationName}`
+            }
+            onPick={(photo) => toggle(photo.id)}
+          />
         </div>
       ) : null}
     </div>
@@ -763,15 +921,19 @@ function HighlightsSlotSection({
   }
 
   return (
-    <section className={PANEL_SECTION}>
-      <SlotHeader
-        title={`Trip highlights (${SLOT_CAPACITY.highlights})`}
-        where="The share card's list, the story's closing, and the recap's moments."
-        status={isAutomatic ? "Automatic" : `${ids.length} of ${SLOT_CAPACITY.highlights}`}
-        saving={saving}
-        onClear={isAutomatic ? undefined : () => void save([])}
-      />
-
+    <SlotSection
+      title={`Trip highlights (${SLOT_CAPACITY.highlights})`}
+      where="The share card's list, the story's closing, and the recap's moments."
+      status={
+        saving
+          ? "Saving..."
+          : isAutomatic
+            ? "Automatic"
+            : `${ids.length} of ${SLOT_CAPACITY.highlights}`
+      }
+      accent={!isAutomatic}
+      defaultOpen={slot.candidates.length <= LONG_SECTION}
+    >
       {isAutomatic ? (
         <div>
           <p className="mb-2 text-xs text-foreground/45">
@@ -805,9 +967,18 @@ function HighlightsSlotSection({
         </div>
       ) : (
         <div>
-          <p className="mb-2 text-xs text-foreground/45">
-            Drag to reorder, or use the arrows. Number one leads.
-          </p>
+          <div className="mb-2 flex items-start justify-between gap-3">
+            <p className="text-xs text-foreground/45">
+              Drag to reorder, or use the arrows. Number one leads.
+            </p>
+            <button
+              type="button"
+              onClick={() => void save([])}
+              className="shrink-0 text-xs text-foreground/50 transition-colors hover:text-foreground"
+            >
+              Use automatic
+            </button>
+          </div>
           <ol className="flex flex-col gap-1.5">
             {chosen.map((item, index) => (
               <li
@@ -962,11 +1133,81 @@ function HighlightsSlotSection({
           </div>
         </div>
       )}
-    </section>
+    </SlotSection>
   );
 }
 
 // --- The panel --------------------------------------------------------------
+
+/**
+ * The panel body, mounted only while the dialog is open.
+ *
+ * Its own component for one reason: buildCurationSlots folds the whole trip
+ * (and now builds its story slides, to know how many days each stop has), and
+ * on a photo-heavy trip that is real work to do on every render of a page
+ * whose dialog is shut. Behind the open flag it runs once, when somebody asks.
+ */
+function CurationPanel({
+  trip,
+  isDemo,
+  onSaved,
+}: {
+  trip: StoryTrip;
+  isDemo: boolean;
+  onSaved: () => void;
+}) {
+  const slots = useMemo(() => buildCurationSlots(trip), [trip]);
+  const stopsChosen = slots.stops.filter((stop) => stop.chosen.length > 0).length;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <HeroSlotSection
+        tripId={trip.id}
+        slot={slots.hero}
+        disabled={isDemo}
+        onSaved={onSaved}
+      />
+
+      {slots.stops.length > 0 ? (
+        <SlotSection
+          title={`Photos per stop (${SLOT_CAPACITY.stopPhotos})`}
+          where="Spread across that stop's day slides in the trip story."
+          status={
+            stopsChosen > 0
+              ? `${stopsChosen} of ${slots.stops.length} chosen`
+              : "Automatic"
+          }
+          accent={stopsChosen > 0}
+          defaultOpen={slots.stops.length <= 6}
+        >
+          <div className="flex flex-col gap-2">
+            {slots.stops.map((stop, index) => (
+              <StopSlotSection
+                key={stop.destinationId}
+                tripId={trip.id}
+                slot={stop}
+                disabled={isDemo}
+                defaultOpen={slots.stops.length === 1 && index === 0}
+                onSaved={onSaved}
+              />
+            ))}
+          </div>
+        </SlotSection>
+      ) : null}
+
+      <HighlightsSlotSection
+        tripId={trip.id}
+        slot={slots.highlights}
+        disabled={isDemo}
+        onSaved={onSaved}
+      />
+
+      <p className="text-center text-[0.7rem] text-foreground/35">
+        Changes save as you make them.
+      </p>
+    </div>
+  );
+}
 
 export function TripCurationButton({
   trip,
@@ -979,11 +1220,21 @@ export function TripCurationButton({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const slots = useMemo(() => buildCurationSlots(trip), [trip]);
 
+  // Cheap enough to run every render, unlike the slots themselves: it is two
+  // length checks and stops at the first experience it finds.
   if (!hasCurationSlots(trip)) return null;
 
-  const onSaved = () => router.refresh();
+  // The button's brand tint used to need the whole model built just to know
+  // whether anything was elected. One scan of the rows answers the same
+  // question without folding the trip.
+  const curated =
+    trip.photos.some((photo) => (photo.featuredRank ?? 0) > 0) ||
+    trip.destinations.some((destination) =>
+      destination.experiences.some(
+        (experience) => (experience.featuredRank ?? 0) > 0,
+      ),
+    );
 
   return (
     <>
@@ -992,7 +1243,7 @@ export function TripCurationButton({
         onClick={() => setOpen(true)}
         className={cn(
           "inline-flex h-8 items-center gap-1.5 rounded-md border border-white/20 bg-black/40 px-3 text-sm font-medium text-white backdrop-blur transition-colors hover:bg-black/60",
-          !slots.untouched && "border-brand/50 text-brand",
+          curated && "border-brand/50 text-brand",
           className,
         )}
       >
@@ -1011,52 +1262,11 @@ export function TripCurationButton({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-col gap-4">
-            <HeroSlotSection
-              tripId={trip.id}
-              slot={slots.hero}
-              disabled={isDemo}
-              onSaved={onSaved}
-            />
-
-            {slots.stops.length > 0 ? (
-              <section className={PANEL_SECTION}>
-                <SlotHeader
-                  title={`Photos per stop (${SLOT_CAPACITY.stopPhotos})`}
-                  where="The photos that lead each stop's slides in the trip story."
-                  status={
-                    slots.stops.some((stop) => stop.chosen.length > 0)
-                      ? "Chosen"
-                      : "Automatic"
-                  }
-                  saving={false}
-                />
-                <div className="flex flex-col gap-2">
-                  {slots.stops.map((stop, index) => (
-                    <StopSlotSection
-                      key={stop.destinationId}
-                      tripId={trip.id}
-                      slot={stop}
-                      disabled={isDemo}
-                      defaultOpen={slots.stops.length === 1 && index === 0}
-                      onSaved={onSaved}
-                    />
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            <HighlightsSlotSection
-              tripId={trip.id}
-              slot={slots.highlights}
-              disabled={isDemo}
-              onSaved={onSaved}
-            />
-
-            <p className="text-center text-[0.7rem] text-foreground/35">
-              Changes save as you make them.
-            </p>
-          </div>
+          <CurationPanel
+            trip={trip}
+            isDemo={isDemo}
+            onSaved={() => router.refresh()}
+          />
         </DialogContent>
       </Dialog>
     </>

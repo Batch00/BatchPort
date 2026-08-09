@@ -422,6 +422,7 @@ export async function getProfileTrips(
     }
     for (const row of (fallbacksResult.data ?? []) as unknown as FallbackPhotoRow[]) {
       let destinationId: string | null = null;
+      let experienceId: string | null = null;
       let tripId: string | null = null;
       if (row.owner_type === "trip") {
         tripId = row.owner_id;
@@ -429,6 +430,10 @@ export async function getProfileTrips(
         destinationId = row.owner_id;
         tripId = tripByDestination.get(row.owner_id) ?? null;
       } else {
+        // The experience is kept alongside its stop, not folded into it: a
+        // photo OF a thing and a photo AT a place are different claims, and
+        // the recap's moments render one of them.
+        experienceId = row.owner_id;
         destinationId = destinationByExperience.get(row.owner_id) ?? null;
         tripId = destinationId
           ? tripByDestination.get(destinationId) ?? null
@@ -445,6 +450,7 @@ export async function getProfileTrips(
         featuredRank: featuredRankOf(row.featured_rank),
         featuredSlot: photoSlotOf(row.featured_slot, row.featured_rank),
         destinationId,
+        experienceId,
       });
       storyPhotosByTrip.set(tripId, list);
     }

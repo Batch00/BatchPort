@@ -1,7 +1,11 @@
 import {
+  SLIDE_PHOTO_CAP,
+  SLOT_CAPACITY,
   compareCurated,
+  distributeStopPhotos,
   featuredFirst,
   heroPhoto,
+  stopPhotoRank,
   stopPhotosFirst,
   type PhotoSlot,
 } from "@/lib/curation";
@@ -48,6 +52,16 @@ export interface StoryPhoto {
   /** The stop this photo hangs off, directly or through its experience. Null
    * for trip-level photos, which are placed by date instead. */
   destinationId: string | null;
+  /**
+   * The experience this photo was taken OF, when it is owned by one.
+   *
+   * Carried separately from destinationId because collapsing the two is a
+   * factual claim the data does not support: "a photo from Kyoto" and "a photo
+   * of Fushimi Inari" are different statements, and a surface that names one
+   * experience and shows a picture of another is simply wrong. The recap's
+   * moments are the surface that needs it (see buildMoments).
+   */
+  experienceId?: string | null;
 }
 
 export interface StoryExperience {
@@ -301,6 +315,19 @@ export function photosByStop(trip: StoryTrip): {
   return { byDestination, unplaced };
 }
 
+/**
+ * A stop's elected photos, in slot order and capped at the slot's capacity.
+ *
+ * Exported because the curation panel has to describe exactly the set the
+ * story will place. Two readings of "this stop's picks" would mean the picker
+ * promising a spread the slides do not produce.
+ */
+export function curatedStopPhotos(photos: StoryPhoto[]): StoryPhoto[] {
+  return stopPhotosFirst(photos)
+    .filter((photo) => stopPhotoRank(photo) !== null)
+    .slice(0, SLOT_CAPACITY.stopPhotos);
+}
+
 /** The photo elected as this trip's hero: the recap's opening frame and the
  * share card's backdrop. Null when nothing was elected, in which case both
  * surfaces fall back to what they used before (see their own callers). */
@@ -436,12 +463,41 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
       continue;
     }
 
-    // Undated leftovers ride on the stop's first slide rather than vanishing,
-    // and are re-sorted with it so a featured undated photo still leads.
-    daySlides[0].photos = stopPhotosFirst([
-      ...daySlides[0].photos,
-      ...undatedPhotos,
-    ]);
+    // Spread this stop's picks across its days (see distributeStopPhotos).
+    // With nothing elected the plan is empty and every line below is a no-op,
+    // which is what keeps an uncurated trip byte-for-byte what it was.
+    const curated = curatedStopPhotos(ownPhotos);
+    const plan = distributeStopPhotos(
+      daySlides.map((slide) => slide.date),
+      curated,
+      SLIDE_PHOTO_CAP,
+    );
+    let leftovers = undatedPhotos;
+    if (plan.size > 0) {
+      const byId = new Map(curated.map((photo) => [photo.id, photo]));
+      const placed = new Set<string>();
+      for (const ids of plan.values()) {
+        for (const id of ids) placed.add(id);
+      }
+      for (const slide of daySlides) {
+        const lead = (plan.get(slide.date) ?? [])
+          .map((id) => byId.get(id))
+          .filter((photo): photo is StoryPhoto => photo !== undefined);
+        // A pick placed on another day is removed from this one, or the stop
+        // would show the same photograph twice on its way through the week.
+        const rest = slide.photos.filter((photo) => !placed.has(photo.id));
+        slide.photos = [...lead, ...rest];
+      }
+      leftovers = undatedPhotos.filter((photo) => !placed.has(photo.id));
+    }
+
+    // Undated leftovers ride on the stop's first slide rather than vanishing.
+    // Only the unplanned path re-sorts: the plan has already decided what
+    // leads, and stopPhotosFirst would drag every pick back to the front.
+    daySlides[0].photos =
+      plan.size > 0
+        ? [...daySlides[0].photos, ...leftovers]
+        : stopPhotosFirst([...daySlides[0].photos, ...leftovers]);
     daySlides[0].experiences = featuredFirst([
       ...daySlides[0].experiences,
       ...undatedExperiences,
@@ -558,6 +614,11 @@ export function slideImageUrls(slide: StorySlide): string[] {
         ...slide.photos.map((photo) => photo.url),
         ...(slide.destination.coverUrl ? [slide.destination.coverUrl] : []),
       ];
+    case "closing":
+      // The closing scoreboard sits over the trip cover, so the warm-up has to
+      // name it too. It is the same file the opener already fetched, so this
+      // costs nothing and simply keeps the rule true.
+      return slide.trip.coverUrl ? [slide.trip.coverUrl] : [];
     default:
       return [];
   }

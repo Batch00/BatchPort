@@ -37,19 +37,33 @@
 // (SLOT_CAPACITY), which is what the panel enforces on write.
 
 /** How many featured items of one kind a single scope can actually influence. */
-export const MAX_FEATURED_HONORED = 6;
+export const MAX_FEATURED_HONORED = 8;
 
 /** Which surface a photo's rank is a rank in. */
 export type PhotoSlot = "hero" | "stop";
 
 /**
+ * How many photos one story slide draws before the rest are counted in the
+ * corner. It is the mosaic's own capacity (see PhotoBackdrop), and it is the
+ * ceiling on what any single DAY can be given.
+ */
+export const SLIDE_PHOTO_CAP = 4;
+
+/**
  * How many items each slot holds. These are the numbers the consuming surfaces
- * already render, not a separate policy: one backdrop, a four-photo story
- * tile, a three-line highlights row.
+ * already render, not a separate policy: one backdrop, a three-line highlights
+ * row, and for a stop the number of photographs a stay can actually place.
+ *
+ * `stopPhotos` is 8 rather than the 4 a single slide draws, because a stop's
+ * picks are spread ACROSS its day slides (see distributeStopPhotos), not piled
+ * onto one. Four was the right number when the whole set led one slide and a
+ * hard undercount for a week in one city. Eight is two full slides' worth, it
+ * is roughly one a day for the length of stay most people curate, and it stays
+ * a decision rather than an album.
  */
 export const SLOT_CAPACITY = {
   hero: 1,
-  stopPhotos: 4,
+  stopPhotos: 8,
   highlights: 3,
 } as const;
 
@@ -202,3 +216,107 @@ export function stopPhotosFirst<T extends CuratedPhoto>(photos: T[]): T[] {
 export function heroPhoto<T extends CuratedPhoto>(photos: T[]): T | null {
   return photos.find(isHeroPhoto) ?? null;
 }
+
+// --- Spreading a stop's picks across its days --------------------------------
+//
+// THE GAP THIS CLOSES
+//
+// A story slide is a DAY. A stop's picks are per DESTINATION. Nothing said how
+// one maps onto the other, so in practice the mapping was an accident: a dated
+// pick led the day it happened to be taken on, and every UNDATED pick piled
+// onto the stop's first slide because that is where undated photos ride. Curate
+// four photographs of a four day stay and you could easily get all four on day
+// one and three days of stop cover after it.
+//
+// THE RULE, IN THREE LINES
+//
+//   1. A pick DATED to one of the stop's own day slides leads that day. Moving
+//      it somewhere else would print a photograph under another day's date,
+//      which is a plain untruth and the reason this is not a simple "nth pick
+//      leads the nth day".
+//   2. Every other pick (undated, or dated to a day that produced no slide) is
+//      dealt out in rank order across the days that have the fewest, one pass
+//      at a time. That is what turns five picks over four days into 2, 1, 1, 1
+//      rather than 5, 0, 0, 0.
+//   3. No day takes more than SLIDE_PHOTO_CAP, because that is all one slide
+//      draws. Picks past the last seat simply stay in the gallery.
+//
+// A day with no pick is not empty: it falls back to its own photos, then to the
+// stop cover, exactly as it did before any of this existed. Curation governs
+// the lead and the composition, never exclusivity.
+
+/** The least a caller has to know about a photo to place it. */
+export interface DistributablePhoto {
+  id: string;
+  /** YYYY-MM-DD or a timestamp; only the date part is read. */
+  dateTaken: string | null;
+}
+
+/** What each day slide of one stop leads with: photo ids in the order they
+ * should be drawn. Days absent from the map received no pick. */
+export type StopPhotoPlan = Map<string, string[]>;
+
+/** The date part of a date or timestamp string. */
+function distributionDay(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+}
+
+/**
+ * Deal one stop's curated photos out over its day slides.
+ *
+ * `days` are the stop's day-slide dates in chronological order and `curated` is
+ * the elected set in rank order. Both the story (which draws the result) and
+ * the curation panel (which describes it before anything is saved) call this,
+ * so what the picker promises and what the slide renders are the same function
+ * and cannot drift.
+ */
+export function distributeStopPhotos(
+  days: string[],
+  curated: DistributablePhoto[],
+  cap: number = SLIDE_PHOTO_CAP,
+): StopPhotoPlan {
+  const plan: StopPhotoPlan = new Map(days.map((date) => [date, []]));
+  if (days.length === 0 || curated.length === 0 || cap <= 0) {
+    return new Map();
+  }
+
+  // Pass one: anchor every pick that belongs to a day of its own. A pick whose
+  // own day is already full is deliberately NOT dealt elsewhere: it stays an
+  // ordinary photo of the day it was taken on, because printing it under
+  // another day's date to fill a seat is the untruth this whole rule avoids.
+  const free: DistributablePhoto[] = [];
+  for (const photo of curated) {
+    const date = distributionDay(photo.dateTaken);
+    const seats = date ? plan.get(date) : undefined;
+    if (seats) {
+      if (seats.length < cap) seats.push(photo.id);
+      continue;
+    }
+    free.push(photo);
+  }
+
+  // Pass two: deal the rest onto the emptiest days, in rank order, levelling
+  // up one seat at a time. Filling day one to the cap before touching day two
+  // is what produced the pile this exists to prevent.
+  let index = 0;
+  for (let target = 1; target <= cap && index < free.length; target += 1) {
+    for (const date of days) {
+      if (index >= free.length) break;
+      const seats = plan.get(date);
+      if (!seats || seats.length >= target) continue;
+      seats.push(free[index].id);
+      index += 1;
+    }
+  }
+
+  for (const [date, seats] of plan) {
+    if (seats.length === 0) plan.delete(date);
+  }
+  return plan;
+}
+
+// The sentence form of a plan lives in lib/curation-slots.ts
+// (describeStopSelection), because it needs the stop's real day slides and
+// this module deliberately knows nothing about a StoryTrip.

@@ -14,9 +14,11 @@
 
 import {
   MAX_FEATURED_HONORED,
+  SLIDE_PHOTO_CAP,
   SLOT_CAPACITY,
   compareCurated,
   compareFeatured,
+  distributeStopPhotos,
   featuredFirst,
   heroPhoto,
   isFeatured,
@@ -28,7 +30,11 @@ import {
   stopPhotosFirst,
   type PhotoSlot,
 } from "../src/lib/curation";
-import { buildCurationSlots, hasCurationSlots } from "../src/lib/curation-slots";
+import {
+  buildCurationSlots,
+  describeStopSelection,
+  hasCurationSlots,
+} from "../src/lib/curation-slots";
 import {
   buildStorySlides,
   storyClosingStats,
@@ -98,6 +104,7 @@ function photo(
   options: {
     dateTaken?: string | null;
     destinationId?: string | null;
+    experienceId?: string | null;
     featuredRank?: number | null;
     featuredSlot?: PhotoSlot | null;
   } = {},
@@ -111,7 +118,22 @@ function photo(
     featuredRank: options.featuredRank ?? null,
     featuredSlot: options.featuredSlot ?? null,
     destinationId: options.destinationId ?? null,
+    experienceId: options.experienceId ?? null,
   };
+}
+
+/** A stop pick, at a given rank. The distribution checks below all curate, so
+ * spelling this out once keeps them readable. */
+function pick(
+  name: string,
+  rank: number,
+  options: { dateTaken?: string | null; destinationId?: string | null } = {},
+): StoryPhoto {
+  return photo(name, {
+    ...options,
+    featuredSlot: "stop",
+    featuredRank: rank,
+  });
 }
 
 function stop(
@@ -399,6 +421,208 @@ function trip(
   );
 }
 
+// --- Spreading a stop's picks across its days --------------------------------
+//
+// A story slide is a DAY and the picks are per DESTINATION, so this is the
+// mapping between the two. It is asserted at both levels: the pure deal, and
+// then end to end through buildStorySlides, because the second is what a
+// reader actually sees.
+
+{
+  const days = ["2024-04-01", "2024-04-02", "2024-04-03", "2024-04-04"];
+  const undated = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `u${index + 1}`,
+      dateTaken: null,
+    }));
+  const spread = (
+    dayList: string[],
+    curated: { id: string; dateTaken: string | null }[],
+  ) => {
+    const plan = distributeStopPhotos(dayList, curated);
+    return dayList.map((date) => plan.get(date) ?? []);
+  };
+
+  // Count equals days: one leads each.
+  equal(
+    "four picks over four days lead one each",
+    spread(days, undated(4)),
+    [["u1"], ["u2"], ["u3"], ["u4"]],
+  );
+
+  // Fewer than days: the front days lead, the rest are left to fall back.
+  equal(
+    "two picks over four days lead the first two",
+    spread(days, undated(2)),
+    [["u1"], ["u2"], [], []],
+  );
+
+  // More than days: evenly, front-loaded, never piled onto day one.
+  equal(
+    "five picks over four days go 2, 1, 1, 1",
+    spread(days, undated(5)),
+    [["u1", "u5"], ["u2"], ["u3"], ["u4"]],
+  );
+  equal(
+    "eight picks over three days go 3, 3, 2",
+    spread(days.slice(0, 3), undated(8)),
+    [
+      ["u1", "u4", "u7"],
+      ["u2", "u5", "u8"],
+      ["u3", "u6"],
+    ],
+  );
+
+  // No day takes more than one slide draws.
+  const capped = spread(days.slice(0, 1), undated(9));
+  equal("no day takes more than the slide cap", capped[0].length, SLIDE_PHOTO_CAP);
+
+  // A DATED pick leads the day it was actually taken on. Dealing it elsewhere
+  // to even the spread would print it under another day's date.
+  equal(
+    "a dated pick leads its own day, whatever its rank",
+    spread(days, [
+      { id: "d4", dateTaken: "2024-04-04" },
+      { id: "d1", dateTaken: "2024-04-01" },
+    ]),
+    [["d1"], [], [], ["d4"]],
+  );
+  equal(
+    "undated picks fill around the dated ones",
+    spread(days, [
+      { id: "d3", dateTaken: "2024-04-03" },
+      { id: "u1", dateTaken: null },
+      { id: "u2", dateTaken: null },
+    ]),
+    [["u1"], ["u2"], ["d3"], []],
+  );
+  // A pick whose own day is full stays an ordinary photo of that day rather
+  // than being moved somewhere it was not taken.
+  const overflowing = spread(days, [
+    ...Array.from({ length: 5 }, (_, index) => ({
+      id: `f${index + 1}`,
+      dateTaken: "2024-04-01",
+    })),
+  ]);
+  equal(
+    "a pick past its own day's cap is not moved to another day",
+    overflowing,
+    [["f1", "f2", "f3", "f4"], [], [], []],
+  );
+
+  equal("nothing curated plans nothing", distributeStopPhotos(days, []).size, 0);
+  equal("no days plans nothing", distributeStopPhotos([], undated(3)).size, 0);
+}
+
+// End to end: the same rule as the reader meets it, on real slides.
+{
+  const stopId = "KyotoD";
+  const dated = (day: string) => `2024-05-0${day}`;
+  const spreadTrip = trip("Kyoto week", {
+    start: dated("1"),
+    end: dated("4"),
+    destinations: [
+      stop(stopId, {
+        arrival: dated("1"),
+        departure: dated("4"),
+        experiences: [
+          experience("A", { visitedDate: dated("1") }),
+          experience("B", { visitedDate: dated("2") }),
+          experience("C", { visitedDate: dated("3") }),
+          experience("D", { visitedDate: dated("4") }),
+        ],
+      }),
+    ],
+    // Four undated picks, plus one ordinary dated photo per day so every day
+    // is a slide of its own.
+    photos: [
+      photo("own1", { dateTaken: dated("1"), destinationId: stopId }),
+      photo("own2", { dateTaken: dated("2"), destinationId: stopId }),
+      photo("own3", { dateTaken: dated("3"), destinationId: stopId }),
+      photo("own4", { dateTaken: dated("4"), destinationId: stopId }),
+      pick("p1", 1, { destinationId: stopId }),
+      pick("p2", 2, { destinationId: stopId }),
+      pick("p3", 3, { destinationId: stopId }),
+      pick("p4", 4, { destinationId: stopId }),
+    ],
+  });
+  const spreadDays = buildStorySlides(spreadTrip).filter(
+    (slide) => slide.kind === "day",
+  );
+  equal("the stop produced four day slides", spreadDays.length, 4);
+  equal(
+    "each day leads with one pick, then its own photo",
+    spreadDays.map((slide) =>
+      slide.kind === "day" ? slide.photos.map((item) => item.id) : [],
+    ),
+    [
+      ["p1", "own1"],
+      ["p2", "own2"],
+      ["p3", "own3"],
+      ["p4", "own4"],
+    ],
+  );
+
+  // The gap this closes: before the spread, every undated pick rode the stop's
+  // FIRST slide and the other three days had nothing curated at all.
+  const first = spreadDays[0];
+  check(
+    "no pick is left piled on the opening slide",
+    first.kind === "day" && first.photos.length === 2,
+  );
+
+  // And a pick placed on one day is not also drawn on another.
+  const drawn = spreadDays.flatMap((slide) =>
+    slide.kind === "day" ? slide.photos.map((item) => item.id) : [],
+  );
+  equal("no photo appears twice across the stop", drawn.length, new Set(drawn).size);
+
+  // The uncurated path is untouched, which is the guarantee that matters most.
+  const plainTrip = trip("Kyoto week plain", {
+    start: dated("1"),
+    end: dated("2"),
+    destinations: [stop("KyotoDP", { arrival: dated("1"), departure: dated("2") })],
+    photos: [
+      photo("a", { dateTaken: dated("1"), destinationId: "KyotoDP" }),
+      photo("b", { dateTaken: dated("1"), destinationId: "KyotoDP" }),
+      photo("c", { destinationId: "KyotoDP" }),
+    ],
+  });
+  const plainDays = buildStorySlides(plainTrip).filter(
+    (slide) => slide.kind === "day",
+  );
+  equal(
+    "with nothing curated the undated photo still rides the first slide",
+    plainDays.map((slide) =>
+      slide.kind === "day" ? slide.photos.map((item) => item.id) : [],
+    ),
+    [["a", "b", "c"]],
+  );
+
+  // What the panel promises is generated by the same function that places
+  // them, so the sentence cannot describe a spread the slides do not make.
+  const slot = buildCurationSlots(spreadTrip).stops[0];
+  equal("the panel knows how many day slides the stop has", slot.dayDates.length, 4);
+  equal(
+    "and says what the current selection produces",
+    describeStopSelection(slot, slot.chosen),
+    "4 across 4 days: one each.",
+  );
+  equal(
+    "including when there are more picks than days",
+    describeStopSelection(slot, [
+      ...slot.chosen,
+      { id: "x", url: "", thumbUrl: "", dateTaken: null, position: null },
+    ]),
+    "5 across 4 days: 2, 1, 1, 1.",
+  );
+  equal(
+    "and when some days are left to fall back",
+    describeStopSelection(slot, slot.chosen.slice(0, 2)),
+    "2 across 4 days: 2 days lead with your picks, the other 2 fall back to their own photos, then the stop cover.",
+  );
+}
+
 // --- The share card ---------------------------------------------------------
 
 {
@@ -625,11 +849,21 @@ function trip(
     !hasCurationSlots(trip("Empty", { destinations: [stop("Nowhere")] })),
   );
 
+  // One backdrop, a three-line highlights row, and for a stop two full slides'
+  // worth: the picks are spread ACROSS its days, so the slide cap of four is
+  // not the slot's cap. Every one of these has to stay inside the honoured
+  // ceiling, or the panel would let somebody elect a rank nothing reads.
   equal("the slot capacities are the surfaces' own numbers", SLOT_CAPACITY, {
     hero: 1,
-    stopPhotos: 4,
+    stopPhotos: 8,
     highlights: 3,
   });
+  check(
+    "no slot can hold more than the model honours",
+    Object.values(SLOT_CAPACITY).every(
+      (capacity) => capacity <= MAX_FEATURED_HONORED,
+    ),
+  );
 }
 
 // --- The year recap ---------------------------------------------------------
@@ -684,6 +918,82 @@ function trip(
     "the recap's moments lead on the featured pick",
     recap.moments.map((moment) => moment.name),
     ["Fushimi Inari", "Nishiki Market"],
+  );
+
+  // A MOMENT NAMES ONE EXPERIENCE AND MUST SHOW A PHOTOGRAPH OF IT.
+  //
+  // This used to take the first photo at the experience's STOP, so on any stop
+  // with more than one photograph the slide captioned the wrong picture with
+  // the right name. The filter is on the experience now, and where there is no
+  // photo of it the stop's cover is offered as the PLACE rather than passed
+  // off as the thing.
+  const gates = experience("Fushimi Inari", {
+    rating: 9,
+    visitedDate: "2024-05-06",
+  });
+  const market = experience("Nishiki Market", {
+    rating: 8,
+    visitedDate: "2024-05-06",
+  });
+  const kyotoM = stop("KyotoM", {
+    arrival: "2024-05-06",
+    departure: "2024-05-07",
+    lat: 35,
+    lng: 135,
+    experiences: [gates, market],
+  });
+  kyotoM.coverUrl = "https://example.test/kyoto-cover.jpg";
+  kyotoM.coverThumbUrl = "https://example.test/kyoto-cover.jpg_thumb";
+  const momentRecap = buildYearRecap(
+    {
+      trips: [
+        trip("Kyoto moments", {
+          start: "2024-05-06",
+          end: "2024-05-07",
+          destinations: [kyotoM],
+          photos: [
+            // First in gallery order, and owned by the STOP: exactly the photo
+            // the old code handed to every moment at this stop.
+            photo("lunch", { dateTaken: "2024-05-06", destinationId: "KyotoM" }),
+            photo("torii", {
+              dateTaken: "2024-05-06",
+              destinationId: "KyotoM",
+              experienceId: gates.id,
+            }),
+          ],
+        }),
+      ],
+      today: "2025-01-15",
+    },
+    2024,
+  );
+  const byName = new Map(
+    momentRecap.moments.map((moment) => [moment.name, moment]),
+  );
+  equal(
+    "a moment shows a photograph of its own experience",
+    byName.get("Fushimi Inari")?.photoUrl,
+    "https://example.test/torii.jpg",
+  );
+  equal(
+    "and says so, so the slide can render it plainly",
+    byName.get("Fushimi Inari")?.photoOf,
+    "experience",
+  );
+  equal(
+    "an experience with no photo of its own falls back to the place",
+    byName.get("Nishiki Market")?.photoUrl,
+    "https://example.test/kyoto-cover.jpg",
+  );
+  equal(
+    "and is marked as the place, never as the thing",
+    byName.get("Nishiki Market")?.photoOf,
+    "place",
+  );
+  check(
+    "the fallback is never another experience's photograph",
+    byName.get("Nishiki Market")?.photoUrl !== "https://example.test/torii.jpg" &&
+      byName.get("Nishiki Market")?.photoUrl !== "https://example.test/lunch.jpg",
   );
   const opener = recap.slides.find((slide) => slide.kind === "opener");
   if (opener && opener.kind === "opener") {

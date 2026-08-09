@@ -91,6 +91,16 @@ export interface YearMoment {
   photoUrl: string | null;
   /** Thumbnail, for the moments slide's small square tile. */
   photoThumbUrl: string | null;
+  /**
+   * What the photograph is actually of.
+   *
+   * "experience" means a photo owned by this experience: it can be shown
+   * plainly, because it is a picture of the thing being named. "place" means
+   * the best the stop could offer, and the slide must render it as the place
+   * rather than letting it pass for the thing. Null when there is no image at
+   * all and the tile falls back to the category icon.
+   */
+  photoOf: "experience" | "place" | null;
 }
 
 export type YearInsightId =
@@ -190,11 +200,47 @@ export interface YearInsightSlide {
   insight: YearInsight;
 }
 
+/** One of the one or two numbers the scoreboard leads on, at real scale. */
+export interface YearScoreLead {
+  id: string;
+  label: string;
+  /** The number itself, for the count-up. */
+  value: number;
+  /** Rendered small beside it, e.g. "km". */
+  unit: string | null;
+  /** One line under it, e.g. the fun distance comparison. */
+  caption: string | null;
+}
+
+/** Everything else, grouped small under the leads. */
+export interface YearScoreStat {
+  label: string;
+  value: string;
+  numeric: number | null;
+}
+
+/**
+ * The year in numbers.
+ *
+ * Eight identical tiles is a report footer, not the payoff of a recap, so the
+ * numbers are ranked rather than listed: the one or two that carry the year
+ * get real scale and a line of framing, the rest are a quiet strip underneath,
+ * and the year's own photograph is behind all of it. Nothing is padded, as
+ * everywhere else here: a thin year simply has one lead and a short strip.
+ */
 export interface YearScoreboardSlide {
   kind: "scoreboard";
   key: string;
   label: string;
-  tiles: { label: string; value: string; numeric: number | null }[];
+  leads: YearScoreLead[];
+  stats: YearScoreStat[];
+  countryCodes: string[];
+  /** Full size: the backdrop is one photograph across the whole slide. */
+  heroUrl: string | null;
+  /** The same image at thumbnail size, as its placeholder. */
+  heroThumbUrl: string | null;
+  /** The sentence the year ends on. Null when there is nothing true to say. */
+  closingLine: string | null;
 }
 
 export interface YearUpcoming {
@@ -768,10 +814,19 @@ function tripSummary(entry: YearTrip): YearTripSummary {
   };
 }
 
-/** The year's moments: the experiences the traveller featured, then the
- * best-rated of the rest, each carrying a photo from the stop it happened at
- * when there is one. Ties break on the name, so the same year always produces
- * the same recap. */
+/**
+ * The year's moments: the experiences the traveller featured, then the
+ * best-rated of the rest, each carrying a photograph. Ties break on the name,
+ * so the same year always produces the same recap.
+ *
+ * THE PHOTOGRAPH MUST BE OF THE THING NAMED, OR SAY THAT IT IS NOT.
+ *
+ * This used to take the first photo at the experience's STOP, which on any
+ * stop with more than one photograph meant the slide captioned somebody's
+ * lunch with the name of a cathedral. A photo owned by the experience is the
+ * only image that is genuinely of it; the stop's cover is a picture of the
+ * place, offered as such (see photoOf) and rendered differently by the slide.
+ */
 function buildMoments(yearTrips: YearTrip[]): YearMoment[] {
   const rated: { entry: YearTrip; item: YearTrip["experiences"][number] }[] = [];
   for (const entry of yearTrips) {
@@ -782,14 +837,18 @@ function buildMoments(yearTrips: YearTrip[]): YearMoment[] {
   }
   rated.sort((a, b) => compareCurated(a.item.experience, b.item.experience));
   return rated.slice(0, MAX_MOMENTS).map(({ entry, item }) => {
-    // A photo elected into that stop's slot beats an arbitrary one, for the
-    // same reason a featured experience beats a merely well-rated one.
-    const atStop = stopPhotosFirst(
+    // A photo elected into a slot beats an arbitrary one, for the same reason
+    // a featured experience beats a merely well-rated one. The filter is on
+    // the EXPERIENCE, which is the whole of the fix.
+    const own = stopPhotosFirst(
       entry.photos.filter(
-        (candidate) => candidate.destinationId === item.destination.id,
+        (candidate) => candidate.experienceId === item.experience.id,
       ),
-    );
-    const photo = atStop[0];
+    )[0];
+    const placeUrl = item.destination.coverUrl ?? null;
+    const placeThumbUrl =
+      item.destination.coverThumbUrl ?? item.destination.coverUrl ?? null;
+    const photoUrl = own?.url ?? placeUrl;
     return {
       id: item.experience.id,
       name: item.experience.name,
@@ -798,12 +857,9 @@ function buildMoments(yearTrips: YearTrip[]): YearMoment[] {
       tripName: entry.trip.name,
       categoryIcon: item.experience.categoryIcon,
       categoryColor: item.experience.categoryColor,
-      photoUrl: photo?.url ?? item.destination.coverUrl ?? null,
-      photoThumbUrl:
-        photo?.thumbUrl ??
-        item.destination.coverThumbUrl ??
-        item.destination.coverUrl ??
-        null,
+      photoUrl,
+      photoThumbUrl: own?.thumbUrl ?? placeThumbUrl,
+      photoOf: own ? "experience" : photoUrl ? "place" : null,
     };
   });
 }
@@ -913,6 +969,140 @@ function yearBucket(
     completed,
     upNext,
   };
+}
+
+/**
+ * The scoreboard: which numbers lead, which support, and the line it ends on.
+ *
+ * The lead order is fixed rather than scored, for the same reason the insight
+ * bands are: distance and countries are what a year of travel is, and letting
+ * a big photo count outrank them is how the payoff slide ends up leading on
+ * "1,412 photos". At most two lead; everything else that is non-zero drops
+ * into the strip in the same order it always had.
+ */
+function buildScoreboard(
+  stats: YearStats,
+  label: string,
+  hero: { url: string | null; thumbUrl: string | null },
+): YearScoreboardSlide | null {
+  const candidates: YearScoreLead[] = [];
+  if (stats.distanceKm > 0) {
+    candidates.push({
+      id: "distance",
+      label: "Kilometres",
+      value: stats.distanceKm,
+      unit: "km",
+      caption: funDistanceComparison(stats.distanceKm),
+    });
+  }
+  if (stats.countries > 0) {
+    candidates.push({
+      id: "countries",
+      label: stats.countries === 1 ? "Country" : "Countries",
+      value: stats.countries,
+      unit: null,
+      caption:
+        stats.newCountryCodes.length > 0
+          ? `${stats.newCountryCodes.length} of them for the first time`
+          : null,
+    });
+  }
+  if (stats.days > 0) {
+    candidates.push({
+      id: "days",
+      label: "Days away",
+      value: stats.days,
+      unit: null,
+      caption: null,
+    });
+  }
+  if (stats.trips > 0) {
+    candidates.push({
+      id: "trips",
+      label: stats.trips === 1 ? "Trip" : "Trips",
+      value: stats.trips,
+      unit: null,
+      caption: null,
+    });
+  }
+
+  const leads = candidates.slice(0, 2);
+  const led = new Set(leads.map((lead) => lead.id));
+
+  const stats_: YearScoreStat[] = [];
+  const stat = (statLabel: string, value: string, numeric: number | null) =>
+    stats_.push({ label: statLabel, value, numeric });
+  if (stats.countries > 0 && !led.has("countries")) {
+    stat(
+      stats.countries === 1 ? "Country" : "Countries",
+      String(stats.countries),
+      stats.countries,
+    );
+  }
+  if (stats.trips > 0 && !led.has("trips")) {
+    stat(stats.trips === 1 ? "Trip" : "Trips", String(stats.trips), stats.trips);
+  }
+  if (stats.stops > 0) {
+    stat(stats.stops === 1 ? "Stop" : "Stops", String(stats.stops), stats.stops);
+  }
+  if (stats.days > 0 && !led.has("days")) {
+    stat("Days away", String(stats.days), stats.days);
+  }
+  if (stats.distanceKm > 0 && !led.has("distance")) {
+    stat("Kilometres", stats.distanceKm.toLocaleString("en-US"), stats.distanceKm);
+  }
+  if (stats.experiences > 0) {
+    stat("Experiences", String(stats.experiences), stats.experiences);
+  }
+  if (stats.photos > 0) stat("Photos", String(stats.photos), stats.photos);
+  if (stats.journalEntries > 0) {
+    stat("Journal days", String(stats.journalEntries), stats.journalEntries);
+  }
+
+  if (leads.length === 0 && stats_.length === 0) return null;
+
+  return {
+    kind: "scoreboard",
+    key: "scoreboard",
+    label,
+    leads,
+    stats: stats_,
+    countryCodes: stats.countryCodes,
+    heroUrl: hero.url,
+    heroThumbUrl: hero.thumbUrl,
+    closingLine: closingLine(stats),
+  };
+}
+
+/**
+ * The sentence the year ends on. A ladder rather than a template, because the
+ * strongest true thing about a year differs: somewhere new beats time away
+ * beats sheer volume. Null when none of them is true, and the slide simply
+ * stops after the numbers rather than reaching for something to say.
+ */
+function closingLine(stats: YearStats): string | null {
+  const count = stats.newCountryCodes.length;
+  if (count > 0) {
+    return count === 1
+      ? `And one country you had never set foot in before.`
+      : `And ${count} countries you had never set foot in before.`;
+  }
+  if (stats.days > 0 && stats.trips > 1) {
+    return `${stats.days} ${stats.days === 1 ? "day" : "days"} away, across ${
+      stats.trips
+    } trips.`;
+  }
+  if (stats.days > 0) {
+    return `${stats.days} ${
+      stats.days === 1 ? "day" : "days"
+    } of the year spent somewhere else.`;
+  }
+  if (stats.photos > 0) {
+    return `${stats.photos.toLocaleString("en-US")} ${
+      stats.photos === 1 ? "photograph" : "photographs"
+    } to prove it.`;
+  }
+  return null;
 }
 
 function upcomingTrips(
@@ -1073,39 +1263,8 @@ export function buildYearRecap(
     slides.push({ kind: "insight", key: `insight:${insight.id}`, insight });
   }
 
-  const tiles: YearScoreboardSlide["tiles"] = [];
-  const tile = (label_: string, value: string, numeric: number | null) =>
-    tiles.push({ label: label_, value, numeric });
-  if (stats.countries > 0) {
-    tile(stats.countries === 1 ? "Country" : "Countries", String(stats.countries), stats.countries);
-  }
-  if (stats.trips > 0) {
-    tile(stats.trips === 1 ? "Trip" : "Trips", String(stats.trips), stats.trips);
-  }
-  if (stats.stops > 0) {
-    tile(stats.stops === 1 ? "Stop" : "Stops", String(stats.stops), stats.stops);
-  }
-  if (stats.days > 0) tile("Days away", String(stats.days), stats.days);
-  if (stats.distanceKm > 0) {
-    tile("Kilometres", stats.distanceKm.toLocaleString("en-US"), stats.distanceKm);
-  }
-  if (stats.experiences > 0) {
-    tile("Experiences", String(stats.experiences), stats.experiences);
-  }
-  if (stats.photos > 0) tile("Photos", String(stats.photos), stats.photos);
-  if (stats.journalEntries > 0) {
-    tile("Journal days", String(stats.journalEntries), stats.journalEntries);
-  }
-  if (stats.newCountryCodes.length > 0) {
-    tile(
-      "First visits",
-      String(stats.newCountryCodes.length),
-      stats.newCountryCodes.length,
-    );
-  }
-  if (tiles.length > 0) {
-    slides.push({ kind: "scoreboard", key: "scoreboard", label, tiles });
-  }
+  const scoreboard = buildScoreboard(stats, label, hero);
+  if (scoreboard) slides.push(scoreboard);
 
   slides.push({
     kind: "closing",
