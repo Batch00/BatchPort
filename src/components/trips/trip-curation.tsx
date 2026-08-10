@@ -692,9 +692,18 @@ function StopSlotSection({
           <span className="block truncate text-sm text-foreground">
             {slot.destinationName}
           </span>
-          {dayCount > 0 ? (
-            <span className="block text-[0.7rem] text-foreground/40">
-              {dayCount} {dayCount === 1 ? "day slide" : "day slides"}
+          {/* The dates come first because they are what distinguishes two
+              stays in the same city, which is a shape one trip in ten has. */}
+          {slot.dateLabel || dayCount > 0 ? (
+            <span className="block truncate text-[0.7rem] text-foreground/40">
+              {[
+                slot.dateLabel,
+                dayCount > 0
+                  ? `${dayCount} ${dayCount === 1 ? "day slide" : "day slides"}`
+                  : null,
+              ]
+                .filter((part): part is string => part !== null)
+                .join(" · ")}
             </span>
           ) : null}
         </span>
@@ -912,12 +921,21 @@ function HighlightsSlotSection({
 
   // Grouped by stop, in the trip's own stop order, which is how somebody
   // remembers a trip. The list is already sorted best-rated first inside each
-  // group by the model.
-  const groups: { name: string; items: SlotExperience[] }[] = [];
+  // group by the model. Runs break on the destination ID, not its name: a trip
+  // that returns to the same city has two stays there, and folding them
+  // together under one heading would hide which visit an experience was on.
+  const groups: { id: string | null; name: string; items: SlotExperience[] }[] =
+    [];
   for (const item of filtered) {
     const last = groups[groups.length - 1];
-    if (last && last.name === item.destinationName) last.items.push(item);
-    else groups.push({ name: item.destinationName, items: [item] });
+    if (last && last.id === item.destinationId) last.items.push(item);
+    else {
+      groups.push({
+        id: item.destinationId,
+        name: item.destinationName,
+        items: [item],
+      });
+    }
   }
 
   return (
@@ -1068,7 +1086,7 @@ function HighlightsSlotSection({
               </p>
             ) : (
               groups.map((group) => (
-                <div key={group.name}>
+                <div key={group.id ?? group.name}>
                   <p className="sticky top-0 z-10 bg-card px-3 py-1.5 text-[0.68rem] font-medium uppercase tracking-wide text-foreground/35">
                     {group.name}
                   </p>

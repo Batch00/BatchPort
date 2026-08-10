@@ -11,7 +11,12 @@ import {
 } from "@/lib/curation";
 import { durationDays } from "@/lib/format";
 import { haversineKm } from "@/lib/geo";
-import { dateRange, destinationForDate } from "@/lib/journal";
+import {
+  buildStayDays,
+  isDatedStay,
+  type Stay,
+  type StayDays,
+} from "@/lib/stays";
 // Type only, so nothing from the server-side share data layer is pulled into
 // the client bundle that renders the story.
 import type { ProfileTrip } from "@/lib/share-data";
@@ -25,10 +30,15 @@ import type { ProfileTrip } from "@/lib/share-data";
 // /share/[slug] without a second data layer.
 //
 // The composition rule, in one sentence: a slide is a DAY, a day belongs to
-// the stop whose stay contains it, and everything dated that day (the journal
-// entry, the photos, the experiences) lands on it. Undated things do not
-// disappear: they fall back to the stop that owns them, on that stop's first
-// slide, or onto a stop slide when the stop produced no days at all.
+// the STAY whose own range contains it, and everything dated that day (the
+// journal entry, the photos, the experiences) lands on it. Undated things do
+// not disappear: they fall back to the stop that owns them, on that stop's
+// first slide, or onto a stop slide when the stop produced no days at all.
+//
+// "Stay" is load-bearing and means one destination ROW. A trip that returns to
+// Copenhagen has two Copenhagen stays with nothing in common but a name, and
+// each gets its own days, photographs, and curation. lib/stays.ts owns that
+// resolution and the rule for a day two stays could both claim.
 
 /**
  * A photo, already resolved to display URLs by the caller.
@@ -187,36 +197,108 @@ function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   map.set(key, list);
 }
 
-/** The stop a dated, unowned item belongs to: the stay containing it, else the
- * stop whose arrival is nearest. Null only when no stop is dated at all. */
-function nearestDestination(
-  destinations: StoryDestination[],
-  date: string,
-): StoryDestination | null {
-  const containing = destinationForDate(
-    destinations.map((destination) => ({
-      id: destination.id,
-      name: destination.name,
-      arrival_date: destination.arrivalDate,
-      departure_date: destination.departureDate,
-    })),
-    date,
+/** The trip's stops as stays, in the order they were given (which every read
+ * path already sorts chronologically). Position is the tiebreaker for two
+ * stays that arrive on the same day. */
+function staysOf(trip: StoryTrip): Stay[] {
+  return trip.destinations.map((destination, index) => ({
+    id: destination.id,
+    arrival: destination.arrivalDate,
+    departure: destination.departureDate,
+    position: index,
+  }));
+}
+
+/**
+ * Where every piece of a trip actually sits: which stay owns which day, and
+ * which stay each photo, experience, and journal entry belongs to.
+ *
+ * PLACEMENT, IN PRECEDENCE ORDER
+ *
+ *   1. An item owned by an UNDATED stop stays with that stop. There is no
+ *      conflict to resolve, only an absence, and donating it to whoever
+ *      happens to hold those dates would empty the stop the user attached it
+ *      to.
+ *   2. Otherwise the stay that owns the item's DATE takes it, whichever stop
+ *      the row hangs off. This is what separates a revisit: a photograph
+ *      uploaded onto the first Copenhagen but taken during the second one
+ *      belongs to the second one, and no amount of ownership makes it a
+ *      picture of the first week.
+ *   3. Otherwise (no date, or a date no stay owns) the item stays with its
+ *      owner as undated content, and a trip-level item with nowhere to go
+ *      opens the story instead. Nothing is ever handed to the nearest stop:
+ *      that is exactly how a photograph taken the day before the first
+ *      arrival ended up on a slide captioned with the first city.
+ *
+ * Journal entries have no owner, so they follow rule 2 alone; a date no stay
+ * owns is a travel day and gets a slide of its own.
+ */
+export interface TripPlacement {
+  stayDays: StayDays;
+  /** Stay id to the photos placed there, in trip order. */
+  photosByStay: Map<string, StoryPhoto[]>;
+  /** Photos with no stay and no owner: the opener's pool. */
+  unplacedPhotos: StoryPhoto[];
+  experiencesByStay: Map<string, StoryExperience[]>;
+  journalByStay: Map<string, string[]>;
+  /** Journal dates no stay owns, in date order. */
+  orphanJournalDates: string[];
+}
+
+export function placeTripContent(trip: StoryTrip): TripPlacement {
+  const stays = staysOf(trip);
+  const stayDays = buildStayDays(stays, MAX_DAYS_PER_STOP);
+  const datedStay = new Set(
+    stays.filter(isDatedStay).map((stay) => stay.id),
   );
-  if (containing) {
-    return destinations.find((d) => d.id === containing.id) ?? null;
+  const known = new Set(stays.map((stay) => stay.id));
+
+  /** The stay an owned item belongs to, or null for the opener. */
+  const target = (ownerId: string | null, date: string | null): string | null => {
+    const owner = ownerId !== null && known.has(ownerId) ? ownerId : null;
+    if (owner !== null && !datedStay.has(owner)) return owner;
+    const day = dayOf(date);
+    const byDate = day !== null ? stayDays.ownerByDay.get(day) ?? null : null;
+    return byDate ?? owner;
+  };
+
+  const photosByStay = new Map<string, StoryPhoto[]>();
+  const unplacedPhotos: StoryPhoto[] = [];
+  for (const photo of trip.photos) {
+    const stayId = target(photo.destinationId, photo.dateTaken);
+    if (stayId === null) unplacedPhotos.push(photo);
+    else push(photosByStay, stayId, photo);
   }
-  let best: StoryDestination | null = null;
-  let bestGap = Infinity;
-  for (const destination of destinations) {
-    const anchor = destination.arrivalDate ?? destination.departureDate;
-    if (!anchor) continue;
-    const gap = Math.abs(Date.parse(`${anchor}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`));
-    if (gap < bestGap) {
-      bestGap = gap;
-      best = destination;
+
+  const experiencesByStay = new Map<string, StoryExperience[]>();
+  for (const destination of trip.destinations) {
+    for (const experience of destination.experiences) {
+      const stayId =
+        target(destination.id, experience.visitedDate) ?? destination.id;
+      push(experiencesByStay, stayId, experience);
     }
   }
-  return best;
+
+  const journalByStay = new Map<string, string[]>();
+  const orphanJournalDates: string[] = [];
+  for (const date of Object.keys(trip.journal).sort()) {
+    const day = dayOf(date);
+    const stayId = day !== null ? stayDays.ownerByDay.get(day) ?? null : null;
+    if (stayId === null) {
+      if (day !== null) orphanJournalDates.push(day);
+      continue;
+    }
+    push(journalByStay, stayId, day as string);
+  }
+
+  return {
+    stayDays,
+    photosByStay,
+    unplacedPhotos,
+    experiencesByStay,
+    journalByStay,
+    orphanJournalDates,
+  };
 }
 
 function routeSummary(destinations: StoryDestination[]): string {
@@ -287,32 +369,26 @@ export function storyClosingStats(trip: StoryTrip): StoryClosingStats {
 }
 
 /**
- * Which stop each of a trip's photos belongs to, and the ones that belong to
- * none. A photo owned by a stop (or by an experience at one) is already
- * placed; a trip-level photo is placed by its date, and one with no date and
- * nothing to place it against opens the story instead.
+ * Which STAY each of a trip's photos belongs to, and the ones that belong to
+ * none. See placeTripContent for the precedence; the short version is that the
+ * stay owning a photo's date takes it, and a photo with nowhere to be stays
+ * with its own stop.
  *
  * Exported because the curation panel offers "this stop's photos" and has to
  * offer exactly the set the story will actually draw from. Two answers to that
- * question would mean electing a photo into a slot it never appears in.
+ * question would mean electing a photo into a slot it never appears in, which
+ * on a trip that visits one city twice is exactly what happened: every
+ * photograph of both stays sat in the first stay's slot.
  */
 export function photosByStop(trip: StoryTrip): {
   byDestination: Map<string, StoryPhoto[]>;
   unplaced: StoryPhoto[];
 } {
-  const byDestination = new Map<string, StoryPhoto[]>();
-  const unplaced: StoryPhoto[] = [];
-  for (const photo of trip.photos) {
-    if (photo.destinationId) {
-      push(byDestination, photo.destinationId, photo);
-      continue;
-    }
-    const date = dayOf(photo.dateTaken);
-    const destination = date ? nearestDestination(trip.destinations, date) : null;
-    if (destination) push(byDestination, destination.id, photo);
-    else unplaced.push(photo);
-  }
-  return { byDestination, unplaced };
+  const placement = placeTripContent(trip);
+  return {
+    byDestination: placement.photosByStay,
+    unplaced: placement.unplacedPhotos,
+  };
 }
 
 /**
@@ -341,20 +417,21 @@ export function storyHeroPhoto(trip: StoryTrip): StoryPhoto | null {
  * closing, so the view never has to handle an empty sequence.
  */
 export function buildStorySlides(trip: StoryTrip): StorySlide[] {
-  // --- Bucket everything by the stop that owns it, then by day -------------
-  const { byDestination: photosByDestination, unplaced: openerPhotos } =
-    photosByStop(trip);
-
-  const journalDates = Object.keys(trip.journal).sort();
-  const journalByDestination = new Map<string, string[]>();
-  const orphanJournalDates: string[] = [];
-  for (const date of journalDates) {
-    const destination = nearestDestination(trip.destinations, date);
-    if (destination) push(journalByDestination, destination.id, date);
-    else orphanJournalDates.push(date);
-  }
+  // --- Resolve every day to a stay, then bucket everything into it ---------
+  const placement = placeTripContent(trip);
+  const {
+    stayDays,
+    photosByStay: photosByDestination,
+    unplacedPhotos: openerPhotos,
+    experiencesByStay,
+    orphanJournalDates,
+  } = placement;
 
   const slides: StorySlide[] = [];
+  // Every middle slide with the date it sorts on. A day slide sorts on its own
+  // day; an undated stop's slide sorts on the last date emitted before it, so
+  // it keeps the place in visit order it was entered at.
+  const middle: { key: string; slide: StoryDaySlide | StoryStopSlide }[] = [];
 
   slides.push({
     kind: "opener",
@@ -371,11 +448,12 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
     photos: stopPhotosFirst(openerPhotos),
   });
 
-  // Day numbering runs off the trip's own first day when it has one, so
-  // "Day 5" means the same thing across every stop.
-  const tripStart =
-    dayOf(trip.startDate) ??
-    dayOf(trip.destinations.find((d) => d.arrivalDate)?.arrivalDate ?? null);
+  // Day numbering is anchored to the trip's FIRST DAY ON THE GROUND: the
+  // earliest day any stay owns. The stored trips.start_date is a fallback for
+  // a trip nobody dated a stop on and nothing more, exactly as it is for the
+  // trip's range (see lib/trip-dates.ts). Anchoring to the column instead is
+  // what produced "Day 1" on a date a day before the first stop had begun.
+  const tripStart = stayDays.firstDay ?? dayOf(trip.startDate);
   const dayNumberOf = (date: string): number | null => {
     if (!tripStart) return null;
     const diff =
@@ -384,43 +462,41 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
     return diff >= 0 ? Math.round(diff) + 1 : null;
   };
 
+  // The latest day emitted so far, which is the sort key an undated stop
+  // inherits so it lands between the stops it was entered between.
+  let lastDate = "";
+
   for (const destination of trip.destinations) {
     const ownPhotos = photosByDestination.get(destination.id) ?? [];
+    // The days this stay owns, and nothing else. Content dated outside them
+    // has already been placed with the stay that does own that date, so a
+    // foreign date can no longer drag a day slide onto this stop: that is
+    // what stretched a four night stay across a whole trip.
+    const ownDays = stayDays.daysByStay.get(destination.id) ?? [];
+    const ownDaySet = new Set(ownDays);
+    const dayOfHere = (value: string | null): string | null => {
+      const date = dayOf(value);
+      return date !== null && ownDaySet.has(date) ? date : null;
+    };
+
     const photosByDay = new Map<string, StoryPhoto[]>();
     const undatedPhotos: StoryPhoto[] = [];
     for (const photo of ownPhotos) {
-      const date = dayOf(photo.dateTaken);
+      const date = dayOfHere(photo.dateTaken);
       if (date) push(photosByDay, date, photo);
       else undatedPhotos.push(photo);
     }
 
     const experiencesByDay = new Map<string, StoryExperience[]>();
     const undatedExperiences: StoryExperience[] = [];
-    for (const experience of destination.experiences) {
-      const date = dayOf(experience.visitedDate);
+    for (const experience of experiencesByStay.get(destination.id) ?? []) {
+      const date = dayOfHere(experience.visitedDate);
       if (date) push(experiencesByDay, date, experience);
       else undatedExperiences.push(experience);
     }
 
-    const journalDatesHere = journalByDestination.get(destination.id) ?? [];
-
-    // Candidate days: the stay itself, plus any dated content that landed on
-    // this stop from outside it (a photo taken on the travel day in, say).
-    const candidates = new Set<string>();
-    const arrival = dayOf(destination.arrivalDate);
-    if (arrival) {
-      const departure = dayOf(destination.departureDate) ?? arrival;
-      for (const date of dateRange(arrival, departure, MAX_DAYS_PER_STOP)) {
-        candidates.add(date);
-      }
-    }
-    for (const date of photosByDay.keys()) candidates.add(date);
-    for (const date of experiencesByDay.keys()) candidates.add(date);
-    for (const date of journalDatesHere) candidates.add(date);
-
-    const dates = Array.from(candidates).sort();
     const daySlides: StoryDaySlide[] = [];
-    for (const date of dates) {
+    for (const date of ownDays) {
       const journal = trip.journal[date] ?? null;
       const photos = photosByDay.get(date) ?? [];
       const experiences = experiencesByDay.get(date) ?? [];
@@ -433,7 +509,9 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
         date,
         dayNumber: dayNumberOf(date),
         destination,
-        opensDestination: daySlides.length === 0,
+        // Set once every slide is in date order: a stop opens at the first
+        // slide of each run of its own days.
+        opensDestination: false,
         journal,
         // The fallback order for a day the plan does not reach: picks first,
         // then the day as the camera took it. A day the plan DOES reach has
@@ -458,15 +536,18 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
         destination.coverUrl ||
         destination.experiences.length > 0
       ) {
-        slides.push({
-          kind: "stop",
-          key: `stop:${destination.id}`,
-          destination,
-          photos:
-            curated.length > 0
-              ? curated.slice(0, SLIDE_PHOTO_CAP)
-              : stopPhotosFirst(undatedPhotos),
-          experiences: featuredFirst(undatedExperiences),
+        middle.push({
+          key: lastDate,
+          slide: {
+            kind: "stop",
+            key: `stop:${destination.id}`,
+            destination,
+            photos:
+              curated.length > 0
+                ? curated.slice(0, SLIDE_PHOTO_CAP)
+                : stopPhotosFirst(undatedPhotos),
+            experiences: featuredFirst(undatedExperiences),
+          },
         });
       }
       continue;
@@ -521,24 +602,52 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
       ...daySlides[0].experiences,
       ...undatedExperiences,
     ]);
-    slides.push(...daySlides);
+    for (const slide of daySlides) middle.push({ key: slide.date, slide });
+    lastDate = daySlides[daySlides.length - 1].date;
   }
 
-  // Journal written on a day no stop could claim (a trip with undated stops,
-  // or writing from the flight home). Placed by date at the end of the day
-  // run, since there is no stop to sit under.
+  // Journal written on a day no stay owns: a travel day between two stops, or
+  // writing from the flight home. It gets a slide with no stop on it rather
+  // than being handed to whichever stop is nearest, which would print a
+  // paragraph under a place the traveller had already left.
   for (const date of orphanJournalDates) {
-    slides.push({
-      kind: "day",
-      key: `orphan:${date}`,
-      date,
-      dayNumber: dayNumberOf(date),
-      destination: null,
-      opensDestination: false,
-      journal: trip.journal[date] ?? null,
-      photos: [],
-      experiences: [],
+    middle.push({
+      key: date,
+      slide: {
+        kind: "day",
+        key: `orphan:${date}`,
+        date,
+        dayNumber: dayNumberOf(date),
+        destination: null,
+        opensDestination: false,
+        journal: trip.journal[date] ?? null,
+        photos: [],
+        experiences: [],
+      },
     });
+  }
+
+  // One chronological run. Every day belongs to exactly one stay, so no two
+  // day slides can share a date and the sort is total; it is what interleaves
+  // a travel day, and a stop nested inside another stop's range, into the
+  // order they happened. On the ordinary trip, whose stays do not overlap,
+  // this is the order the loop above already produced. The sort is stable, so
+  // an undated stop stays where its visit order put it.
+  middle.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  let previousStay: string | null = null;
+  for (const entry of middle) {
+    if (entry.slide.kind === "day") {
+      const stayId = entry.slide.destination?.id ?? null;
+      // A stop opens where its run of days begins, which on a trip that
+      // returns to the same city gives each stay its own header and its own
+      // weather line, and on a stay split by a side trip says so on the way
+      // back.
+      entry.slide.opensDestination = stayId !== null && stayId !== previousStay;
+      previousStay = stayId;
+    } else {
+      previousStay = entry.slide.destination.id;
+    }
+    slides.push(entry.slide);
   }
 
   slides.push({

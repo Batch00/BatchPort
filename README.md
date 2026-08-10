@@ -129,7 +129,7 @@ The floating control cluster is ranked by how often a control is actually reache
 
 - One freeform entry per day of a trip, distinct from an experience's notes: an experience note describes a place, a journal entry describes a day
 - Appears on completed and ongoing trips only. A planned trip's days already belong to the planner, and there is nothing to look back on yet
-- Days come from the trip's own dates (or the span its stops cover), and each day derives the stop it falls in from the destination date ranges; nothing about the stop is stored on the entry
+- Days come from the trip's own dates (or the span its stops cover), and each day derives the stop it falls in from the destination date ranges; nothing about the stop is stored on the entry. The stop is a specific stay, so writing from the second visit to a city is filed under that visit, not the first one
 - Low friction writing: tap a day, type, and it autosaves. A failed save never clears what was typed, closing the editor flushes immediately, and an unsaved change warns before the tab closes
 - Clearing an entry deletes it, so a day either has writing or it does not
 - Collapsed by default and folded twice, so a month-long trip does not become a wall of empty days: the closed header carries the entry count, and opening it lists only the days that already have writing, with a "Show all N days" switch to reach an empty one. A journal with nothing in it opens straight to every day
@@ -148,6 +148,7 @@ The floating control cluster is ranked by how often a control is actually reache
 
 - A full-screen, chronological reading of one trip, opened from a "Story" action on completed and ongoing trips
 - Slides are days: the journal entry, the photos taken that day (by `date_taken`), the experiences logged that day with their ratings, and the observed weather line on the slide that opens each stop. Days with nothing in them are skipped, which is what keeps it a story
+- A day belongs to the stay whose own dates contain it, so a trip that returns to a city reads as two separate visits with their own days, photographs, and weather, however the photos happened to be filed. A day two stays could both claim (you left one and arrived at the other) belongs to the one you arrived at, and a travel day between them belongs to neither: it reads as a day with no place on it rather than being handed to the city you had left. Day numbers count from the trip's first day on the ground
 - Undated things do not disappear: a photo or experience without a date rides on its stop's first slide, and a stop that produced no dated day gets a single slide of its own
 - Opens on a title slide (cover, dates, route, country flags) and closes on a scoreboard (days, stops, countries, experiences, photos, distance, best-rated)
 - Photos are the visual backbone: one fills the frame, two to four tile, the rest are counted. Where a day has none, the stop's cover carries the slide and the writing takes the foreground
@@ -400,6 +401,11 @@ npm run check-year-recap
 # Pure functions against fixtures, no database and no dev server.
 npm run check-curation
 
+# Deterministic checks for day-to-stay resolution: which stop owns a day, the
+# boundary between back-to-back stays, gaps and nesting, and above all a trip
+# that visits the same city twice, whose two stays must never merge.
+npm run check-stays
+
 # Deterministic checks for the recap map slide's playback clock: that every
 # speed reaches the end of a real multi-trip year, that changing speed
 # mid-flight rescales what is left rather than truncating it, that skip lands
@@ -568,6 +574,7 @@ src/
     trips.ts                     Trip data layer (getTrip, getTripOptions, create, update, delete)
     trip-dates.ts                Trip range derivation and chronological stop ordering (pure)
     trip-schedule.ts             Writes the derived range and order_index back after a stop changes
+    stays.ts                     Which stay owns a calendar day, and the boundary rule (pure)
     destinations.ts              Destination data layer (create sends EWKT geom)
     experiences.ts               Experience data layer and getCategories()
     bucket-list.ts               Bucket list data layer and autoFulfillBucketItems()
@@ -651,6 +658,7 @@ scripts/
   generate-mock-globe.ts         Regenerates src/lib/mock-travel-data.ts, the landing hero's static fallback
   check-year-recap.ts            Asserts the Year in Travel slicing and edge cases against fixtures
   check-curation.ts              Asserts the curation model, its slots, and every surface that selects from them
+  check-stays.ts                 Asserts which stay owns a day, including a trip that visits one city twice
   check-year-map-playback.ts     Asserts the recap map slide's clock: every speed, mid-flight changes, skip, rebuilds
   backfill-photos.ts             Backfills Wikimedia cover photos for existing destinations
   backfill-thumbnails.ts         Generates {storage_path}_thumb thumbnails and sets photos.thumb_path

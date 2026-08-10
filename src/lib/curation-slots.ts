@@ -24,6 +24,7 @@ import {
   stopPhotoRank,
   stopPhotosFirst,
 } from "@/lib/curation";
+import { formatDateRange } from "@/lib/format";
 import {
   buildStorySlides,
   photosByStop,
@@ -70,6 +71,11 @@ export interface HeroSlot {
 export interface StopPhotoSlot {
   destinationId: string;
   destinationName: string;
+  /** This stay's own dates, e.g. "Sep 28 to Oct 1". Null when the stop carries
+   * none. A slot is one destination ROW, so a trip that returns to the same
+   * city shows two slots with the same name; the dates are what tells the
+   * traveller which visit they are curating. */
+  dateLabel: string | null;
   /** The elected photos in slot order. Empty when the slot is on automatic. */
   chosen: SlotPhoto[];
   /** The photos the story would lead with anyway. */
@@ -186,6 +192,10 @@ function stopSlots(trip: StoryTrip): StopPhotoSlot[] {
     slots.push({
       destinationId: destination.id,
       destinationName: destination.name,
+      dateLabel:
+        destination.arrivalDate || destination.departureDate
+          ? formatDateRange(destination.arrivalDate, destination.departureDate)
+          : null,
       chosen: chosen.map((photo, index) => toSlotPhoto(photo, index + 1)),
       automatic: ordered
         .slice(0, automaticCap)

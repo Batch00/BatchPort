@@ -332,7 +332,8 @@ them together:
 
 - **A journal entry is keyed by a date, never by a destination.** Which stop a
   day belongs to is already fully determined by the destination
-  arrival/departure ranges, so `destinationForDate()` derives it on read. A
+  arrival/departure ranges, so `destinationForDate()` derives it on read
+  (through `lib/stays.ts`, the same resolution the story uses). A
   `destination_id` column would be a second copy that drifts the first time a
   stop's dates are edited. If a future change needs the stop pinned (a stop
   the user deliberately overrides), that is a new decision, not a column to
@@ -361,10 +362,56 @@ read-only path's assembler; the option exists because the dashboard renders
 neither journal prose nor a full photo list and should not ship them.
 
 The composition rule, in one sentence: a slide is a day, a day belongs to the
-stop whose stay contains it, and everything dated that day lands on it. Days
-with nothing are skipped. Undated photos and experiences ride their stop's
+STAY whose own range contains it, and everything dated that day lands on it.
+Days with nothing are skipped. Undated photos and experiences ride their stop's
 first slide, and a stop with no dated day gets one slide of its own, so
 nothing silently disappears.
+
+### A Day Belongs To A Stay, Never To A Place Name
+
+`lib/stays.ts` is the whole of that resolution and is shared by the story, the
+curation panel, and the journal, so all three answer "whose day is this"
+identically. It exists because a trip's stops are ROWS: "Copenhagen,
+Stockholm, Oslo, Copenhagen" is four stays, and the two Copenhagens have
+nothing in common but a name.
+
+- **The boundary rule: a day belongs to the stay that ARRIVED most recently on
+  or before it.** When two ranges both contain a day the later arrival takes
+  it, ties breaking on stored visit order, which also settles a stop nested
+  inside another stop's range. The everyday case is a departure date equal to
+  the next arrival, and it belongs to the stay you arrive at. The direction is
+  forced: `planDayIso` numbers a stay's days from its arrival, so a stay that
+  did not own its own arrival day would have a day 1 the story attributed
+  somewhere else. `buildStayDays` implements it as "iterate in arrival order
+  and let a later stay overwrite the day it shares", and `stayForDate` answers
+  the same question for one date.
+- **A day no stay contains belongs to NOBODY.** No nearest-stop fallback: that
+  is what captioned a photograph taken the day before the trip with the first
+  city, on a date that stop had not begun. A travel day with journal writing
+  gets a slide with no stop on it; a photograph with nowhere to sit rides the
+  opener rather than inventing a day.
+- **Placement precedence** (`placeTripContent` in `lib/story.ts`): an item
+  owned by an UNDATED stop stays with it (absence is not a conflict);
+  otherwise the stay owning the item's date takes it, whichever row it hangs
+  off, which is what separates a revisit when photographs of the second stay
+  were uploaded onto the first; otherwise it stays with its owner as undated
+  content. A stay's candidate days are exactly the days it owns, so a foreign
+  date can no longer drag a day slide onto a stop.
+- **Day numbering is anchored to the trip's first day on the ground**
+  (`StayDays.firstDay`, the earliest day any stay owns). `trips.start_date` is
+  a fallback for a trip nobody dated a stop on and nothing more, exactly as it
+  is for the trip's range. A day before the anchor carries no number at all.
+- **Day slides are emitted in one chronological run** and a stop opens at the
+  first slide of each run of its own days, so a revisit gets two headers and
+  two weather lines, and an undated stop keeps its place in visit order.
+- Two places the rule deliberately does not reach, both documented in
+  `lib/stays.ts`: the PLANNER's day sections still span the whole stay
+  (`planned_day` is an offset the user already assigned, and dropping the
+  contested last section would silently unassign what was planned on it), and
+  the WEATHER window is the stay's own stored range (a coordinate and a range
+  handed to an archive, not a claim about who owns a day).
+
+`npm run check-stays` asserts all of it against the real shapes.
 
 `TripStory` renders through `createPortal` into `document.body`. Its launch
 points sit inside cards that create their own stacking context (the share card
@@ -544,6 +591,12 @@ else follows:
     slides. Eight, not the four one slide draws, because the picks are spread
     **across** the stop's days (see below), so the slot's capacity is a
     statement about the stay and `SLIDE_PHOTO_CAP` is the one about a slide.
+    A slot is one destination ROW, so a trip that returns to a city has two of
+    them, each with its own days and its own candidates (`StopPhotoSlot`
+    carries the stay's `dateLabel`, which is what tells two slots of the same
+    name apart). What each slot offers comes from `photosByStop`, the same
+    placement the slides use, so a photograph can never be elected into a slot
+    it does not appear in.
   - **Highlights (3, ordered)**: `experiences.featured_rank`, ranked across the
     trip. The share card's list, the story's closing, the recap's moments, and
     the trip page's own "best of" block.
@@ -977,6 +1030,7 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Transport server actions | `src/lib/actions/transport.ts` |
 | Transport leg row and entry sheet | `src/components/trips/transport-leg.tsx` |
 | Distance by mode stats card | `src/components/stats/transport-breakdown.tsx` |
+| Which stay owns a calendar day, and the boundary rule (pure) | `src/lib/stays.ts` |
 | Journal day derivation and helpers (pure) | `src/lib/journal.ts` |
 | Journal server reads | `src/lib/journal-data.ts` |
 | Journal server action | `src/lib/actions/journal.ts` |
@@ -1069,8 +1123,9 @@ no timezone chip. Nothing in the app prompts the user to set one.
 
 ## Testing
 
-Run `npm run build` to verify type correctness across the whole project (TypeScript strict mode). Run `npm run lint` for ESLint. There is no automated test suite, with two exceptions, both pure, both needing no database or dev server:
+Run `npm run build` to verify type correctness across the whole project (TypeScript strict mode). Run `npm run lint` for ESLint. There is no automated test suite, with the exceptions below, all pure, none needing a database or a dev server:
 
+- `npm run check-stays` asserts day-to-stay resolution: the boundary rule, gaps, nesting, a place visited twice in one trip (its own days, photos, journal, and curation slot, never merged with the first visit), a stored `start_date` that predates the first stop, an undated stop in a dated trip, and a single-stay trip left unchanged. Re-run it after any change to `lib/stays.ts`, `placeTripContent`, or `buildStorySlides`.
 - `npm run check-year-recap` asserts the Year in Travel derivation (year list, slicing across new year, planned exclusion, sparse years, in-progress labelling, insight selection). Re-run it after any change to `lib/year-recap.ts`.
 - `npm run check-curation` asserts the curation model end to end (rank order, the cap, the photo slots and their backwards compatibility, the three slots' contents and their automatic answers, the spread of a stop's picks across its day slides for equal, fewer, and more picks than days, that a moment shows its own experience's photograph and marks a place fallback as one, and what the story, the share card, and the recap select), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts`, `lib/curation-slots.ts`, or a selector that consumes them.
 - `npm run check-year-map-playback` asserts the recap map slide's clock: that 1x, 2x, and 4x all reach the end of a real multi-trip timeline, that changing speed mid-flight rescales the remaining time rather than jumping or truncating, that skip lands on the finished year, and that rebuilding the animation mid-playback resumes instead of restarting. Re-run it after any change to `advancePlayback` or to the map slide's effect wiring.

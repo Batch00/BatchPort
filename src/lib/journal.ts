@@ -8,7 +8,11 @@
 // The one structural decision worth knowing: an entry is keyed by a DATE, not
 // by a destination. Which stop a day belongs to is already decided by the
 // destination arrival/departure ranges, so it is derived here rather than
-// stored (see the schema comment in scripts/sql/2026-08-02-journal.sql).
+// stored (see the schema comment in scripts/sql/2026-08-02-journal.sql). The
+// derivation itself lives in lib/stays.ts, shared with the story and the
+// curation panel so all three answer "whose day is this" identically.
+
+import { stayForDate } from "@/lib/stays";
 
 /** One saved day. `body` is never blank: clearing the text deletes the row. */
 export interface JournalEntry {
@@ -76,23 +80,28 @@ export function dateRange(start: string, end: string, limit: number): string[] {
 }
 
 /**
- * The stop a date belongs to: the first destination (in visit order) whose
- * stay contains it. Undated stops claim nothing, and a date between two stays
- * belongs to neither, which is exactly right for a travel day.
+ * The stop a date belongs to: the specific destination ROW whose own stay
+ * contains it, under the one boundary rule in lib/stays.ts (the later arrival
+ * takes a contested day). Undated stops claim nothing, and a date between two
+ * stays belongs to neither, which is exactly right for a travel day.
+ *
+ * The row matters, not the name: a trip that returns to Copenhagen has two
+ * Copenhagen stays, and a day in the second one is not a day in the first.
  */
 export function destinationForDate<T extends JournalDestination>(
   destinations: T[],
   date: string,
 ): T | null {
-  for (const destination of destinations) {
-    const arrival = destination.arrival_date;
-    if (!isDate(arrival)) continue;
-    const departure = isDate(destination.departure_date)
-      ? destination.departure_date
-      : arrival;
-    if (arrival <= date && date <= departure) return destination;
-  }
-  return null;
+  const stays = destinations.map((destination, index) => ({
+    id: destination.id,
+    arrival: destination.arrival_date,
+    departure: destination.departure_date,
+    position: index,
+  }));
+  const owner = stayForDate(stays, date);
+  return owner
+    ? destinations.find((destination) => destination.id === owner.id) ?? null
+    : null;
 }
 
 /** The trip's first and last day, from the trip's own dates when it has them,
