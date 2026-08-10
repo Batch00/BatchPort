@@ -421,7 +421,24 @@ itself), a quiet `stats` strip for the rest with no number appearing in both,
 the year's own photograph as the backdrop, and a `closingLine` chosen from a
 ladder of true statements. Null when there is nothing true to say; nothing is
 padded here either. The trip story's closing slide is the same composition for
-the same reason.
+the same reason, so it is also the same two components
+(`components/stats/scoreboard.tsx`), and two layout rules live in them:
+
+- **A number and its unit are one line.** "4,660" over "km" is two facts
+  stacked and reads as a second statistic, so `ScoreValue` measures the line
+  against the column it has to fit and scales the type down until it fits
+  rather than letting it wrap. The measuring copy carries the FINAL value (a
+  count-up cannot change the fit as it runs) and is a shrink-to-fit line inside
+  a zero-height clipped wrapper: `getBoundingClientRect`, never `scrollWidth`,
+  which never reports less than the element it sits in and so measures every
+  fitting line as exactly its own column. The unit rides in `em`, which keeps
+  it subordinate and on the same baseline at every size.
+- **A row that must wrap wraps evenly.** `ScoreStrip` takes its column count
+  from the number of tiles, so five sit on one row instead of four and an
+  orphan, and steps the type down at five and six. Where the row cannot fit,
+  `balancedColumns` picks the widest split that does not leave one tile alone
+  on the last row (five over three columns is 3 + 2), the same principle the
+  share card's places line uses.
 
 **Insights are ranked in bands** (`INSIGHT_BASE` plus a bounded bonus), not on a
 free-running score. Free scores let a wide margin on the weakest question
@@ -565,11 +582,21 @@ a pick **dated** to one of the stop's own day slides leads that day, because
 moving it would print a photograph under another day's date; everything else
 is dealt in rank order onto the emptiest days, one pass at a time, so five
 picks over four days go 2, 1, 1, 1 rather than 5, 0, 0, 0; and no day takes
-more than `SLIDE_PHOTO_CAP`. A pick whose own day is already full stays an
-ordinary photo of that day rather than being relocated. Days with no pick fall
-back to their own photos, then the stop cover, exactly as before: curation
-governs the lead and the composition, never exclusivity. With nothing elected
-the plan is empty and every line of it is a no-op.
+more than `SLIDE_PHOTO_CAP`. A pick whose own day is already full is not
+relocated; it stays in the gallery, like any pick past the cap. With nothing
+elected the plan is empty and every line of it is a no-op.
+
+**The seats a day is dealt are the photographs it shows.** Not the front of a
+longer queue: `buildStorySlides` REPLACES a dealt day's photo list rather than
+prepending to it, so curating one photograph of a day gives that day one
+photograph. The first version led the day with the pick and then topped the
+slide up to `SLIDE_PHOTO_CAP` with whatever else the camera took, which made
+choosing fewer photographs change the order and nothing else. A day the plan
+did NOT reach is untouched (its own photos, then the stop cover, exactly as
+before), which is what keeps an uncurated stop unchanged, and it is also why
+the undated leftovers still ride the stop's first slide unless that slide is
+one the traveller curated. The same rule holds on a stop with no dated day at
+all: its single stop slide shows the picks, capped at what a slide draws.
 
 The panel states the result rather than the rule (`describeStopSelection`,
 `suggestStopCount` in `lib/curation-slots.ts`), generated from the same
@@ -962,6 +989,7 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Year card render | `src/lib/poster/year-card.ts` |
 | Year recap map painter (canvas) | `src/lib/poster/year-map.ts` |
 | Social card shared parts | `src/lib/poster/card-parts.ts` |
+| Scoreboard lead and supporting strip (story and recap) | `src/components/stats/scoreboard.tsx` |
 | prefers-reduced-motion check | `src/lib/motion.ts` |
 | Trip story full-screen view | `src/components/trips/trip-story.tsx` |
 | Trip story entry point | `src/components/trips/story-launcher.tsx` |

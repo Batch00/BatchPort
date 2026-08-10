@@ -435,17 +435,23 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
         destination,
         opensDestination: daySlides.length === 0,
         journal,
-        // Curated picks lead their slide. A slide shows at most four photos
-        // with the rest counted, so on a heavily photographed day this is the
-        // difference between the four the traveller chose and the first four
-        // the camera happened to take.
+        // The fallback order for a day the plan does not reach: picks first,
+        // then the day as the camera took it. A day the plan DOES reach has
+        // its whole photo list replaced below.
         photos: stopPhotosFirst(photos),
         experiences: featuredFirst(experiences),
       });
     }
 
+    // This stop's elected photos. With nothing elected every line that reads
+    // it is a no-op, which is what keeps an uncurated trip byte-for-byte what
+    // it was.
+    const curated = curatedStopPhotos(ownPhotos);
+
     if (daySlides.length === 0) {
-      // Nothing dated: one stop slide carrying everything this stop owns.
+      // Nothing dated: one stop slide carrying everything this stop owns. A
+      // curated stop shows its picks and nothing else here too; there is only
+      // one slide to spread them over, so it takes what a slide draws.
       if (
         undatedPhotos.length > 0 ||
         undatedExperiences.length > 0 ||
@@ -456,7 +462,10 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
           kind: "stop",
           key: `stop:${destination.id}`,
           destination,
-          photos: stopPhotosFirst(undatedPhotos),
+          photos:
+            curated.length > 0
+              ? curated.slice(0, SLIDE_PHOTO_CAP)
+              : stopPhotosFirst(undatedPhotos),
           experiences: featuredFirst(undatedExperiences),
         });
       }
@@ -464,15 +473,19 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
     }
 
     // Spread this stop's picks across its days (see distributeStopPhotos).
-    // With nothing elected the plan is empty and every line below is a no-op,
-    // which is what keeps an uncurated trip byte-for-byte what it was.
-    const curated = curatedStopPhotos(ownPhotos);
     const plan = distributeStopPhotos(
       daySlides.map((slide) => slide.date),
       curated,
       SLIDE_PHOTO_CAP,
     );
     let leftovers = undatedPhotos;
+    // A day that was dealt picks shows THOSE PHOTOGRAPHS AND NO OTHERS.
+    // Electing three photographs of a day and getting them plus the next
+    // three the camera happened to take is not a choice, it is a lead, and
+    // the count is the whole of what the traveller asked for. Days the plan
+    // left empty are untouched and fall back exactly as an uncurated stop
+    // does: their own photos, then the stop cover.
+    let openerTakesLeftovers = true;
     if (plan.size > 0) {
       const byId = new Map(curated.map((photo) => [photo.id, photo]));
       const placed = new Set<string>();
@@ -483,21 +496,27 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
         const lead = (plan.get(slide.date) ?? [])
           .map((id) => byId.get(id))
           .filter((photo): photo is StoryPhoto => photo !== undefined);
-        // A pick placed on another day is removed from this one, or the stop
-        // would show the same photograph twice on its way through the week.
-        const rest = slide.photos.filter((photo) => !placed.has(photo.id));
-        slide.photos = [...lead, ...rest];
+        // A pick placed on another day is removed from an uncurated one too,
+        // or the stop would show the same photograph twice on its way through
+        // the week.
+        slide.photos =
+          lead.length > 0
+            ? lead
+            : slide.photos.filter((photo) => !placed.has(photo.id));
       }
       leftovers = undatedPhotos.filter((photo) => !placed.has(photo.id));
+      openerTakesLeftovers = (plan.get(daySlides[0].date) ?? []).length === 0;
     }
 
-    // Undated leftovers ride on the stop's first slide rather than vanishing.
-    // Only the unplanned path re-sorts: the plan has already decided what
-    // leads, and stopPhotosFirst would drag every pick back to the front.
-    daySlides[0].photos =
-      plan.size > 0
-        ? [...daySlides[0].photos, ...leftovers]
-        : stopPhotosFirst([...daySlides[0].photos, ...leftovers]);
+    // Undated leftovers ride on the stop's first slide rather than vanishing,
+    // unless that slide is one the traveller curated: adding to it would put
+    // back the fillers the count above just removed.
+    if (openerTakesLeftovers) {
+      daySlides[0].photos =
+        plan.size > 0
+          ? [...daySlides[0].photos, ...leftovers]
+          : stopPhotosFirst([...daySlides[0].photos, ...leftovers]);
+    }
     daySlides[0].experiences = featuredFirst([
       ...daySlides[0].experiences,
       ...undatedExperiences,

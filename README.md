@@ -152,7 +152,7 @@ The floating control cluster is ranked by how often a control is actually reache
 - Opens on a title slide (cover, dates, route, country flags) and closes on a scoreboard (days, stops, countries, experiences, photos, distance, best-rated)
 - Photos are the visual backbone: one fills the frame, two to four tile, the rest are counted. Where a day has none, the stop's cover carries the slide and the writing takes the foreground
 - Photos fit the frame rather than being cropped to it when the two disagree. A shape close enough to the slide's fills it; a portrait phone photo on a wide desktop slide, or a wide landscape shot on a phone, is shown whole over a blurred blow-up of itself, so nobody's head is cropped off and the frame is still full. A two-to-four photo tile is a crop by design and keeps filling its cell
-- The photos and experiences you curated lead their slide (see Curation below)
+- The experiences you curated lead their slide, and where you curated photos of a stop, its days show those photographs and no others (see Curation below)
 - Navigation: swipe on touch (horizontal only, so a long entry still scrolls), arrow keys and click zones on desktop, Escape closes, a segmented progress bar tracks position
 - Loads lazily: only the slides adjacent to the current one are mounted, and only the next slide's lead image is preloaded
 - Read-only by construction, so /demo and /share/[slug] offer the same story
@@ -164,7 +164,7 @@ Ratings say how good something was. They cannot say what the trip was about: a f
 It is built around the three **slots** where a curated choice actually shows up, so what you are choosing, and what it will replace, is on screen rather than implied. A "Curate" action on the trip page, next to Story and Share, opens the panel.
 
 - **Trip hero (one photo).** The frame the Year in Travel recap opens on, and the photograph the share card is drawn over. Leave it alone and the card uses the trip cover while the recap uses your earliest photo of the year; the panel says so and previews the picture you would get.
-- **Photos per stop (up to four each).** The photos that lead that stop's slides in the trip story. Left alone, the story takes the stop's first photos in the order they were taken, and the panel shows those.
+- **Photos per stop (up to eight each).** The photos that stop's slides in the trip story show. They are spread across the stop's days rather than piled on its first slide, and a day that gets one shows that one: choosing three photographs of a day gives you three, not three plus a filler. Days you did not choose anything for are untouched and fall back to their own photos, then the stop cover. Left alone, the story takes the stop's first photos in the order they were taken, and the panel shows those.
 - **Trip highlights (three, in order).** The list on the share card, the line the story closes on, the moments in the recap, and the "best of this trip" block on the trip page itself. Left alone, all four use your three best-rated, and the trip page block says out loud that that is what it is showing.
 
 Every picker shows the candidates together, with a **position badge** on the ones you have chosen, so first and second are distinguishable rather than both just "picked". Multi-item slots reorder by dragging or with the arrow buttons beside each one. Clearing a slot puts it back on automatic. Choices save as you make them.
@@ -523,6 +523,7 @@ src/
       bucket-progress.tsx        Bucket list completion bar and counts
       chart-card.tsx             Shared chart wrapper card
       stat-card.tsx              Individual stat number card
+      scoreboard.tsx             Scoreboard lead (number and unit, fitted) and supporting strip
     bucket-list/
       bucket-list-board.tsx      Full bucket list page with add/edit/fulfill
       bucket-item-card.tsx       Individual bucket item card

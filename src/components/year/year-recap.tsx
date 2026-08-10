@@ -14,6 +14,7 @@ import { CountryFlag } from "@/components/country-flag";
 import { SlideImage } from "@/components/photos/slide-image";
 import { RatingDisplay } from "@/components/rating-display";
 import { AnimatedNumber, CountUpGroup } from "@/components/stats/count-up";
+import { ScoreStrip, ScoreValue } from "@/components/stats/scoreboard";
 import { YearMapSlide } from "@/components/year/year-map-slide";
 import { YearShareCardButton } from "@/components/year/year-share-card";
 import {
@@ -178,10 +179,12 @@ function ScaleView({ slide, active }: { slide: YearScaleSlide; active: boolean }
           </p>
         </Rise>
         <Rise active={active} delay={100}>
-          <p className="mt-3 text-6xl font-semibold tabular-nums tracking-tight text-white sm:text-8xl">
-            <AnimatedNumber value={slide.distanceKm} />
-            <span className="ml-2 text-3xl text-white/50 sm:text-5xl">km</span>
-          </p>
+          <ScoreValue
+            value={slide.distanceKm}
+            unit="km"
+            animate
+            className="mt-3 text-6xl font-semibold tracking-tight text-white sm:text-8xl"
+          />
         </Rise>
         <Rise active={active} delay={240}>
           <p className="mt-3 text-base text-brand">{slide.comparison}</p>
@@ -503,19 +506,15 @@ function ScoreboardView({
               >
                 {slide.leads.map((lead, index) => (
                   <Rise key={lead.id} active={active} delay={200 + index * 150}>
-                    <p
+                    <ScoreValue
+                      value={lead.value}
+                      unit={lead.unit}
+                      animate
                       className={cn(
-                        "font-semibold tabular-nums leading-[0.95] tracking-tight text-white",
+                        "font-semibold leading-[0.95] tracking-tight text-white",
                         wide ? "text-5xl sm:text-7xl" : "text-6xl sm:text-8xl",
                       )}
-                    >
-                      <AnimatedNumber value={lead.value} />
-                      {lead.unit ? (
-                        <span className="ml-1.5 text-2xl text-white/45 sm:text-4xl">
-                          {lead.unit}
-                        </span>
-                      ) : null}
-                    </p>
+                    />
                     <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
                       {lead.label}
                     </p>
@@ -538,22 +537,7 @@ function ScoreboardView({
                 supporting stats are read as a group or not at all. */}
             {slide.stats.length > 0 ? (
               <Rise active={active} delay={560}>
-                <dl className="mt-8 grid grid-cols-3 gap-y-5 rounded-2xl border border-white/[0.09] bg-white/[0.03] px-2 py-5 sm:grid-cols-4">
-                  {slide.stats.map((stat) => (
-                    <div key={stat.label} className="px-2">
-                      <dd className="text-lg font-medium tabular-nums text-white/90">
-                        {stat.numeric === null ? (
-                          stat.value
-                        ) : (
-                          <AnimatedNumber value={stat.numeric} />
-                        )}
-                      </dd>
-                      <dt className="mt-0.5 text-[10px] uppercase tracking-wide text-white/40">
-                        {stat.label}
-                      </dt>
-                    </div>
-                  ))}
-                </dl>
+                <ScoreStrip tiles={slide.stats} animate className="mt-8" />
               </Rise>
             ) : null}
 

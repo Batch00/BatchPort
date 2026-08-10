@@ -210,7 +210,10 @@ export function describeStopSelection(
 ): string {
   if (chosen.length === 0) return "";
   if (slot.dayDates.length === 0) {
-    return `This stop has one slide, so all ${chosen.length} lead it together.`;
+    const shown = Math.min(chosen.length, SLIDE_PHOTO_CAP);
+    return shown === chosen.length
+      ? `This stop has one slide, so all ${chosen.length} show on it together.`
+      : `This stop has one slide, so the first ${shown} of your ${chosen.length} show on it together.`;
   }
   const plan = distributeStopPhotos(slot.dayDates, chosen, SLIDE_PHOTO_CAP);
   const counts = slot.dayDates.map((date) => plan.get(date)?.length ?? 0);
@@ -224,7 +227,7 @@ export function describeStopSelection(
   const empty = counts.filter((count) => count === 0).length;
   if (empty > 0) {
     const led = days - empty;
-    return `${head}: ${led} ${led === 1 ? "day leads" : "days lead"} with your picks, the other ${empty} fall back to their own photos, then the stop cover.`;
+    return `${head}: ${led} ${led === 1 ? "day shows" : "days show"} your picks and nothing else, the other ${empty} fall back to their own photos, then the stop cover.`;
   }
   const spread = counts.every((count) => count === counts[0])
     ? counts[0] === 1
@@ -234,7 +237,7 @@ export function describeStopSelection(
   return `${head}: ${spread}.`;
 }
 
-/** The nudge under the sentence: how many picks would give this stop one lead
+/** The nudge under the sentence: how many picks would give this stop one
  * photograph a day. Empty when the selection already covers it, because a
  * traveller who has chosen enough does not need advice. */
 export function suggestStopCount(
@@ -245,7 +248,7 @@ export function suggestStopCount(
   if (days <= 1 || chosen.length >= days) return "";
   const want = Math.min(days, SLOT_CAPACITY.stopPhotos, slot.candidates.length);
   if (want <= chosen.length) return "";
-  return `${want} would lead every day here. There is no minimum; the rest fall back on their own.`;
+  return `${want} would cover every day here. There is no minimum; the rest fall back on their own.`;
 }
 
 function toSlotExperience(

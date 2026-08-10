@@ -41,6 +41,7 @@ import {
   type StoryDestination,
   type StoryExperience,
   type StoryPhoto,
+  type StorySlide,
   type StoryTrip,
 } from "../src/lib/story";
 import { shareCardFromStoryTrip } from "../src/lib/poster/share-card";
@@ -362,10 +363,13 @@ function trip(
   const day = slides.find((slide) => slide.kind === "day");
   check("the trip produced a day slide", day !== undefined);
   if (day && day.kind === "day") {
+    // Elected: so the slide is that photograph. The one the camera happened
+    // to take beside it is not a filler behind it (see "the COUNT a curated
+    // stop shows" below).
     equal(
-      "the featured photo leads its slide",
+      "the featured photo is what its slide shows",
       day.photos.map((item) => item.id),
-      ["gates", "crowd"],
+      ["gates"],
     );
     equal(
       "the featured experience leads its slide, over a better rating",
@@ -551,16 +555,11 @@ function trip(
   );
   equal("the stop produced four day slides", spreadDays.length, 4);
   equal(
-    "each day leads with one pick, then its own photo",
+    "each day shows its pick and nothing else",
     spreadDays.map((slide) =>
       slide.kind === "day" ? slide.photos.map((item) => item.id) : [],
     ),
-    [
-      ["p1", "own1"],
-      ["p2", "own2"],
-      ["p3", "own3"],
-      ["p4", "own4"],
-    ],
+    [["p1"], ["p2"], ["p3"], ["p4"]],
   );
 
   // The gap this closes: before the spread, every undated pick rode the stop's
@@ -568,7 +567,7 @@ function trip(
   const first = spreadDays[0];
   check(
     "no pick is left piled on the opening slide",
-    first.kind === "day" && first.photos.length === 2,
+    first.kind === "day" && first.photos.length === 1,
   );
 
   // And a pick placed on one day is not also drawn on another.
@@ -619,7 +618,172 @@ function trip(
   equal(
     "and when some days are left to fall back",
     describeStopSelection(slot, slot.chosen.slice(0, 2)),
-    "2 across 4 days: 2 days lead with your picks, the other 2 fall back to their own photos, then the stop cover.",
+    "2 across 4 days: 2 days show your picks and nothing else, the other 2 fall back to their own photos, then the stop cover.",
+  );
+}
+
+// --- The COUNT a curated stop shows -----------------------------------------
+//
+// The bug this pins down: the spread decided which photographs LEAD each day,
+// and then every day was topped up with its own remaining photos to the slide
+// cap. So curating one photograph of a day produced that one plus three the
+// camera happened to take, and choosing fewer changed the lead and nothing
+// else. Curation is an instruction to show exactly those.
+//
+// Asserted end to end on real slides, because the count is what a reader sees.
+
+{
+  const DAYS = ["2024-06-01", "2024-06-02", "2024-06-03"];
+
+  /** A three day stop with three photos of its own on each day, plus `picks`
+   * undated curated photos. Three per day is the point: any day that falls
+   * back is visibly different from any day that does not. */
+  function stopTrip(name: string, stopId: string, picks: number): StoryTrip {
+    const own = DAYS.flatMap((date, dayIndex) =>
+      [1, 2, 3].map((n) =>
+        photo(`${stopId}-d${dayIndex + 1}-${n}`, {
+          dateTaken: date,
+          destinationId: stopId,
+        }),
+      ),
+    );
+    const chosen = Array.from({ length: picks }, (_, index) =>
+      pick(`${stopId}-pick${index + 1}`, index + 1, { destinationId: stopId }),
+    );
+    return trip(name, {
+      start: DAYS[0],
+      end: DAYS[2],
+      destinations: [
+        stop(stopId, { arrival: DAYS[0], departure: DAYS[2] }),
+      ],
+      photos: [...own, ...chosen],
+    });
+  }
+
+  const dayPhotos = (built: StoryTrip, stopId: string): string[][] =>
+    buildStorySlides(built)
+      .filter(
+        (slide): slide is Extract<StorySlide, { kind: "day" }> =>
+          slide.kind === "day" && slide.destination?.id === stopId,
+      )
+      .map((slide) => slide.photos.map((item) => item.id));
+
+  const counts = (built: StoryTrip, stopId: string): number[] =>
+    dayPhotos(built, stopId).map((ids) => ids.length);
+
+  // One pick over three days: one day shows one photograph, not one plus
+  // three fillers. The other two are untouched.
+  equal(
+    "one pick over three days gives that day exactly one photo",
+    counts(stopTrip("One pick", "One", 1), "One"),
+    [1, 3, 3],
+  );
+  equal(
+    "and it is the elected photograph, with the day's own dropped",
+    dayPhotos(stopTrip("One pick ids", "OneIds", 1), "OneIds")[0],
+    ["OneIds-pick1"],
+  );
+
+  // One each: every day shows exactly its own pick.
+  equal(
+    "three picks over three days give one photo each",
+    counts(stopTrip("Three picks", "Three", 3), "Three"),
+    [1, 1, 1],
+  );
+
+  // More picks than days: the spread decides the counts (3, 3, 2) and each
+  // day shows precisely what it was dealt, capped at what a slide draws.
+  equal(
+    "eight picks over three days go 3, 3, 2 and stop there",
+    counts(stopTrip("Eight picks", "Eight", 8), "Eight"),
+    [3, 3, 2],
+  );
+
+  // Nothing elected: exactly the story that existed before curation did.
+  equal(
+    "an uncurated stop still shows every photo of each day",
+    counts(stopTrip("No picks", "None", 0), "None"),
+    [3, 3, 3],
+  );
+
+  // A trip where one stop is curated and one is not. The rule is per stop, so
+  // curating Lisbon cannot quietly thin out Porto.
+  const mixed = trip("Mixed", {
+    start: "2024-06-01",
+    end: "2024-06-06",
+    destinations: [
+      stop("Lisbon", { arrival: "2024-06-01", departure: "2024-06-03" }),
+      stop("Porto", { arrival: "2024-06-04", departure: "2024-06-06" }),
+    ],
+    photos: [
+      ...DAYS.flatMap((date, dayIndex) =>
+        [1, 2, 3].map((n) =>
+          photo(`lis-d${dayIndex + 1}-${n}`, {
+            dateTaken: date,
+            destinationId: "Lisbon",
+          }),
+        ),
+      ),
+      ...["2024-06-04", "2024-06-05", "2024-06-06"].flatMap((date, dayIndex) =>
+        [1, 2, 3].map((n) =>
+          photo(`por-d${dayIndex + 1}-${n}`, {
+            dateTaken: date,
+            destinationId: "Porto",
+          }),
+        ),
+      ),
+      pick("lis-pick1", 1, { destinationId: "Lisbon" }),
+      pick("lis-pick2", 2, { destinationId: "Lisbon" }),
+    ],
+  });
+  equal(
+    "the curated stop shows its two picks and falls back on the third day",
+    counts(mixed, "Lisbon"),
+    [1, 1, 3],
+  );
+  equal(
+    "and the uncurated stop on the same trip is untouched",
+    counts(mixed, "Porto"),
+    [3, 3, 3],
+  );
+
+  // A dated pick still leads the day it was taken on, and that day shows it
+  // alone rather than it plus the day's own photographs.
+  const datedPickTrip = trip("Dated pick", {
+    start: DAYS[0],
+    end: DAYS[2],
+    destinations: [stop("Dated", { arrival: DAYS[0], departure: DAYS[2] })],
+    photos: [
+      photo("dated-own1", { dateTaken: DAYS[1], destinationId: "Dated" }),
+      photo("dated-own2", { dateTaken: DAYS[1], destinationId: "Dated" }),
+      pick("dated-pick", 1, { dateTaken: DAYS[1], destinationId: "Dated" }),
+    ],
+  });
+  equal(
+    "a dated pick owns its own day alone",
+    dayPhotos(datedPickTrip, "Dated"),
+    [["dated-pick"]],
+  );
+
+  // A stop with no dated day is one slide, and the same rule holds on it.
+  const undatedStop = trip("Undated stop", {
+    destinations: [stop("Undated")],
+    photos: [
+      photo("u-own1", { destinationId: "Undated" }),
+      photo("u-own2", { destinationId: "Undated" }),
+      photo("u-own3", { destinationId: "Undated" }),
+      pick("u-pick", 1, { destinationId: "Undated" }),
+    ],
+  });
+  const stopSlide = buildStorySlides(undatedStop).find(
+    (slide) => slide.kind === "stop",
+  );
+  equal(
+    "a curated stop slide shows its picks and nothing else",
+    stopSlide && stopSlide.kind === "stop"
+      ? stopSlide.photos.map((item) => item.id)
+      : [],
+    ["u-pick"],
   );
 }
 

@@ -14,9 +14,13 @@ import { CountryFlag } from "@/components/country-flag";
 import { SlideImage } from "@/components/photos/slide-image";
 import { RatingDisplay } from "@/components/rating-display";
 import { TripShareCardButton } from "@/components/share/trip-share-card";
+import {
+  ScoreStrip,
+  ScoreValue,
+  type ScoreTile,
+} from "@/components/stats/scoreboard";
 import { VisitWeatherLine } from "@/components/weather/visit-weather";
 import { journalDayLabel } from "@/lib/journal";
-import { formatKm } from "@/lib/stats-format";
 import {
   buildStorySlides,
   slideImageUrls,
@@ -317,20 +321,20 @@ function SlideView({ slide }: { slide: StorySlide }) {
   // strip, and the trip's own photograph sits a long way behind all of it.
   // Same shape as the year recap's scoreboard, deliberately.
   const stats = slide.stats;
-  const leads: { label: string; value: string }[] = [];
+  const leads: { label: string; value: number; unit?: string }[] = [];
   if (stats.distanceKm !== null) {
-    leads.push({ label: "Travelled", value: formatKm(stats.distanceKm) });
+    leads.push({ label: "Travelled", value: stats.distanceKm, unit: "km" });
   }
-  if (stats.days) leads.push({ label: "Days", value: String(stats.days) });
+  if (stats.days) leads.push({ label: "Days", value: stats.days });
   if (leads.length < 2 && stats.countries > 0) {
     leads.push({
       label: stats.countries === 1 ? "Country" : "Countries",
-      value: String(stats.countries),
+      value: stats.countries,
     });
   }
   const led = new Set(leads.map((lead) => lead.label));
 
-  const rest: { label: string; value: string }[] = [];
+  const rest: ScoreTile[] = [];
   const supporting = (label: string, value: string) => {
     if (!led.has(label)) rest.push({ label, value });
   };
@@ -378,9 +382,11 @@ function SlideView({ slide }: { slide: StorySlide }) {
           >
             {leads.map((lead) => (
               <div key={lead.label}>
-                <p className="text-4xl font-semibold leading-none tabular-nums tracking-tight text-white sm:text-6xl">
-                  {lead.value}
-                </p>
+                <ScoreValue
+                  value={lead.value}
+                  unit={lead.unit}
+                  className="text-4xl font-semibold leading-none tracking-tight text-white sm:text-6xl"
+                />
                 <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-white/45">
                   {lead.label}
                 </p>
@@ -389,20 +395,7 @@ function SlideView({ slide }: { slide: StorySlide }) {
           </div>
         ) : null}
 
-        {rest.length > 0 ? (
-          <dl className="mt-8 grid w-full max-w-lg grid-cols-3 gap-y-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] px-2 py-4 sm:grid-cols-4">
-            {rest.map((tile) => (
-              <div key={tile.label} className="px-2">
-                <dd className="text-lg font-medium tabular-nums text-white/90">
-                  {tile.value}
-                </dd>
-                <dt className="mt-0.5 text-[10px] uppercase tracking-wide text-white/40">
-                  {tile.label}
-                </dt>
-              </div>
-            ))}
-          </dl>
-        ) : null}
+        <ScoreStrip tiles={rest} className="mt-8 max-w-lg" />
 
         {stats.best ? (
           <div className="mt-8 max-w-md">

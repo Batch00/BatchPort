@@ -241,9 +241,14 @@ export function heroPhoto<T extends CuratedPhoto>(photos: T[]): T | null {
 //   3. No day takes more than SLIDE_PHOTO_CAP, because that is all one slide
 //      draws. Picks past the last seat simply stay in the gallery.
 //
-// A day with no pick is not empty: it falls back to its own photos, then to the
-// stop cover, exactly as it did before any of this existed. Curation governs
-// the lead and the composition, never exclusivity.
+// WHAT A DAY THEN SHOWS
+//
+// The seats a day is dealt are the photographs it shows, not the front of a
+// longer queue. Electing three photographs of a day and getting them plus the
+// next three the camera took is a lead, not a choice, and the count is the
+// whole of what was asked for. A day with NO pick is untouched: it falls back
+// to its own photos, then to the stop cover, exactly as it did before any of
+// this existed, which is what keeps an uncurated stop unchanged.
 
 /** The least a caller has to know about a photo to place it. */
 export interface DistributablePhoto {
@@ -283,9 +288,9 @@ export function distributeStopPhotos(
   }
 
   // Pass one: anchor every pick that belongs to a day of its own. A pick whose
-  // own day is already full is deliberately NOT dealt elsewhere: it stays an
-  // ordinary photo of the day it was taken on, because printing it under
-  // another day's date to fill a seat is the untruth this whole rule avoids.
+  // own day is already full is deliberately NOT dealt elsewhere, because
+  // printing it under another day's date to fill a seat is the untruth this
+  // whole rule avoids; it stays in the gallery like any pick past the cap.
   const free: DistributablePhoto[] = [];
   for (const photo of curated) {
     const date = distributionDay(photo.dateTaken);
