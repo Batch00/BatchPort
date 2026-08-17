@@ -12,77 +12,17 @@ import {
   trackedWidth,
   wrapText,
 } from "@/lib/poster/canvas";
+import {
+  MIN_PLACE_FACTOR,
+  PLACE_SEPARATOR,
+  layoutPlaceLines,
+} from "@/lib/place-lines";
 
-/** The separator between places, and between highlights. Wide spaces rather
- * than a comma: at card sizes a comma disappears. */
-export const PLACE_SEPARATOR = "  ·  ";
-
-/**
- * Greedy wrap that breaks between places and never inside one, and reports
- * failure instead of ellipsizing.
- *
- * Wrapping on spaces would be wrong here: "United States" and "New Zealand"
- * are single items, and a line ending in "New" with "Zealand" below it is a
- * different kind of broken from the truncation this replaced.
- */
-function greedyPlaceLines(
-  context: CanvasRenderingContext2D,
-  places: string[],
-  limit: number,
-): string[] | null {
-  const lines: string[] = [];
-  let line = "";
-  for (const place of places) {
-    // A single place wider than the limit: no wrapping saves this.
-    if (context.measureText(place).width > limit) return null;
-    const candidate = line ? `${line}${PLACE_SEPARATOR}${place}` : place;
-    if (context.measureText(candidate).width <= limit) {
-      line = candidate;
-      continue;
-    }
-    lines.push(line);
-    line = place;
-  }
-  if (line) lines.push(line);
-  return lines.length > 0 ? lines : null;
-}
-
-/**
- * Wrap into balanced lines rather than greedy ones.
- *
- * Greedy filling packs line one to the edge and leaves whatever is left over
- * below it, which is how seven countries ended up as six and then "Spain"
- * alone. Squeezing the allowed width down until the line count is about to
- * rise finds the narrowest width that still fits in the same number of lines,
- * and that is exactly the balanced split: bisection over the width rather than
- * any special case for two lines versus three.
- */
-function balancedPlaceLines(
-  context: CanvasRenderingContext2D,
-  places: string[],
-  maxWidth: number,
-  maxLines: number,
-): string[] | null {
-  const fitted = greedyPlaceLines(context, places, maxWidth);
-  if (!fitted || fitted.length > maxLines) return null;
-  if (fitted.length === 1) return fitted;
-
-  let tooNarrow = 0;
-  let wide = maxWidth;
-  for (let i = 0; i < 22; i += 1) {
-    const mid = (tooNarrow + wide) / 2;
-    const attempt = greedyPlaceLines(context, places, mid);
-    if (attempt && attempt.length <= fitted.length) wide = mid;
-    else tooNarrow = mid;
-  }
-  return greedyPlaceLines(context, places, wide) ?? fitted;
-}
-
-// Shrink further before accepting a wrap, but not without limit: past about
-// three quarters the line stops being readable and two balanced lines at a
-// legible size are the better trade.
-const ONE_LINE_STEPS = [1, 0.94, 0.88, 0.82, 0.76];
-const WRAPPED_STEPS = [1, 0.94, 0.88, 0.82, 0.76, 0.7];
+// The separator and the wrapping rule itself now live in lib/place-lines.ts,
+// because the full-screen surfaces print the same list and had their own
+// truncating version of it. Re-exported so the canvas callers keep importing
+// it from where they always have.
+export { PLACE_SEPARATOR };
 
 /**
  * Fit the places line. Every size is tried on one line before a second line is
@@ -99,16 +39,19 @@ export function layoutPlaces(
   baseSize: number,
   stack: string,
 ): { size: number; lines: string[] } {
-  for (const maxLines of [1, 2, 3]) {
-    const steps = maxLines === 1 ? ONE_LINE_STEPS : WRAPPED_STEPS;
-    for (const factor of steps) {
-      const size = baseSize * factor;
-      setFont(context, 500, size, stack);
-      const lines = balancedPlaceLines(context, places, maxWidth, maxLines);
-      if (lines) return { size, lines };
-    }
+  const measure = (text: string, size: number): number => {
+    setFont(context, 500, size, stack);
+    return context.measureText(text).width;
+  };
+  const fitted = layoutPlaceLines(measure, places, maxWidth, baseSize);
+  if (fitted) {
+    setFont(context, 500, fitted.size, stack);
+    return {
+      size: fitted.size,
+      lines: fitted.lines.map((line) => line.join(PLACE_SEPARATOR)),
+    };
   }
-  const size = baseSize * 0.7;
+  const size = baseSize * MIN_PLACE_FACTOR;
   setFont(context, 500, size, stack);
   return {
     size,

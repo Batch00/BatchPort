@@ -34,16 +34,19 @@ import {
 import { SLOT_CAPACITY } from "@/lib/curation";
 import {
   buildCurationSlots,
-  describeStopSelection,
   hasCurationSlots,
-  suggestStopCount,
+  planStopSelection,
+  summarizeStopSelection,
   type HeroSlot,
   type HighlightsSlot,
   type SlotExperience,
   type SlotPhoto,
+  type StopDayOutcome,
+  type StopDaySlot,
   type StopPhotoSlot,
 } from "@/lib/curation-slots";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
+import { journalDayLabel } from "@/lib/journal";
 import type { StoryTrip } from "@/lib/story";
 import { cn } from "@/lib/utils";
 
@@ -84,6 +87,17 @@ const PANEL_SECTION = "rounded-xl border border-white/10 bg-white/[0.02]";
 /** Candidate thumbnails revealed per page. Four rows on a phone, four on a
  * desktop grid of six. */
 const PAGE_SIZE = 24;
+/**
+ * The same, per DAY group in a stop's picker.
+ *
+ * A stop's candidates are grouped by the day they were taken, so its open
+ * section now mounts one grid per day rather than one grid. Two rows of four
+ * keeps the total in the same place a single page used to be: five days at
+ * eight is forty tiles, against the twenty-four one flat page showed, and the
+ * point of the grouping is that a traveller picks one from each day rather
+ * than scrolling one long gallery.
+ */
+const DAY_PAGE_SIZE = 8;
 /** Past this many candidates a section is long enough to open collapsed. */
 const LONG_SECTION = 12;
 
@@ -220,14 +234,16 @@ function CandidateGrid({
   labelOf,
   onPick,
   disabled,
+  pageSize = PAGE_SIZE,
 }: {
   photos: SlotPhoto[];
   positionOf: (photo: SlotPhoto) => number | null;
   labelOf: (photo: SlotPhoto, chosen: boolean) => string;
   onPick: (photo: SlotPhoto) => void;
   disabled?: boolean;
+  pageSize?: number;
 }) {
-  const [shown, setShown] = useState(PAGE_SIZE);
+  const [shown, setShown] = useState(pageSize);
   const visible = photos.slice(0, shown);
   const remaining = photos.length - visible.length;
   return (
@@ -251,11 +267,11 @@ function CandidateGrid({
         <button
           type="button"
           onClick={() =>
-            setShown((current) => Math.min(photos.length, current + PAGE_SIZE))
+            setShown((current) => Math.min(photos.length, current + pageSize))
           }
           className="mt-2.5 w-full rounded-lg border border-white/10 py-2 text-xs text-foreground/60 transition-colors hover:bg-white/[0.04] hover:text-foreground"
         >
-          Show {Math.min(PAGE_SIZE, remaining)} more ({remaining} left)
+          Show {Math.min(pageSize, remaining)} more ({remaining} left)
         </button>
       ) : null}
     </>
@@ -467,6 +483,89 @@ function PhotoTile({
   );
 }
 
+// --- What a day will show ---------------------------------------------------
+
+/**
+ * One day's outcome, stated on the day's own heading.
+ *
+ * This is the copy that replaced a paragraph about the distribution rule. A
+ * chip over the photographs it is about needs no parsing: the traveller reads
+ * "Shows your 2" against a day they picked from and "Shows its own 6" against
+ * one they did not, and the rule is then obvious rather than explained.
+ */
+function OutcomeChip({ outcome }: { outcome: StopDayOutcome }) {
+  const chosen = outcome.kind === "picks";
+  const text =
+    outcome.kind === "picks"
+      ? `Shows your ${outcome.count}`
+      : outcome.kind === "own"
+        ? `Shows its own ${outcome.count}`
+        : "Shows the stop cover";
+  return (
+    <span
+      className={cn(
+        "shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-[0.68rem] font-medium",
+        chosen ? "bg-brand/15 text-brand" : "bg-white/[0.05] text-foreground/45",
+      )}
+    >
+      {text}
+    </span>
+  );
+}
+
+/** One day of a stop: its heading, what it will show, and the photographs
+ * taken on it. A day nobody photographed still gets a heading, because seeing
+ * that it will fall back is the point of the grouping. */
+function DayGroup({
+  title,
+  subtitle,
+  outcome,
+  photos,
+  emptyNote,
+  positionOf,
+  labelOf,
+  onPick,
+  disabled,
+}: {
+  title: string;
+  subtitle: string | null;
+  outcome: StopDayOutcome | null;
+  photos: SlotPhoto[];
+  emptyNote: string;
+  positionOf: (photo: SlotPhoto) => number | null;
+  labelOf: (photo: SlotPhoto, chosen: boolean) => string;
+  onPick: (photo: SlotPhoto) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="border-t border-white/[0.06] pt-3 first:border-0 first:pt-0">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <p className="min-w-0 text-xs font-medium text-foreground/75">
+          {title}
+          {subtitle ? (
+            <span className="ml-1.5 font-normal text-foreground/40">
+              {subtitle}
+            </span>
+          ) : null}
+        </p>
+        {outcome ? <OutcomeChip outcome={outcome} /> : null}
+      </div>
+      {photos.length > 0 ? (
+        <CandidateGrid
+          photos={photos}
+          positionOf={positionOf}
+          labelOf={labelOf}
+          onPick={onPick}
+          disabled={disabled}
+          pageSize={DAY_PAGE_SIZE}
+        />
+      ) : (
+        <p className="text-xs text-foreground/35">{emptyNote}</p>
+      )}
+    </div>
+  );
+}
+
 // --- Hero slot --------------------------------------------------------------
 
 function HeroSlotSection({
@@ -671,8 +770,17 @@ function StopSlotSection({
   }
 
   const isAutomatic = ids.length === 0;
-  const dayCount = slot.dayDates.length;
-  const suggestion = suggestStopCount(slot, chosen);
+  const dayCount = slot.days.length;
+  const plan = planStopSelection(slot, chosen);
+  const note = summarizeStopSelection(slot, chosen);
+  const positionOf = (photo: SlotPhoto) => {
+    const position = ids.indexOf(photo.id);
+    return position === -1 ? null : position + 1;
+  };
+  const labelOf = (_photo: SlotPhoto, chosenHere: boolean) =>
+    chosenHere
+      ? `Remove from ${slot.destinationName}`
+      : `Add to ${slot.destinationName}`;
 
   return (
     <div className="rounded-lg border border-white/[0.07] bg-white/[0.02]">
@@ -729,22 +837,19 @@ function StopSlotSection({
 
       {open ? (
         <div className="border-t border-white/[0.07] p-3">
-          {isAutomatic ? (
-            <p className="mb-3 text-xs text-foreground/45">
-              {dayCount > 0
-                ? `Automatic: ${dayCount === 1 ? "this stop's one day slide leads" : `these ${dayCount} day slides lead`} with the earliest photos of each. Pick up to ${SLOT_CAPACITY.stopPhotos} and they are spread across the same days instead.`
-                : `Automatic: the first photos of this stop, in the order they were taken. Pick up to ${SLOT_CAPACITY.stopPhotos} to lead its slides instead.`}
-            </p>
-          ) : (
+          {/* The whole rule, in one line, above the days it applies to. It used
+              to be a paragraph generated per selection, which described the
+              algorithm rather than the result; each day states its own outcome
+              now, so this only has to say what the two outcomes mean. */}
+          <p className="mb-3 text-xs text-foreground/45">
+            {dayCount > 0
+              ? "A day with picks shows only those. A day without keeps its own photos."
+              : `This stop has one slide. Pick up to ${SLOT_CAPACITY.stopPhotos} to lead it.`}
+          </p>
+          {isAutomatic ? null : (
             <>
-              {/* What this selection will actually produce, from the same
-                  function the story places the photographs with. A rule the
-                  traveller has to infer is a rule nobody follows. */}
-              <p className="mb-1 text-xs text-foreground/70">
-                {describeStopSelection(slot, chosen)}
-              </p>
-              {suggestion ? (
-                <p className="mb-2 text-xs text-foreground/40">{suggestion}</p>
+              {note ? (
+                <p className="mb-2 text-xs text-foreground/70">{note}</p>
               ) : null}
               <p className="mb-2 text-xs text-foreground/45">
                 Drag to reorder, or use the arrows.
@@ -811,19 +916,49 @@ function StopSlotSection({
             </>
           )}
 
-          <CandidateGrid
-            photos={slot.candidates}
-            positionOf={(photo) => {
-              const position = ids.indexOf(photo.id);
-              return position === -1 ? null : position + 1;
-            }}
-            labelOf={(_photo, chosenHere) =>
-              chosenHere
-                ? `Remove from ${slot.destinationName}`
-                : `Add to ${slot.destinationName}`
-            }
-            onPick={(photo) => toggle(photo.id)}
-          />
+          {/* GROUPED BY THE DAY THE PHOTOGRAPH WAS TAKEN.
+              A flat grid was the picker's real problem: the picks are spread
+              across the stop's DAY slides, and nothing on screen said so, so
+              choosing four photographs of one afternoon looked identical to
+              choosing one from each of four days. Grouped, the model needs no
+              explaining, and the chip on each heading says what that day will
+              show before anything is saved. */}
+          {dayCount > 0 ? (
+            <div className="flex flex-col gap-3">
+              {slot.days.map((day: StopDaySlot, index) => (
+                <DayGroup
+                  key={day.date}
+                  title={day.dayNumber !== null ? `Day ${day.dayNumber}` : "Day"}
+                  subtitle={journalDayLabel(day.date)}
+                  outcome={plan.days[index] ?? null}
+                  photos={day.candidates}
+                  emptyNote="Nothing photographed on this day."
+                  positionOf={positionOf}
+                  labelOf={labelOf}
+                  onPick={(photo) => toggle(photo.id)}
+                />
+              ))}
+              {slot.spare.length > 0 ? (
+                <DayGroup
+                  title="No day of their own"
+                  subtitle="undated, so spread across the days above"
+                  outcome={null}
+                  photos={slot.spare}
+                  emptyNote=""
+                  positionOf={positionOf}
+                  labelOf={labelOf}
+                  onPick={(photo) => toggle(photo.id)}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <CandidateGrid
+              photos={slot.candidates}
+              positionOf={positionOf}
+              labelOf={labelOf}
+              onPick={(photo) => toggle(photo.id)}
+            />
+          )}
         </div>
       ) : null}
     </div>

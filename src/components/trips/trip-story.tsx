@@ -11,6 +11,8 @@ import {
 
 import { CategoryIcon } from "@/components/category-icon";
 import { CountryFlag } from "@/components/country-flag";
+import { FitLine } from "@/components/fit-line";
+import { PlacesLine } from "@/components/places-line";
 import { SlideImage } from "@/components/photos/slide-image";
 import { RatingDisplay } from "@/components/rating-display";
 import { TripShareCardButton } from "@/components/share/trip-share-card";
@@ -53,6 +55,20 @@ const RENDER_WINDOW = 1;
 /** Swipe distance, in px, that counts as a deliberate flick rather than a
  * wobble while tapping. Matches the lightbox. */
 const SWIPE_THRESHOLD = 50;
+
+/**
+ * The padding every slide's content column keeps, so nothing lands under the
+ * story's own chrome.
+ *
+ * The chrome grows with the notch (the progress bar, then the close button one
+ * safe-area inset below it; the arrows and counter at the bottom likewise), and
+ * a flat `p-6` did not. On a phone with an inset that put the opener's title
+ * under the close button and the last line of a long journal entry under the
+ * pager. The insets are added here rather than at each call site so the two
+ * cannot drift apart.
+ */
+const SLIDE_PAD =
+  "px-6 pt-[calc(3.75rem+env(safe-area-inset-top))] pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:px-10 sm:pb-[calc(5rem+env(safe-area-inset-bottom))]";
 
 function PhotoFrame({
   photo,
@@ -166,7 +182,12 @@ function SlideBody({
           dense && "from-black/95 via-black/80 to-black/50",
         )}
       />
-      <div className="relative flex size-full items-end justify-center overflow-y-auto p-6 pb-16 sm:p-10 sm:pb-20">
+      <div
+        className={cn(
+          SLIDE_PAD,
+          "relative flex size-full items-end justify-center overflow-y-auto",
+        )}
+      >
         <div className="w-full max-w-2xl">{children}</div>
       </div>
     </>
@@ -199,10 +220,10 @@ function DaySlideView({ slide }: { slide: StoryDaySlide }) {
       ) : null}
 
       <SlideBody dense={!hasPhotos}>
-        <p className="text-xs uppercase tracking-[0.18em] text-white/50">
+        <FitLine className="text-xs uppercase tracking-[0.18em] text-white/50">
           {slide.dayNumber !== null ? `Day ${slide.dayNumber} · ` : ""}
           {journalDayLabel(slide.date)}
-        </p>
+        </FitLine>
         {destination ? (
           <h2 className="mt-1 flex flex-wrap items-center gap-x-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
             <span className="min-w-0 break-words">{destination.name}</span>
@@ -252,8 +273,10 @@ function StopSlideView({ slide }: { slide: StoryStopSlide }) {
       ) : null}
       <SlideBody dense={!hasPhotos && !destination.coverUrl}>
         <p className="flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-white/50">
-          <MapPinIcon className="size-3.5" />
-          {formatDateRange(destination.arrivalDate, destination.departureDate)}
+          <MapPinIcon className="size-3.5 shrink-0" />
+          <FitLine className="min-w-0 flex-1">
+            {formatDateRange(destination.arrivalDate, destination.departureDate)}
+          </FitLine>
         </p>
         <h2 className="mt-1 flex flex-wrap items-center gap-x-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
           <span className="min-w-0 break-words">{destination.name}</span>
@@ -292,17 +315,19 @@ function SlideView({ slide }: { slide: StorySlide }) {
             grounded. Either one alone left the title fighting the image. */}
         <div className="absolute inset-0 bg-black/45" />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-black/20" />
-        <div className="relative flex size-full flex-col items-center justify-center overflow-y-auto p-6 text-center sm:p-10">
-          <p className="text-xs uppercase tracking-[0.22em] text-white/70">
+        <div className={cn(SLIDE_PAD, "relative flex size-full flex-col items-center justify-center overflow-y-auto text-center")}>
+          <FitLine className="w-full max-w-xl text-xs uppercase tracking-[0.22em] text-white/70">
             {formatDateRange(trip.startDate, trip.endDate)}
             {days ? ` · ${formatDuration(days)}` : ""}
-          </p>
+          </FitLine>
           <h1 className="mt-3 max-w-3xl break-words text-4xl font-semibold tracking-tight text-white sm:text-6xl">
             {trip.name}
           </h1>
-          {slide.route ? (
-            <p className="mt-3 max-w-xl text-sm text-white/70">{slide.route}</p>
-          ) : null}
+          <PlacesLine
+            places={slide.places}
+            align="center"
+            className="mt-3 w-full max-w-xl text-sm leading-relaxed text-white/70"
+          />
           {slide.countryCodes.length > 0 ? (
             <div className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
               {slide.countryCodes.map((code) => (
@@ -365,7 +390,12 @@ function SlideView({ slide }: { slide: StorySlide }) {
       <div className="absolute inset-0 bg-black/75" />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/75 to-black/50" />
 
-      <div className="relative flex size-full flex-col items-center justify-center overflow-y-auto p-6 text-center sm:p-10">
+      <div
+        className={cn(
+          SLIDE_PAD,
+          "relative flex size-full flex-col items-center justify-center overflow-y-auto text-center",
+        )}
+      >
         <p className="text-xs uppercase tracking-[0.22em] text-white/45">
           That was
         </p>

@@ -68,6 +68,29 @@ export interface HeroSlot {
   candidates: SlotPhoto[];
 }
 
+/**
+ * One day slide of a stop, and the photographs that belong to it.
+ *
+ * The picker is built out of these rather than out of one flat grid, because
+ * the picks are spread across the DAYS (see distributeStopPhotos) and a flat
+ * grid said nothing about that. Grouped, the model is visible: the traveller
+ * can take one from each day, or several from one, and read what each day will
+ * then show straight off its own heading.
+ *
+ * The days are read off the real story slides rather than recomputed from the
+ * stay, because a day nobody photographed or wrote about is not a slide and
+ * would make every count in the panel one too many.
+ */
+export interface StopDaySlot {
+  /** YYYY-MM-DD. */
+  date: string;
+  /** Its number within the trip, or null for a day before the trip's anchor. */
+  dayNumber: number | null;
+  /** The photos taken on this day at this stop: what the picker offers under
+   * this heading, and what the slide falls back to when nothing is picked. */
+  candidates: SlotPhoto[];
+}
+
 export interface StopPhotoSlot {
   destinationId: string;
   destinationName: string;
@@ -80,18 +103,18 @@ export interface StopPhotoSlot {
   chosen: SlotPhoto[];
   /** The photos the story would lead with anyway. */
   automatic: SlotPhoto[];
+  /** Every photo of this stop. The write action needs the whole set to clear
+   * the ranks it is replacing, so it stays alongside the grouping. */
   candidates: SlotPhoto[];
+  /** This stop's day slides, chronological. */
+  days: StopDaySlot[];
   /**
-   * The dates of this stop's day slides, chronological, exactly as
-   * buildStorySlides produced them.
-   *
-   * This is what the picks are spread across, so the panel needs it to say
-   * what a selection will actually produce rather than leaving the traveller
-   * to guess. Read off the real slides rather than recomputed from the stay,
-   * because a day nobody photographed or wrote about is not a slide and would
-   * make every count in the panel one too many.
+   * Photos of this stop with no day slide of their own: undated ones, and ones
+   * dated outside the days this stay owns. The story lets them ride the stop's
+   * first slide; picked here, they are dealt across the days like any other
+   * undated pick, which is why the picker names them rather than hiding them.
    */
-  dayDates: string[];
+  spare: SlotPhoto[];
 }
 
 export interface HighlightsSlot {
@@ -166,12 +189,12 @@ function stopSlots(trip: StoryTrip): StopPhotoSlot[] {
   // The day slides themselves, which is the only honest source for "how many
   // days does this stop have". Building them costs one pass over rows already
   // in hand, and it is the same call the story makes.
-  const dayDates = new Map<string, string[]>();
+  const dayList = new Map<string, { date: string; dayNumber: number | null }[]>();
   for (const slide of buildStorySlides(trip)) {
     if (slide.kind !== "day" || !slide.destination) continue;
-    const list = dayDates.get(slide.destination.id) ?? [];
-    list.push(slide.date);
-    dayDates.set(slide.destination.id, list);
+    const list = dayList.get(slide.destination.id) ?? [];
+    list.push({ date: slide.date, dayNumber: slide.dayNumber });
+    dayList.set(slide.destination.id, list);
   }
 
   const slots: StopPhotoSlot[] = [];
@@ -182,12 +205,29 @@ function stopSlots(trip: StoryTrip): StopPhotoSlot[] {
       .filter((photo) => stopPhotoRank(photo) !== null)
       .slice(0, SLOT_CAPACITY.stopPhotos);
     const ordered = storyOrder(photos);
-    const days = dayDates.get(destination.id) ?? [];
+    const dates = dayList.get(destination.id) ?? [];
+    const dayIndex = new Set(dates.map((day) => day.date));
+
+    // Group the candidates the way the slides do: a photo dated to one of this
+    // stop's own day slides belongs to that day, and everything else is spare.
+    const byDay = new Map<string, SlotPhoto[]>();
+    const spare: SlotPhoto[] = [];
+    for (const photo of ordered) {
+      const date = dayOf(photo.dateTaken);
+      if (date !== null && dayIndex.has(date)) {
+        const list = byDay.get(date) ?? [];
+        list.push(toSlotPhoto(photo, null));
+        byDay.set(date, list);
+        continue;
+      }
+      spare.push(toSlotPhoto(photo, null));
+    }
+
     // The automatic answer is what the story leads with when nothing is
     // elected: the first photos in date order, one slide's worth per day.
     const automaticCap = Math.max(
       SLIDE_PHOTO_CAP,
-      Math.min(SLOT_CAPACITY.stopPhotos, days.length),
+      Math.min(SLOT_CAPACITY.stopPhotos, dates.length),
     );
     slots.push({
       destinationId: destination.id,
@@ -201,64 +241,105 @@ function stopSlots(trip: StoryTrip): StopPhotoSlot[] {
         .slice(0, automaticCap)
         .map((photo) => toSlotPhoto(photo, null)),
       candidates: ordered.map((photo) => toSlotPhoto(photo, null)),
-      dayDates: days,
+      days: dates.map((day) => ({
+        date: day.date,
+        dayNumber: day.dayNumber,
+        candidates: byDay.get(day.date) ?? [],
+      })),
+      spare,
     });
   }
   return slots;
 }
 
 /**
- * What a stop's current selection will produce, as one sentence.
+ * What ONE day slide will show, given the current selection.
  *
- * The panel renders this instead of a rule the traveller has to infer. It is
- * the SAME function the story places photographs with (distributeStopPhotos),
- * so the sentence cannot describe a spread the slides do not make.
+ * This replaced a paragraph. The panel used to carry a sentence describing the
+ * distribution ("3 across 3 days: 2 days show your picks and nothing else, the
+ * other 1 fall back to their own photos, then the stop cover"), which is the
+ * algorithm rather than the result, and nobody should have to parse a sentence
+ * to learn what their picks did. The picker groups its candidates by day now,
+ * so each day can simply state its own outcome above its own photographs.
+ *
+ * Still generated by the SAME function the story places photographs with
+ * (distributeStopPhotos), so the panel cannot promise a spread the slides do
+ * not make.
  */
-export function describeStopSelection(
+export type StopDayOutcome =
+  /** The day leads with the traveller's picks, and shows nothing else. */
+  | { kind: "picks"; count: number }
+  /** Untouched: the day falls back to its own photographs. */
+  | { kind: "own"; count: number }
+  /** Nothing left to show, so the slide carries the stop's cover. */
+  | { kind: "cover" };
+
+export interface StopSelectionPlan {
+  /** One outcome per entry in `slot.days`, in the same order. */
+  days: StopDayOutcome[];
+  /** Picks that found a seat. */
+  placed: number;
+  /** Picks that did not, because their own day was already full. They stay in
+   * the gallery, exactly like a pick past the cap. */
+  unplaced: number;
+}
+
+export function planStopSelection(
+  slot: StopPhotoSlot,
+  chosen: SlotPhoto[],
+): StopSelectionPlan {
+  const dates = slot.days.map((day) => day.date);
+  const plan = distributeStopPhotos(dates, chosen, SLIDE_PHOTO_CAP);
+  const placedIds = new Set<string>();
+  for (const ids of plan.values()) {
+    for (const id of ids) placedIds.add(id);
+  }
+  // Undated leftovers ride the stop's FIRST slide, unless that slide is one the
+  // traveller curated (adding to it would put back the fillers the pick just
+  // removed). The panel counts them exactly as buildStorySlides does.
+  const spareLeft = slot.spare.filter(
+    (photo) => !placedIds.has(photo.id),
+  ).length;
+
+  const days = slot.days.map((day, index) => {
+    const lead = plan.get(day.date)?.length ?? 0;
+    if (lead > 0) return { kind: "picks", count: lead } as StopDayOutcome;
+    const own =
+      day.candidates.filter((photo) => !placedIds.has(photo.id)).length +
+      (index === 0 ? spareLeft : 0);
+    return (
+      own > 0 ? { kind: "own", count: own } : { kind: "cover" }
+    ) as StopDayOutcome;
+  });
+
+  return {
+    days,
+    placed: placedIds.size,
+    unplaced: chosen.length - placedIds.size,
+  };
+}
+
+/**
+ * The one line left over once every day states its own outcome: what happened
+ * to a pick that could not be placed. Empty the rest of the time, because the
+ * day headings have already said everything else.
+ */
+export function summarizeStopSelection(
   slot: StopPhotoSlot,
   chosen: SlotPhoto[],
 ): string {
   if (chosen.length === 0) return "";
-  if (slot.dayDates.length === 0) {
+  if (slot.days.length === 0) {
     const shown = Math.min(chosen.length, SLIDE_PHOTO_CAP);
     return shown === chosen.length
-      ? `This stop has one slide, so all ${chosen.length} show on it together.`
-      : `This stop has one slide, so the first ${shown} of your ${chosen.length} show on it together.`;
+      ? "This stop has one slide, so your picks show on it together."
+      : `This stop has one slide, so it shows the first ${shown}.`;
   }
-  const plan = distributeStopPhotos(slot.dayDates, chosen, SLIDE_PHOTO_CAP);
-  const counts = slot.dayDates.map((date) => plan.get(date)?.length ?? 0);
-  const placed = counts.reduce((total, count) => total + count, 0);
-  const days = slot.dayDates.length;
-  const dayWord = days === 1 ? "day" : "days";
-  const head =
-    placed === chosen.length
-      ? `${chosen.length} across ${days} ${dayWord}`
-      : `${placed} of ${chosen.length} across ${days} ${dayWord}`;
-  const empty = counts.filter((count) => count === 0).length;
-  if (empty > 0) {
-    const led = days - empty;
-    return `${head}: ${led} ${led === 1 ? "day shows" : "days show"} your picks and nothing else, the other ${empty} fall back to their own photos, then the stop cover.`;
-  }
-  const spread = counts.every((count) => count === counts[0])
-    ? counts[0] === 1
-      ? "one each"
-      : `${counts[0]} each`
-    : counts.join(", ");
-  return `${head}: ${spread}.`;
-}
-
-/** The nudge under the sentence: how many picks would give this stop one
- * photograph a day. Empty when the selection already covers it, because a
- * traveller who has chosen enough does not need advice. */
-export function suggestStopCount(
-  slot: StopPhotoSlot,
-  chosen: SlotPhoto[],
-): string {
-  const days = slot.dayDates.length;
-  if (days <= 1 || chosen.length >= days) return "";
-  const want = Math.min(days, SLOT_CAPACITY.stopPhotos, slot.candidates.length);
-  if (want <= chosen.length) return "";
-  return `${want} would cover every day here. There is no minimum; the rest fall back on their own.`;
+  const { unplaced } = planStopSelection(slot, chosen);
+  if (unplaced === 0) return "";
+  return unplaced === 1
+    ? "One pick has nowhere to go: its own day is full."
+    : `${unplaced} picks have nowhere to go: their own days are full.`;
 }
 
 function toSlotExperience(

@@ -1227,7 +1227,11 @@ export function Globe({
       {photoMode.active ? (
         <div
           className={cn(
-            "pointer-events-none absolute left-4 z-20 flex flex-wrap items-center gap-x-2 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md",
+            // The width is capped against the map rather than left to the
+            // content: on a phone "148 photos on the map" plus "12 without
+            // location" is wider than the card, and with only a left inset the
+            // pill ran off the right edge.
+            "pointer-events-none absolute left-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-x-2 rounded-full border border-white/10 bg-black/60 px-3.5 py-1.5 text-xs font-medium text-foreground/80 shadow-md backdrop-blur-md",
             fullscreen ? "top-[max(1rem,env(safe-area-inset-top))]" : "top-4",
           )}
         >

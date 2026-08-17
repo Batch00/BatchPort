@@ -356,7 +356,7 @@ export function YearMapSlide({
 
       {/* Pace and skip. Both are gone once the year is drawn: there is nothing
           left to hurry, and the row becomes the single replay button. */}
-      <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 p-5 pb-16 sm:pb-20">
+      <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 p-5 pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:pb-[calc(5rem+env(safe-area-inset-bottom))]">
         {ended ? (
           <button
             type="button"

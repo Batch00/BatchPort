@@ -11,6 +11,8 @@ import {
 
 import { CategoryIcon } from "@/components/category-icon";
 import { CountryFlag } from "@/components/country-flag";
+import { FitLine } from "@/components/fit-line";
+import { PlacesLine } from "@/components/places-line";
 import { SlideImage } from "@/components/photos/slide-image";
 import { RatingDisplay } from "@/components/rating-display";
 import { AnimatedNumber, CountUpGroup } from "@/components/stats/count-up";
@@ -62,6 +64,19 @@ import {
 const RENDER_WINDOW = 1;
 const SWIPE_THRESHOLD = 50;
 
+/**
+ * The padding every slide's content column keeps, so nothing lands under the
+ * recap's own chrome.
+ *
+ * The chrome grows with the notch (the progress bar, then the year picker and
+ * the close button one safe-area inset below it), and a flat `py-16` did not,
+ * so on a phone with an inset the top of a slide sat under the year button.
+ * The map slide computes its own header padding for the same reason, and this
+ * is the same number spelled once for everything else.
+ */
+const SLIDE_PAD =
+  "px-6 pt-[calc(3.75rem+env(safe-area-inset-top))] pb-[calc(4.5rem+env(safe-area-inset-bottom))] sm:px-10 sm:pb-[calc(5rem+env(safe-area-inset-bottom))]";
+
 /** One staggered element. Adding the class is what starts the animation, so
  * there is nothing to reset: a slide that is not current simply sits at rest,
  * out of sight behind the current one. */
@@ -94,8 +109,18 @@ function FlagRow({
   className?: string;
 }) {
   if (codes.length === 0) return null;
+  // `shrink-0` with `max-w-full` is the whole of why the flags read as a row.
+  // A flag row is itself a wrapping flex box, so its MIN-content width is one
+  // flag: as an ordinary flex item on a crowded line it was squeezed to that
+  // and stacked its flags vertically in a two-character column, which is what
+  // made the closing slide's upcoming trips look broken on a phone. Refusing to
+  // shrink makes the parent wrap the whole row onto its own line instead, and
+  // the max-width is what lets it wrap INSIDE itself once it is there rather
+  // than running off the edge.
   return (
-    <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+    <div
+      className={cn("flex max-w-full shrink-0 flex-wrap items-center gap-1.5", className)}
+    >
       {codes.map((code) => (
         <CountryFlag key={code} code={code} className="h-4" />
       ))}
@@ -114,7 +139,8 @@ function Panel({
   return (
     <div
       className={cn(
-        "flex size-full flex-col items-center justify-center overflow-y-auto bg-[#0a0a0a] px-6 py-16 text-center sm:px-10 sm:py-20",
+        SLIDE_PAD,
+        "flex size-full flex-col items-center justify-center overflow-y-auto bg-[#0a0a0a] text-center",
         className,
       )}
     >
@@ -146,7 +172,12 @@ function OpenerView({
           left the numeral fighting the image. */}
       <div className="absolute inset-0 bg-black/50" />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-black/25" />
-      <div className="relative flex size-full flex-col items-center justify-center overflow-y-auto p-6 text-center sm:p-10">
+      <div
+        className={cn(
+          SLIDE_PAD,
+          "relative flex size-full flex-col items-center justify-center overflow-y-auto text-center",
+        )}
+      >
         <Rise active={active}>
           <p className="text-xs uppercase tracking-[0.24em] text-white/70">
             {slide.subtitle}
@@ -235,21 +266,32 @@ function TripView({ slide, active }: { slide: YearTripSlide; active: boolean }) 
         </div>
       ) : null}
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30" />
-      <div className="relative flex size-full items-end justify-center overflow-y-auto p-6 pb-20 sm:p-10 sm:pb-24">
+      <div
+        className={cn(
+          SLIDE_PAD,
+          "relative flex size-full items-end justify-center overflow-y-auto",
+        )}
+      >
         <div className="w-full max-w-2xl">
           <Rise active={active}>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/50">
+            {/* One fact, so one line. It used to break after the comma in the
+                end date and leave "2025" alone underneath, which reads as a
+                second fact rather than the tail of this one. */}
+            <FitLine className="text-xs uppercase tracking-[0.2em] text-white/50">
               Trip {slide.position} of {slide.total} · {trip.dateLabel}
-            </p>
+            </FitLine>
           </Rise>
           <Rise active={active} delay={110}>
             <h2 className="mt-2 break-words text-3xl font-semibold tracking-tight text-white sm:text-5xl">
               {trip.name}
             </h2>
           </Rise>
-          {trip.route ? (
+          {trip.places.length > 0 ? (
             <Rise active={active} delay={230}>
-              <p className="mt-2 text-sm text-white/70">{trip.route}</p>
+              <PlacesLine
+                places={trip.places}
+                className="mt-2 text-sm leading-relaxed text-white/70"
+              />
             </Rise>
           ) : null}
           <Rise active={active} delay={330}>
@@ -327,7 +369,9 @@ function TripsView({ slide, active }: { slide: YearTripsSlide; active: boolean }
               ) : null}
             </div>
             <div className="p-2.5 text-left">
-              <p className="truncate text-sm font-medium text-white">
+              {/* Two lines rather than an ellipsis: a tile is half a phone
+                  wide, and "Iceland ring road in..." names nothing. */}
+              <p className="line-clamp-2 break-words text-sm font-medium leading-snug text-white">
                 {trip.name}
               </p>
               <p className="mt-0.5 truncate text-[11px] text-white/45">
@@ -404,7 +448,10 @@ function MomentsView({
               <p className="break-words text-base font-medium text-white">
                 {moment.name}
               </p>
-              <p className="mt-0.5 truncate text-xs text-white/45">
+              {/* The place and the trip are the whole context for the name
+                  above them, so they wrap rather than ellipsize: at 380px the
+                  row has about 230px and one long city name ate all of it. */}
+              <p className="mt-0.5 text-xs leading-snug text-white/45">
                 {moment.destinationName} · {moment.tripName}
               </p>
               <RatingDisplay
@@ -483,7 +530,12 @@ function ScoreboardView({
       <div className="absolute inset-0 bg-black/72" />
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/45" />
 
-      <div className="relative flex size-full flex-col items-center justify-center overflow-y-auto px-6 py-16 text-center sm:px-10 sm:py-20">
+      <div
+        className={cn(
+          SLIDE_PAD,
+          "relative flex size-full flex-col items-center justify-center overflow-y-auto text-center",
+        )}
+      >
         <div className="w-full max-w-2xl">
           <CountUpGroup active={active}>
             <Rise active={active}>
@@ -621,11 +673,20 @@ function BucketTile({
         </span>
       ) : null}
       <div className="absolute inset-x-0 bottom-0 p-2 text-left">
-        <p className="flex items-center gap-1.5 text-xs font-medium text-white">
+        {/* A place name is the whole point of a bucket tile, so it gets two
+            lines rather than an ellipsis: three tiles across a 380px phone
+            leave about 85px, and "Machu Picchu" did not fit on one.
+            The flag is INLINE rather than a flex item, so only the first line
+            pays for it and the second gets the tile's full width; as a flex
+            item it narrowed both lines and split "Cappadocia" mid-word. */}
+        <p className="line-clamp-2 text-xs font-medium leading-snug text-white">
           {item.countryCode ? (
-            <CountryFlag code={item.countryCode} className="h-3 shrink-0" />
+            <CountryFlag
+              code={item.countryCode}
+              className="mr-1 inline-block h-3 align-[-1px]"
+            />
           ) : null}
-          <span className="truncate">{item.name}</span>
+          {item.name}
         </p>
         {done && item.fulfilledTripName ? (
           <p className="mt-0.5 truncate text-[10px] text-white/55">
@@ -760,22 +821,31 @@ function ClosingView({
               key={trip.id}
               active={active}
               delay={220 + index * 110}
-              className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left"
+              className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left"
             >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-white">
+              {/* Two rows, not three columns.
+                  The flags used to sit in the middle of a single row, between
+                  the dates and the countdown, inside their own flex container:
+                  that container's min-content width is one flag, so a narrow
+                  row squeezed it to two characters and stacked the flags
+                  VERTICALLY, which reads as broken layout. The name and the
+                  countdown are the row now, and the dates and the flags are one
+                  wrapping line under it, where FlagRow's own shrink-0 keeps
+                  them horizontal (see FlagRow). */}
+              <div className="flex items-start justify-between gap-3">
+                <p className="min-w-0 flex-1 break-words text-sm font-medium text-white">
                   {trip.name}
                 </p>
-                <p className="mt-0.5 flex items-center gap-2 truncate text-xs text-white/45">
-                  {trip.dateLabel}
-                  <FlagRow codes={trip.countryCodes} />
-                </p>
+                {trip.daysAway !== null ? (
+                  <span className="shrink-0 whitespace-nowrap rounded-full bg-brand/15 px-2.5 py-1 text-xs tabular-nums text-brand">
+                    in {trip.daysAway} {trip.daysAway === 1 ? "day" : "days"}
+                  </span>
+                ) : null}
               </div>
-              {trip.daysAway !== null ? (
-                <span className="shrink-0 rounded-full bg-brand/15 px-2.5 py-1 text-xs tabular-nums text-brand">
-                  in {trip.daysAway} {trip.daysAway === 1 ? "day" : "days"}
-                </span>
-              ) : null}
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-white/45">
+                <span>{trip.dateLabel}</span>
+                <FlagRow codes={trip.countryCodes} />
+              </div>
             </Rise>
           ))}
         </div>
@@ -1037,7 +1107,9 @@ export function YearRecapView({
           aria-expanded={pickerOpen}
           aria-haspopup="menu"
           disabled={years.length <= 1}
-          className="rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium tabular-nums text-white/85 backdrop-blur transition-colors hover:bg-black/70 disabled:cursor-default disabled:hover:bg-black/50"
+          // Same height as the close button opposite it: they read as a pair,
+          // and a 26px pill was the smallest tap target in the recap.
+          className="flex h-9 items-center rounded-full bg-black/50 px-3.5 text-xs font-medium tabular-nums text-white/85 backdrop-blur transition-colors hover:bg-black/70 disabled:cursor-default disabled:hover:bg-black/50"
         >
           {recap.label}
         </button>

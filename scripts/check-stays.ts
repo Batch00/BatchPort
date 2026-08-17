@@ -437,7 +437,7 @@ function preJobTrip(options: { photos?: StoryPhoto[] } = {}): StoryTrip {
   const slots = buildCurationSlots(built);
   equal(
     "one curation slot per stay that has photographs",
-    slots.stops.map((slot) => [slot.destinationId, slot.dayDates.length]),
+    slots.stops.map((slot) => [slot.destinationId, slot.days.length]),
     [
       [CPH1, 3],
       [STO, 1],
@@ -727,7 +727,7 @@ function preJobTrip(options: { photos?: StoryPhoto[] } = {}): StoryTrip {
   const slot = buildCurationSlots(built).stops.find(
     (entry) => entry.destinationId === CPH2,
   );
-  equal("the second stay's slot counts its own days", slot?.dayDates.length, 2);
+  equal("the second stay's slot counts its own days", slot?.days.length, 2);
   equal(
     "and holds its own picks",
     slot?.chosen.map((item) => item.id),

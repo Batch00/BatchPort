@@ -60,7 +60,10 @@ export function Lightbox({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 sm:p-8"
+      // The bottom inset matters as much as the top one: the action row under
+      // the photo (the photo map's "View in destination", the location fix)
+      // sat under the home indicator without it.
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:p-8"
       onClick={onClose}
     >
       {/* The lightbox is a fixed full-viewport overlay, so its top controls
@@ -86,7 +89,10 @@ export function Lightbox({
           </span>
         ) : null}
         {item.caption ? (
-          <span className="truncate rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/80">
+          // min-w-0 is what makes `truncate` do anything here: a flex item's
+          // default min-width is its content, so without it the chip ignored
+          // the row's max-width and ran off the screen instead of ellipsizing.
+          <span className="min-w-0 truncate rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/80">
             {item.caption}
           </span>
         ) : null}

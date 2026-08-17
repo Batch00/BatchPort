@@ -130,8 +130,12 @@ export interface YearTripSummary {
    * and the placeholder behind the full-screen one. */
   coverThumbUrl: string | null;
   dateLabel: string;
-  /** "Tokyo, Kyoto and 2 more", from the stops that fell in this year. */
-  route: string;
+  /**
+   * Every stop of this trip that fell in the year, in visit order, and never a
+   * subset. It used to be "Tokyo, Kyoto and 2 more"; the slide lays the whole
+   * list out with the house rule instead (see lib/place-lines.ts).
+   */
+  places: string[];
   countryCodes: string[];
   stops: number;
   /** Days of this trip that fell inside the year. */
@@ -331,7 +335,6 @@ const MAX_COMBINED_TRIPS = 9;
 const MAX_MOMENTS = 3;
 const MAX_INSIGHTS = 2;
 const MAX_UPCOMING = 3;
-const MAX_ROUTE_STOPS = 3;
 /** Three tiles fill a row and stay a glance. A bucket list of forty is not
  * more interesting at forty than at three; it is just a list. */
 const MAX_BUCKET_UP_NEXT = 3;
@@ -776,13 +779,10 @@ function buildInsights(
 
 // --- Assembly ---------------------------------------------------------------
 
-function routeSummary(stops: StoryDestination[]): string {
-  const names = stops.map((stop) => stop.name);
-  if (names.length === 0) return "";
-  if (names.length <= MAX_ROUTE_STOPS) return names.join(", ");
-  return `${names.slice(0, MAX_ROUTE_STOPS).join(", ")} and ${
-    names.length - MAX_ROUTE_STOPS
-  } more`;
+/** The year's stops on this trip, in visit order and whole. The slide fits
+ * them; nothing here decides which of somebody's stops are worth naming. */
+function routePlaces(stops: StoryDestination[]): string[] {
+  return stops.map((stop) => stop.name);
 }
 
 function tripSummary(entry: YearTrip): YearTripSummary {
@@ -799,7 +799,7 @@ function tripSummary(entry: YearTrip): YearTripSummary {
     coverUrl: entry.trip.coverUrl,
     coverThumbUrl: entry.trip.coverThumbUrl ?? entry.trip.coverUrl,
     dateLabel: rangeLabel(entry.yearRange),
-    route: routeSummary(entry.stops),
+    places: routePlaces(entry.stops),
     countryCodes: Array.from(
       new Set(
         entry.stops

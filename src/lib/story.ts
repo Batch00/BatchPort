@@ -123,8 +123,15 @@ export interface StoryOpenerSlide {
   kind: "opener";
   key: string;
   trip: StoryTrip;
-  /** "Tokyo, Kyoto, Osaka", trimmed with an ellipsis when it runs long. */
-  route: string;
+  /**
+   * Every stop on the trip, in visit order, and never a subset of them.
+   *
+   * It used to be a string ending in "and 8 more", which on a long trip hid
+   * most of the journey the slide was introducing. The view lays it out with
+   * the house rule instead (see lib/place-lines.ts): shrink, then wrap between
+   * places, and show all of them.
+   */
+  places: string[];
   countryCodes: string[];
   photos: StoryPhoto[];
 }
@@ -181,8 +188,6 @@ export type StorySlide =
 // A single stop long enough to blow past this is not a day-by-day story any
 // more; its remaining days fold into the days that actually carry something.
 const MAX_DAYS_PER_STOP = 60;
-
-const MAX_ROUTE_STOPS = 4;
 
 /** The date part of a date or timestamp string. */
 function dayOf(value: string | null): string | null {
@@ -301,12 +306,10 @@ export function placeTripContent(trip: StoryTrip): TripPlacement {
   };
 }
 
-function routeSummary(destinations: StoryDestination[]): string {
-  const names = destinations.map((destination) => destination.name);
-  if (names.length <= MAX_ROUTE_STOPS) return names.join(", ");
-  return `${names.slice(0, MAX_ROUTE_STOPS).join(", ")} and ${
-    names.length - MAX_ROUTE_STOPS
-  } more`;
+/** The stops, in visit order. Whole: the layout does the fitting, and there is
+ * no count of places at which hiding some of them becomes the right answer. */
+function routePlaces(destinations: StoryDestination[]): string[] {
+  return destinations.map((destination) => destination.name);
 }
 
 /** Straight-line distance along the route, the same measure the trip arcs on
@@ -437,7 +440,7 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
     kind: "opener",
     key: "opener",
     trip,
-    route: routeSummary(trip.destinations),
+    places: routePlaces(trip.destinations),
     countryCodes: Array.from(
       new Set(
         trip.destinations

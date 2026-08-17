@@ -634,6 +634,50 @@ function input(trips: StoryTrip[], today: string): YearRecapInput {
   );
 }
 
+// --- 7b. A trip slide names every stop, never "and N more" ------------------
+//
+// The route line used to be a string capped at three stops. On an eight stop
+// trip that hid five of them behind a count, which is a summary of the journey
+// the slide exists to introduce. It is the whole list now, and the view fits
+// it (lib/place-lines.ts): shrink, then wrap between places.
+
+{
+  const names = [
+    "Reykjavik",
+    "Vik",
+    "Hofn",
+    "Egilsstadir",
+    "Akureyri",
+    "Myvatn",
+    "Isafjordur",
+    "Borgarnes",
+  ];
+  const long = trip("Ring road", {
+    start: "2023-06-01",
+    end: "2023-06-16",
+    destinations: names.map((name, index) =>
+      stop(name, {
+        countryCode: "IS",
+        arrival: `2023-06-0${index + 1}`,
+        departure: `2023-06-0${index + 1}`,
+        lat: 64 + index * 0.1,
+        lng: -22 + index * 0.3,
+      }),
+    ),
+  });
+  const recap = buildYearRecap(input([long], "2026-08-07"), 2023);
+  const slide = recap.slides.find((entry) => entry.kind === "trip");
+  equal(
+    "an eight stop trip names all eight",
+    slide && slide.kind === "trip" ? slide.trip.places : [],
+    names,
+  );
+  check(
+    "and nothing in the recap says 'and N more'",
+    !JSON.stringify(recap.slides).includes(" more"),
+  );
+}
+
 // --- 8. Moments are the year's best, deterministically ordered --------------
 
 {
