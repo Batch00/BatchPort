@@ -26,6 +26,7 @@ import {
   nextFeaturedRank,
   photoSlot,
   photoSlotOf,
+  stopPhotoCapacity,
   stopPhotoRank,
   stopPhotosFirst,
   type PhotoSlot,
@@ -1156,20 +1157,173 @@ function trip(
     !hasCurationSlots(trip("Empty", { destinations: [stop("Nowhere")] })),
   );
 
-  // One backdrop, a three-line highlights row, and for a stop two full slides'
-  // worth: the picks are spread ACROSS its days, so the slide cap of four is
-  // not the slot's cap. Every one of these has to stay inside the honoured
-  // ceiling, or the panel would let somebody elect a rank nothing reads.
-  equal("the slot capacities are the surfaces' own numbers", SLOT_CAPACITY, {
+  // One backdrop and a three-line highlights row: the two slots whose capacity
+  // is a fixed number, because the surface they name draws a fixed number.
+  // Both have to stay inside the honoured ceiling for experience ranks, or the
+  // panel would let somebody elect a rank nothing reads.
+  equal("the fixed slot capacities are the surfaces' own numbers", SLOT_CAPACITY, {
     hero: 1,
-    stopPhotos: 8,
     highlights: 3,
   });
   check(
-    "no slot can hold more than the model honours",
+    "no fixed slot can hold more than the model honours",
     Object.values(SLOT_CAPACITY).every(
       (capacity) => capacity <= MAX_FEATURED_HONORED,
     ),
+  );
+}
+
+// --- A stop's capacity is its own slide capacity -----------------------------
+//
+// It used to be a flat 8, which was a guess: two full slides on a two day stop
+// (so half the picks had nowhere to sit) and a quarter of the seats on a
+// fortnight in one city. It is now derived from the seats that actually exist,
+// and the two halves of that are asserted here: the derivation itself, and that
+// nothing between the panel and the slide silently drops a pick inside it.
+
+{
+  equal(
+    "an undated stop keeps one slide's worth as its floor",
+    stopPhotoCapacity(0),
+    SLIDE_PHOTO_CAP,
+  );
+  equal("a one day stop caps at four", stopPhotoCapacity(1), 4);
+  equal("a three day stop caps at twelve", stopPhotoCapacity(3), 12);
+  equal("a ten day stop caps at forty", stopPhotoCapacity(10), 40);
+
+  /** A stop of `days` days, one ordinary photo per day so every day is a real
+   * slide, plus `picks` undated picks ranked from one. */
+  function stopOfDays(
+    name: string,
+    days: number,
+    picks: number,
+    options: { dated?: boolean } = {},
+  ): { built: StoryTrip; stopId: string; dates: string[] } {
+    const stopId = `${name}Stop`;
+    const dates = Array.from(
+      { length: days },
+      (_, index) => `2024-09-${String(index + 1).padStart(2, "0")}`,
+    );
+    const own = dates.map((date) =>
+      photo(`${name}-own-${date}`, { dateTaken: date, destinationId: stopId }),
+    );
+    const chosen = Array.from({ length: picks }, (_, index) =>
+      pick(`${name}-pick${index + 1}`, index + 1, {
+        destinationId: stopId,
+        dateTaken: options.dated ? dates[index % Math.max(1, days)] : null,
+      }),
+    );
+    return {
+      built: trip(name, {
+        start: dates[0] ?? null,
+        end: dates[dates.length - 1] ?? null,
+        destinations: [
+          stop(stopId, {
+            arrival: dates[0] ?? null,
+            departure: dates[dates.length - 1] ?? null,
+          }),
+        ],
+        photos: [...own, ...chosen],
+      }),
+      stopId,
+      dates,
+    };
+  }
+
+  const dayPhotoIds = (built: StoryTrip, stopId: string): string[][] =>
+    buildStorySlides(built)
+      .filter(
+        (slide): slide is Extract<StorySlide, { kind: "day" }> =>
+          slide.kind === "day" && slide.destination?.id === stopId,
+      )
+      .map((slide) => slide.photos.map((item) => item.id));
+
+  // A ONE DAY STOP. Four seats, and a fifth pick is not honoured: the panel
+  // refuses it, and if a stale one is already stored the slide still draws four.
+  const one = stopOfDays("Oneday", 1, 5);
+  const oneSlot = buildCurationSlots(one.built).stops[0];
+  equal("a one day stop's slot says four", oneSlot.capacity, 4);
+  equal(
+    "and honours exactly four picks, not the fifth",
+    oneSlot.chosen.map((item) => item.id),
+    [
+      "Oneday-pick1",
+      "Oneday-pick2",
+      "Oneday-pick3",
+      "Oneday-pick4",
+    ],
+  );
+  equal(
+    "and its one slide draws those four",
+    dayPhotoIds(one.built, one.stopId),
+    [["Oneday-pick1", "Oneday-pick2", "Oneday-pick3", "Oneday-pick4"]],
+  );
+
+  // A MULTI-DAY STOP AT THE NEW MAXIMUM. Ten days, forty picks: every one is
+  // honoured, every one is placed, and no day takes more than a slide draws.
+  // Under the old flat cap of 8 this dropped 32 of them on the floor while the
+  // picker went on offering them.
+  const ten = stopOfDays("Tenday", 10, 40);
+  const tenSlot = buildCurationSlots(ten.built).stops[0];
+  equal("a ten day stop's slot says forty", tenSlot.capacity, 40);
+  equal("the stop really produced ten day slides", tenSlot.days.length, 10);
+  equal("and every one of the forty picks is honoured", tenSlot.chosen.length, 40);
+  const tenPlan = planStopSelection(tenSlot, tenSlot.chosen);
+  equal("every pick finds a seat", tenPlan.unplaced, 0);
+  equal("and they are placed, not merely counted", tenPlan.placed, 40);
+  const tenDrawn = dayPhotoIds(ten.built, ten.stopId);
+  equal(
+    "each of the ten days draws a full slide of picks",
+    tenDrawn.map((ids) => ids.length),
+    Array.from({ length: 10 }, () => SLIDE_PHOTO_CAP),
+  );
+  check(
+    "and the slides draw the picks themselves, none of the day's own photos",
+    tenDrawn.every((ids) => ids.every((photoId) => photoId.includes("-pick"))),
+  );
+  // A rank past the old ceiling of 8 is a rank the model now reads, which is
+  // the specific silent drop this change removes.
+  check(
+    "a rank past the old flat ceiling still leads a slide",
+    tenDrawn.flat().includes(`Tenday-pick${MAX_FEATURED_HONORED + 1}`),
+  );
+
+  // AN UNDATED STOP. No day slides, one stop slide, so the floor applies.
+  const undatedStop = trip("Undated capacity", {
+    destinations: [stop("UndatedCap")],
+    photos: [
+      photo("uc-own", { destinationId: "UndatedCap" }),
+      ...Array.from({ length: 6 }, (_, index) =>
+        pick(`uc-pick${index + 1}`, index + 1, { destinationId: "UndatedCap" }),
+      ),
+    ],
+  });
+  const undatedSlot = buildCurationSlots(undatedStop).stops[0];
+  equal("an undated stop's slot says four", undatedSlot.capacity, 4);
+  equal("it offers no day groups", undatedSlot.days.length, 0);
+  equal(
+    "and honours four picks",
+    undatedSlot.chosen.map((item) => item.id),
+    ["uc-pick1", "uc-pick2", "uc-pick3", "uc-pick4"],
+  );
+  const undatedSlide = buildStorySlides(undatedStop).find(
+    (slide) => slide.kind === "stop",
+  );
+  equal(
+    "and its single slide draws exactly those",
+    undatedSlide && undatedSlide.kind === "stop"
+      ? undatedSlide.photos.map((item) => item.id)
+      : [],
+    ["uc-pick1", "uc-pick2", "uc-pick3", "uc-pick4"],
+  );
+
+  // The uncurated path, at the new capacity: a ten day stop with nothing
+  // elected still shows every day its own photographs and nothing else.
+  const tenPlain = stopOfDays("Tenplain", 10, 0);
+  equal(
+    "a ten day stop with nothing elected is untouched",
+    dayPhotoIds(tenPlain.built, tenPlain.stopId).map((ids) => ids.length),
+    Array.from({ length: 10 }, () => 1),
   );
 }
 
@@ -1322,8 +1476,10 @@ function trip(
     );
   }
 
-  // Without curation the earliest dated photo opens the year and the top
-  // rating leads the moments, exactly as before.
+  // Without curation the trip resolves its hero the automatic way (no cover on
+  // this fixture, so its earliest dated photograph) and the top rating leads
+  // the moments, exactly as before. The rest of that chain is asserted in
+  // check-year-recap, which owns the year's own logic.
   const plain = buildYearRecap(
     {
       trips: [
@@ -1366,7 +1522,7 @@ function trip(
   const plainOpener = plain.slides.find((slide) => slide.kind === "opener");
   if (plainOpener && plainOpener.kind === "opener") {
     equal(
-      "with nothing featured, the recap opens on the earliest dated photo",
+      "with nothing featured, the recap opens on the trip's automatic hero",
       plainOpener.heroUrl,
       "https://example.test/earlyP.jpg",
     );

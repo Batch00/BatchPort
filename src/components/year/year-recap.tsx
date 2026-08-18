@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   XIcon,
@@ -1099,19 +1100,39 @@ export function YearRecapView({
       </div>
 
       {/* The year, and the way to another one. Top-left, opposite the close
-          button, so a recap always says which year is on screen. */}
+          button, so a recap always says which year is on screen.
+
+          The caret and the count are not decoration: with a bare label this
+          read as a caption rather than a control, and the only signal that six
+          other years were watchable was that somebody happened to press it. */}
       <div className="absolute left-3 top-[calc(1rem+env(safe-area-inset-top))] z-10">
         <button
           type="button"
           onClick={() => setPickerOpen((open) => !open)}
           aria-expanded={pickerOpen}
           aria-haspopup="menu"
+          aria-label={
+            years.length > 1
+              ? `${recap.label}. Pick another year, ${years.length - 1} more`
+              : recap.label
+          }
           disabled={years.length <= 1}
           // Same height as the close button opposite it: they read as a pair,
           // and a 26px pill was the smallest tap target in the recap.
-          className="flex h-9 items-center rounded-full bg-black/50 px-3.5 text-xs font-medium tabular-nums text-white/85 backdrop-blur transition-colors hover:bg-black/70 disabled:cursor-default disabled:hover:bg-black/50"
+          className="flex h-9 items-center gap-1.5 rounded-full bg-black/50 px-3.5 text-xs font-medium tabular-nums text-white/85 backdrop-blur transition-colors hover:bg-black/70 disabled:cursor-default disabled:hover:bg-black/50"
         >
           {recap.label}
+          {years.length > 1 ? (
+            <>
+              <span className="text-white/40">{years.length - 1} more</span>
+              <ChevronDownIcon
+                className={cn(
+                  "size-3.5 text-white/60 transition-transform",
+                  pickerOpen && "rotate-180",
+                )}
+              />
+            </>
+          ) : null}
         </button>
         {pickerOpen ? (
           <div

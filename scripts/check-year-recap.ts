@@ -99,6 +99,7 @@ function trip(
     destinations?: StoryDestination[];
     photos?: StoryTrip["photos"];
     journal?: Record<string, string>;
+    coverUrl?: string | null;
   } = {},
 ): StoryTrip {
   return {
@@ -108,10 +109,30 @@ function trip(
     startDate: options.start ?? null,
     endDate: options.end ?? null,
     notes: null,
-    coverUrl: null,
+    coverUrl: options.coverUrl ?? null,
     destinations: options.destinations ?? [],
     photos: options.photos ?? [],
     journal: options.journal ?? {},
+  };
+}
+
+function photo(
+  name: string,
+  options: {
+    dateTaken?: string | null;
+    featuredSlot?: "hero" | "stop" | null;
+    featuredRank?: number | null;
+  } = {},
+): StoryTrip["photos"][number] {
+  return {
+    id: name,
+    url: `https://example.test/${name}.jpg`,
+    thumbUrl: `https://example.test/${name}-t.jpg`,
+    dateTaken: options.dateTaken ?? null,
+    attribution: null,
+    destinationId: null,
+    featuredSlot: options.featuredSlot ?? null,
+    featuredRank: options.featuredRank ?? null,
   };
 }
 
@@ -824,6 +845,158 @@ function input(trips: StoryTrip[], today: string): YearRecapInput {
   if (empty && empty.kind === "closing") {
     equal("an empty bucket list produces no block", empty.bucket, null);
   }
+}
+
+// --- 10. The year opens on one of its TRIPS' heroes -------------------------
+//
+// The bug: the opener took the earliest dated photograph of the whole year,
+// flat, so with every trip on automatic the year opened on whatever happened to
+// carry the earliest EXIF timestamp rather than on any trip's own hero, and a
+// hero elected on any trip but the first one changed nothing. Each trip
+// resolves to a hero now (curated, then its cover, then its earliest photo) and
+// the year picks between those.
+
+{
+  // Two trips, both on automatic, both with covers. The one that took up most
+  // of the year leads, and it is a hero rather than a stray photograph.
+  const shortTrip = trip("Long weekend", {
+    start: "2024-02-01",
+    end: "2024-02-03",
+    coverUrl: "https://example.test/weekend-cover.jpg",
+    destinations: [
+      stop("Bruges", { countryCode: "BE", arrival: "2024-02-01" }),
+    ],
+    // Deliberately the earliest dated photograph of the whole year: exactly
+    // what the old rule would have opened on.
+    photos: [photo("january-airport", { dateTaken: "2024-02-01" })],
+  });
+  const longTrip = trip("Summer in Japan", {
+    start: "2024-07-01",
+    end: "2024-07-28",
+    coverUrl: "https://example.test/japan-cover.jpg",
+    destinations: [
+      stop("Kyoto", { countryCode: "JP", arrival: "2024-07-01" }),
+    ],
+    photos: [photo("kyoto-1", { dateTaken: "2024-07-02" })],
+  });
+
+  const automatic = buildYearRecap(input([shortTrip, longTrip], "2025-03-01"), 2024);
+  equal(
+    "with every trip on automatic the year opens on a trip hero",
+    automatic.hero.source,
+    "cover",
+  );
+  equal(
+    "and it is the hero of the trip that took up most of the year",
+    automatic.hero.url,
+    "https://example.test/japan-cover.jpg",
+  );
+  equal("which is named, so the choice is traceable", automatic.hero.tripId, longTrip.id);
+  check(
+    "never the year's earliest photograph merely because it was earliest",
+    automatic.hero.url !== "https://example.test/january-airport.jpg",
+  );
+
+  // The opener and the scoreboard read the same resolved hero. They are one
+  // field on the recap now, so they cannot drift.
+  const opener = automatic.slides.find((slide) => slide.kind === "opener");
+  const board = automatic.slides.find((slide) => slide.kind === "scoreboard");
+  if (opener?.kind === "opener" && board?.kind === "scoreboard") {
+    equal("the opener uses it", opener.heroUrl, automatic.hero.url);
+    equal("the scoreboard backdrop uses it too", board.heroUrl, automatic.hero.url);
+    equal(
+      "and both carry the same thumbnail placeholder",
+      [opener.heroThumbUrl, board.heroThumbUrl],
+      [automatic.hero.thumbUrl, automatic.hero.thumbUrl],
+    );
+  }
+
+  // AN EXPLICIT CHOICE OUTRANKS ANY AUTOMATIC ONE, whatever trip it is on. The
+  // short trip is the one curated here, and it wins against a trip ten times
+  // its length precisely because somebody answered the question.
+  const curatedShort = trip("Long weekend curated", {
+    start: "2024-02-01",
+    end: "2024-02-03",
+    coverUrl: "https://example.test/weekend-cover.jpg",
+    destinations: [stop("Bruges2", { countryCode: "BE", arrival: "2024-02-01" })],
+    photos: [
+      photo("weekend-plain", { dateTaken: "2024-02-01" }),
+      photo("weekend-elected", {
+        dateTaken: "2024-02-02",
+        featuredSlot: "hero",
+        featuredRank: 1,
+      }),
+    ],
+  });
+  const curated = buildYearRecap(
+    input([curatedShort, longTrip], "2025-03-01"),
+    2024,
+  );
+  equal(
+    "a curated hero beats a longer trip's automatic one",
+    curated.hero.url,
+    "https://example.test/weekend-elected.jpg",
+  );
+  equal("and says it was chosen", curated.hero.source, "curated");
+
+  // A stop pick is not a hero: it answers which photos lead one stop's slides.
+  const stopPicked = trip("Stop picked", {
+    start: "2024-05-01",
+    end: "2024-05-04",
+    coverUrl: "https://example.test/picked-cover.jpg",
+    destinations: [stop("Lisbon", { countryCode: "PT", arrival: "2024-05-01" })],
+    photos: [
+      photo("picked-stop", {
+        dateTaken: "2024-05-02",
+        featuredSlot: "stop",
+        featuredRank: 1,
+      }),
+    ],
+  });
+  equal(
+    "a stop pick never opens the year",
+    buildYearRecap(input([stopPicked], "2025-03-01"), 2024).hero.url,
+    "https://example.test/picked-cover.jpg",
+  );
+
+  // No cover: the established fallback, this trip's earliest dated photograph.
+  const noCover = trip("No cover", {
+    start: "2024-03-01",
+    end: "2024-03-05",
+    destinations: [stop("Oslo", { countryCode: "NO", arrival: "2024-03-01" })],
+    photos: [
+      photo("oslo-late", { dateTaken: "2024-03-04" }),
+      photo("oslo-early", { dateTaken: "2024-03-02" }),
+    ],
+  });
+  const fallback = buildYearRecap(input([noCover], "2025-03-01"), 2024);
+  equal(
+    "with no cover the trip falls back to its earliest photograph",
+    fallback.hero.url,
+    "https://example.test/oslo-early.jpg",
+  );
+  equal("and says the fallback is what it is", fallback.hero.source, "photo");
+
+  // A year with no image anywhere is absent, not broken.
+  const bare = buildYearRecap(
+    input(
+      [
+        trip("Nothing", {
+          start: "2024-04-01",
+          end: "2024-04-02",
+          destinations: [stop("Somewhere", { arrival: "2024-04-01" })],
+        }),
+      ],
+      "2025-03-01",
+    ),
+    2024,
+  );
+  equal("a year with no photograph has no hero", bare.hero, {
+    url: null,
+    thumbUrl: null,
+    source: null,
+    tripId: null,
+  });
 }
 
 // --- Report -----------------------------------------------------------------

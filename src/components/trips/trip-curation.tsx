@@ -31,7 +31,7 @@ import {
   setTripHeroPhotoAction,
   setTripHighlightsAction,
 } from "@/lib/actions/curation";
-import { SLOT_CAPACITY } from "@/lib/curation";
+import { SLIDE_PHOTO_CAP, SLOT_CAPACITY } from "@/lib/curation";
 import {
   buildCurationSlots,
   hasCurationSlots,
@@ -752,9 +752,15 @@ function StopSlotSection({
       void save(ids.filter((current) => current !== id));
       return;
     }
-    if (ids.length >= SLOT_CAPACITY.stopPhotos) {
+    if (ids.length >= slot.capacity) {
+      // The capacity is this stop's own seat count (four per day slide), so the
+      // refusal names the reason rather than quoting a number from nowhere.
       toast.error(
-        `This slot holds ${SLOT_CAPACITY.stopPhotos} photos. Remove one first.`,
+        slot.days.length > 0
+          ? `${slot.destinationName} has ${slot.days.length} ${
+              slot.days.length === 1 ? "day slide" : "day slides"
+            }, so it holds ${slot.capacity} photos. Remove one first.`
+          : `This stop has one slide, so it holds ${slot.capacity} photos. Remove one first.`,
       );
       return;
     }
@@ -831,7 +837,7 @@ function StopSlotSection({
             ? "Saving..."
             : isAutomatic
               ? "Automatic"
-              : `${ids.length} of ${SLOT_CAPACITY.stopPhotos}`}
+              : `${ids.length} of ${slot.capacity}`}
         </span>
       </button>
 
@@ -843,8 +849,8 @@ function StopSlotSection({
               now, so this only has to say what the two outcomes mean. */}
           <p className="mb-3 text-xs text-foreground/45">
             {dayCount > 0
-              ? "A day with picks shows only those. A day without keeps its own photos."
-              : `This stop has one slide. Pick up to ${SLOT_CAPACITY.stopPhotos} to lead it.`}
+              ? `A day with picks shows only those. A day without keeps its own photos. Up to ${SLIDE_PHOTO_CAP} a day, so ${slot.capacity} here.`
+              : `This stop has one slide. Pick up to ${slot.capacity} to lead it.`}
           </p>
           {isAutomatic ? null : (
             <>
@@ -1323,8 +1329,8 @@ function CurationPanel({
 
       {slots.stops.length > 0 ? (
         <SlotSection
-          title={`Photos per stop (${SLOT_CAPACITY.stopPhotos})`}
-          where="Spread across that stop's day slides in the trip story."
+          title="Photos per stop"
+          where={`Spread across that stop's day slides in the trip story, up to ${SLIDE_PHOTO_CAP} a day.`}
           status={
             stopsChosen > 0
               ? `${stopsChosen} of ${slots.stops.length} chosen`

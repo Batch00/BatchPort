@@ -158,7 +158,14 @@ export async function setStopPhotosAction(
 
   const onTrip = await tripPhotoIds(supabase, tripId);
   const candidates = within(onTrip, candidateIds);
-  const chosen = within(candidates, photoIds).slice(0, SLOT_CAPACITY.stopPhotos);
+  // No slice to a fixed capacity here, unlike the other two slots. A stop's
+  // capacity is derived from its day slides (stopPhotoCapacity), which only the
+  // folded trip knows, and rebuilding the story server-side to enforce a bound
+  // the panel already enforces would be a query per save. The bound that IS
+  // enforced is the one `within` applies: nothing outside this stop's own
+  // candidates. Anything past the capacity simply falls back into the normal
+  // order on read, exactly as an over-long list always has.
+  const chosen = within(candidates, photoIds);
 
   if (candidates.length > 0) {
     // Only stop picks are cleared. A hero elected from this stop's photos

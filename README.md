@@ -164,8 +164,8 @@ Ratings say how good something was. They cannot say what the trip was about: a f
 
 It is built around the three **slots** where a curated choice actually shows up, so what you are choosing, and what it will replace, is on screen rather than implied. A "Curate" action on the trip page, next to Story and Share, opens the panel.
 
-- **Trip hero (one photo).** The frame the Year in Travel recap opens on, and the photograph the share card is drawn over. Leave it alone and the card uses the trip cover while the recap uses your earliest photo of the year; the panel says so and previews the picture you would get.
-- **Photos per stop (up to eight each).** The photos that stop's slides in the trip story show. They are spread across the stop's days rather than piled on its first slide, and a day that gets one shows that one: choosing three photographs of a day gives you three, not three plus a filler. Days you did not choose anything for are untouched and fall back to their own photos, then the stop cover. Left alone, the story takes the stop's first photos in the order they were taken, and the panel shows those.
+- **Trip hero (one photo).** The frame the Year in Travel recap opens on, and the photograph the share card is drawn over. Leave it alone and both fall back to the trip cover, then to your earliest photo of the trip; the panel says so and previews the picture you would get.
+- **Photos per stop.** The photos that stop's slides in the trip story show. How many you can pick is the number of seats that stop actually has: a story slide draws four photographs, so a stop with four day slides holds sixteen and a stop with ten holds forty. A stop with no dated day is one slide and holds four. The picker states the number it is enforcing and where it came from. They are spread across the stop's days rather than piled on its first slide, and a day that gets one shows that one: choosing three photographs of a day gives you three, not three plus a filler. Days you did not choose anything for are untouched and fall back to their own photos, then the stop cover. Left alone, the story takes the stop's first photos in the order they were taken, and the panel shows those.
 - **Trip highlights (three, in order).** The list on the share card, the line the story closes on, the moments in the recap, and the "best of this trip" block on the trip page itself. Left alone, all four use your three best-rated, and the trip page block says out loud that that is what it is showing.
 
 Every picker shows the candidates together, with a **position badge** on the ones you have chosen, so first and second are distinguishable rather than both just "picked". Multi-item slots reorder by dragging or with the arrow buttons beside each one. Clearing a slot puts it back on automatic. Choices save as you make them.
@@ -180,7 +180,8 @@ Every picker shows the candidates together, with a **position badge** on the one
 
 A full-screen, paced recap of one year, opened from a card on the dashboard, a button on the stats page, and the same card on /demo and /share/[slug]. It reads as a sequence of single ideas rather than a dump of numbers: the year and a photograph from it, the distance covered with the same playful framing the stats page uses, the year drawing itself on a map, the trips, the best-rated moments with their photos, one or two things the data actually says, a scoreboard, and a closing slide about what is next.
 
-- **Any year is replayable.** The picker offers every year with at least one trip that actually happened and is dated, newest first. A year with nothing in it is never offered, and neither is one that has not arrived yet. The current year reads as "2026 so far" throughout, including on the exported card.
+- **Any year is replayable, and you can see that before you open one.** The card leads with the newest year and its numbers, one tap to play, and lists every other year beside it as a chip, so seven years of history reads as seven years rather than as one button. On the stats page, where the row is shared with other actions, the same list sits behind a caret on the button. Inside the recap the year is a control with a caret and a count on it, not a caption. The years offered are every year with at least one trip that actually happened and is dated, newest first: a year with nothing in it is never offered, and neither is one that has not arrived yet. The current year reads as "2026 so far" throughout, including on the exported card.
+- **The photograph it opens on stands for one of the year's trips.** Each trip resolves to a hero the same way everything else does (the photo you curated into its hero slot, then its cover, then its earliest photograph of the year), and the year opens on one of those: a trip you curated deliberately first, otherwise the trip that took up the most of the year. It is never simply whichever photograph in the year happened to carry the earliest timestamp. The scoreboard at the end is backed by that same picture.
 - **A year is a slice, not a bucket.** A trip that crosses new year belongs to both years and each counts only its own part: days are clipped to the year, and a stop, an experience, or a photo lands in the year its own date puts it in. The leg over new year counts once, in the year it arrived.
 - **Nothing is padded.** Every slide past the opening has a condition, so a thin year simply produces fewer slides: no moments without a rating, no map for a single stop, no empty tiles on the scoreboard, and no insight invented to fill a category the data does not support. Planned trips and planned experiences are excluded, as everywhere else; the one place they appear is the closing slide, which is about what is next.
 - **The insights are derived, not fixed.** Four candidates compete and at most two are shown: countries reached for the first time ever, the country the year went deepest into, the longest single trip, and the busiest month. Each has to earn its place (a "deepest" country needs a strict winner, not a tie), and the ranking is banded so a wide margin on the weakest question cannot outrank the strongest one.
@@ -390,13 +391,15 @@ npm run resync-trip-schedules -- --dry-run
 npm run resync-trip-schedules
 
 # Deterministic checks for the Year in Travel derivation: which years are
-# offered, how a year slices, what counts as planned, and what a thin year
-# produces. Pure functions against fixtures, no database and no dev server.
+# offered, how a year slices, what counts as planned, what a thin year
+# produces, and that the year's photograph resolves to one of its trips'
+# heroes. Pure functions against fixtures, no database and no dev server.
 npm run check-year-recap
 
-# Deterministic checks for the curation model: rank ordering, the cap, the two
-# photo slots and their backwards compatibility, what each slot holds and what
-# it falls back to, and what the story, share card, and recap actually select,
+# Deterministic checks for the curation model: rank ordering, the caps
+# (including a stop's, derived from its own day slides), the two photo slots
+# and their backwards compatibility, what each slot holds and what it falls
+# back to, and what the story, share card, and recap actually select,
 # including the uncurated path on every one of them.
 # Pure functions against fixtures, no database and no dev server.
 npm run check-curation

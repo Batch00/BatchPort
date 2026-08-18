@@ -1,10 +1,10 @@
 import {
   SLIDE_PHOTO_CAP,
-  SLOT_CAPACITY,
   compareCurated,
   distributeStopPhotos,
   featuredFirst,
   heroPhoto,
+  stopPhotoCapacity,
   stopPhotoRank,
   stopPhotosFirst,
   type PhotoSlot,
@@ -397,14 +397,23 @@ export function photosByStop(trip: StoryTrip): {
 /**
  * A stop's elected photos, in slot order and capped at the slot's capacity.
  *
+ * `daySlides` is how many day slides this stop produced, because that is what
+ * the capacity is derived from (see stopPhotoCapacity): a stop can only seat
+ * what its slides can draw. It is a required argument rather than an optional
+ * one so a new caller has to answer the question rather than inherit a default
+ * that would be wrong on every stop but a one day one.
+ *
  * Exported because the curation panel has to describe exactly the set the
  * story will place. Two readings of "this stop's picks" would mean the picker
  * promising a spread the slides do not produce.
  */
-export function curatedStopPhotos(photos: StoryPhoto[]): StoryPhoto[] {
+export function curatedStopPhotos(
+  photos: StoryPhoto[],
+  daySlides: number,
+): StoryPhoto[] {
   return stopPhotosFirst(photos)
     .filter((photo) => stopPhotoRank(photo) !== null)
-    .slice(0, SLOT_CAPACITY.stopPhotos);
+    .slice(0, stopPhotoCapacity(daySlides));
 }
 
 /** The photo elected as this trip's hero: the recap's opening frame and the
@@ -524,10 +533,10 @@ export function buildStorySlides(trip: StoryTrip): StorySlide[] {
       });
     }
 
-    // This stop's elected photos. With nothing elected every line that reads
-    // it is a no-op, which is what keeps an uncurated trip byte-for-byte what
-    // it was.
-    const curated = curatedStopPhotos(ownPhotos);
+    // This stop's elected photos, capped at what its own slides can seat. With
+    // nothing elected every line that reads it is a no-op, which is what keeps
+    // an uncurated trip byte-for-byte what it was.
+    const curated = curatedStopPhotos(ownPhotos, daySlides.length);
 
     if (daySlides.length === 0) {
       // Nothing dated: one stop slide carrying everything this stop owns. A

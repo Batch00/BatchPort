@@ -14,9 +14,10 @@
 //      are three, and they are what the curation panel is built out of:
 //        - TRIP HERO: one photo, the recap's opening frame and the share card's
 //          backdrop. Marked with `photos.featured_slot = 'hero'`.
-//        - STOP PHOTOS: up to four per destination, the photos that lead that
-//          stop's story slides. `photos.featured_slot = 'stop'`, ranked 1..4
-//          WITHIN the destination.
+//        - STOP PHOTOS: the photos that lead that stop's story slides, ranked
+//          WITHIN the destination and marked `photos.featured_slot = 'stop'`.
+//          Its capacity is the stop's own slide capacity (see
+//          stopPhotoCapacity), not a flat number.
 //        - HIGHLIGHTS: three experiences, ordered, shown on the share card, the
 //          story's closing, the recap's moments, and the trip page's own "best
 //          of" block. `experiences.featured_rank`, ranked across the trip.
@@ -30,13 +31,19 @@
 //
 // THE CAP
 //
-// At most MAX_FEATURED_HONORED ranks are honoured in one scope. Past that the
-// extras drop back into the normal fallback order rather than pushing the
-// surfaces around: a "featured" list of thirty is not curation, and the slides
-// have to stay paced. Each slot has its own tighter capacity on top of it
-// (SLOT_CAPACITY), which is what the panel enforces on write.
+// A slot's capacity is the number of seats it actually has on the surface it
+// names, and nothing may be elected past it: a rank the surfaces would not read
+// is a choice the panel silently threw away. For the two fixed slots that is a
+// constant (SLOT_CAPACITY); for a stop it is derived from the stop's own day
+// slides (stopPhotoCapacity), because that is where its photographs are placed.
+//
+// MAX_FEATURED_HONORED is the ceiling on EXPERIENCE ranks, which are scoped to
+// a whole trip and have no per-surface seat count of their own. It deliberately
+// does NOT bound a stop's photo ranks: a fortnight in one city has forty seats,
+// and a flat eight there would drop picks 9 and up on the floor while the panel
+// went on offering them.
 
-/** How many featured items of one kind a single scope can actually influence. */
+/** How many featured experiences one trip can actually influence. */
 export const MAX_FEATURED_HONORED = 8;
 
 /** Which surface a photo's rank is a rank in. */
@@ -50,22 +57,34 @@ export type PhotoSlot = "hero" | "stop";
 export const SLIDE_PHOTO_CAP = 4;
 
 /**
- * How many items each slot holds. These are the numbers the consuming surfaces
- * already render, not a separate policy: one backdrop, a three-line highlights
- * row, and for a stop the number of photographs a stay can actually place.
+ * How many items the two FIXED slots hold. These are the numbers the consuming
+ * surfaces already render, not a separate policy: one backdrop and a
+ * three-line highlights row.
  *
- * `stopPhotos` is 8 rather than the 4 a single slide draws, because a stop's
- * picks are spread ACROSS its day slides (see distributeStopPhotos), not piled
- * onto one. Four was the right number when the whole set led one slide and a
- * hard undercount for a week in one city. Eight is two full slides' worth, it
- * is roughly one a day for the length of stay most people curate, and it stays
- * a decision rather than an album.
+ * A stop's photo slot is not in here because it has no fixed number: see
+ * stopPhotoCapacity.
  */
 export const SLOT_CAPACITY = {
   hero: 1,
-  stopPhotos: 8,
   highlights: 3,
 } as const;
+
+/**
+ * How many photographs one stop's slot holds: exactly the seats that stop has.
+ *
+ * A pick is placed on a DAY SLIDE and a slide draws SLIDE_PHOTO_CAP photos, so
+ * a stop with n day slides can seat n * SLIDE_PHOTO_CAP of them and no more.
+ * That is the whole derivation, and it is why this replaced a flat 8: eight was
+ * a guess at "roughly one a day for the length of stay most people curate",
+ * which is two full slides on a two day stop (half of them unplaceable) and a
+ * quarter of the seats on a fortnight in one city.
+ *
+ * A stop with no day slide at all still gets one slide of its own (see
+ * buildStorySlides), so the floor is one slide's worth rather than zero.
+ */
+export function stopPhotoCapacity(daySlides: number): number {
+  return Math.max(1, daySlides) * SLIDE_PHOTO_CAP;
+}
 
 /** The shape every curated row shares. Optional because a narrow read (or a
  * database where the migration has not run) simply does not carry it. */
@@ -188,20 +207,24 @@ export function stopPhotoRank(photo: CuratedPhoto): number | null {
   return photoSlot(photo) === "stop" ? featuredRankOf(photo.featuredRank) : null;
 }
 
-/** Stop picks first, in the order they were put in; everything else keeps the
- * order the caller gave it. The photo counterpart of compareFeatured. */
+/**
+ * Stop picks first, in the order they were put in; everything else keeps the
+ * order the caller gave it. The photo counterpart of compareFeatured.
+ *
+ * Every rank is honoured here, deliberately. A stop's ceiling is its own seat
+ * count, which depends on how many day slides it produced, and this comparator
+ * is handed one photo at a time with no way to know that. The bound is applied
+ * where the number is known: curatedStopPhotos slices to stopPhotoCapacity, and
+ * the panel refuses a pick past it. A flat ceiling here would have silently
+ * unranked picks the panel had just accepted.
+ */
 export function compareStopPhotos(a: CuratedPhoto, b: CuratedPhoto): number {
-  const ar = honoredStopRank(a);
-  const br = honoredStopRank(b);
+  const ar = stopPhotoRank(a);
+  const br = stopPhotoRank(b);
   if (ar === br) return 0;
   if (ar === null) return 1;
   if (br === null) return -1;
   return ar - br;
-}
-
-function honoredStopRank(photo: CuratedPhoto): number | null {
-  const rank = stopPhotoRank(photo);
-  return rank !== null && rank <= MAX_FEATURED_HONORED ? rank : null;
 }
 
 /** Sort photos stop-picks-first while preserving the incoming order within

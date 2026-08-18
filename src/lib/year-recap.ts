@@ -103,6 +103,28 @@ export interface YearMoment {
   photoOf: "experience" | "place" | null;
 }
 
+/**
+ * The year's representative photograph, resolved once and read by every
+ * surface that shows one: the opening slide and the scoreboard's backdrop.
+ *
+ * It is carried on the recap rather than recomputed per surface so the two can
+ * never disagree, and so a third surface that wants one has an answer to reach
+ * for instead of a rule to reimplement. The year CARD deliberately shows no
+ * photograph at all (it leads with the map, because a year has no single
+ * cover), which is why it is not in that list.
+ */
+export interface YearHero {
+  /** Full size: every surface that uses this fills a screen with it. */
+  url: string | null;
+  /** The same image at thumbnail size, as its placeholder. */
+  thumbUrl: string | null;
+  /** Where it came from, so a caller can tell a deliberate pick from a
+   * fallback. Null when the year has no image at all. */
+  source: "curated" | "cover" | "photo" | null;
+  /** The trip it stands for, or null when there is none. */
+  tripId: string | null;
+}
+
 export type YearInsightId =
   | "new-countries"
   | "busiest-month"
@@ -316,6 +338,9 @@ export interface YearRecap {
   moments: YearMoment[];
   insights: YearInsight[];
   trips: YearTripSummary[];
+  /** The one photograph that stands for the year, for every surface that shows
+   * one. See YearHero. */
+  hero: YearHero;
   /**
    * The year's route, as the animated map and the year card both draw it.
    * Exposed on the recap rather than only on the map slide because the card
@@ -865,43 +890,107 @@ function buildMoments(yearTrips: YearTrip[]): YearMoment[] {
 }
 
 /**
- * The image the recap opens on. A photograph elected into a trip's HERO slot
- * comes first, because that is the one question this picture asks and the hero
- * slot is the only direct answer to it. A year can hold several trips and so
- * several heroes; the earliest trip's wins, which is where the year started.
- * Otherwise a real photograph from the year, taken as early in it as one is
- * dated; otherwise the cover of its longest trip, which is an image somebody
- * (or Wikimedia) already chose as representative.
+ * One trip's hero: the single image that stands for it, resolved through the
+ * chain every other surface already uses.
  *
- * A stop pick is deliberately not a candidate: electing four photos to lead
- * one stop's story slides says nothing about which frame should open a year.
+ *   1. The photograph elected into its HERO slot. That is the one question this
+ *      picture asks, and the hero slot is the only direct answer to it.
+ *   2. The trip cover, which somebody already chose as representative of the
+ *      whole trip, and which is what the share card draws itself over.
+ *   3. Its earliest dated photograph of the year, then any photograph of it.
+ *
+ * A stop pick is deliberately not a candidate at any step: electing photos to
+ * lead one stop's story slides says nothing about which frame should stand for
+ * a whole trip, let alone a whole year.
+ *
+ * Steps 1 and 2 read the whole trip rather than the year's slice of it, and
+ * step 3 reads the slice. That is not an oversight: a hero and a cover are
+ * elections about a TRIP, and a trip that crossed new year is wholly in both
+ * years, so slicing them would drop somebody's deliberate choice on one side of
+ * midnight. A fallback photograph is a different claim ("something from this
+ * year"), so it stays inside the slice.
  */
-function heroImage(yearTrips: YearTrip[]): {
-  url: string | null;
-  thumbUrl: string | null;
-} {
-  for (const entry of yearTrips) {
-    const hero = heroPhoto(entry.photos);
-    if (hero) return { url: hero.url, thumbUrl: hero.thumbUrl };
+function tripHeroImage(entry: YearTrip): YearHero | null {
+  const elected = heroPhoto(entry.trip.photos);
+  if (elected) {
+    return {
+      url: elected.url,
+      thumbUrl: elected.thumbUrl,
+      source: "curated",
+      tripId: entry.trip.id,
+    };
   }
-  const photos = yearTrips.flatMap((entry) => entry.photos);
-  const dated = photos
+  if (entry.trip.coverUrl) {
+    return {
+      url: entry.trip.coverUrl,
+      thumbUrl: entry.trip.coverThumbUrl ?? entry.trip.coverUrl,
+      source: "cover",
+      tripId: entry.trip.id,
+    };
+  }
+  const dated = entry.photos
     .filter((photo) => dayOf(photo.dateTaken) !== null)
     .sort((a, b) =>
       (dayOf(a.dateTaken) ?? "").localeCompare(dayOf(b.dateTaken) ?? ""),
     );
-  const chosen =
-    dated[0] ?? photos.find((photo) => dayOf(photo.dateTaken) === null);
-  if (chosen) return { url: chosen.url, thumbUrl: chosen.thumbUrl };
-  let longest: YearTrip | null = null;
-  for (const entry of yearTrips) {
-    if (!entry.trip.coverUrl) continue;
-    if (!longest || entry.days > longest.days) longest = entry;
-  }
+  const fallback =
+    dated[0] ?? entry.photos.find((photo) => dayOf(photo.dateTaken) === null);
+  if (!fallback) return null;
   return {
-    url: longest?.trip.coverUrl ?? null,
-    thumbUrl: longest?.trip.coverThumbUrl ?? longest?.trip.coverUrl ?? null,
+    url: fallback.url,
+    thumbUrl: fallback.thumbUrl,
+    source: "photo",
+    tripId: entry.trip.id,
   };
+}
+
+const NO_HERO: YearHero = {
+  url: null,
+  thumbUrl: null,
+  source: null,
+  tripId: null,
+};
+
+/**
+ * The image the year opens on, and the one behind its scoreboard.
+ *
+ * It is one of the year's TRIPS' heroes, never a photograph picked out of the
+ * year at large. That distinction is the whole of the fix here: this used to
+ * take the earliest dated photograph of the entire year, so with every trip on
+ * automatic the year opened on whatever happened to have the earliest EXIF
+ * timestamp, which is a photograph of an airport as often as not, and electing
+ * a hero on any trip but the earliest one changed nothing at all.
+ *
+ * Which trip leads, in order:
+ *
+ *   1. A trip whose hero was CURATED beats one resting on a fallback. Somebody
+ *      answered this question deliberately, on a trip that is in this year, and
+ *      an automatic answer must not outrank a chosen one.
+ *   2. Then the trip that took up the most of the year (days already clipped to
+ *      it). The year is what a recap is about, and the journey that filled most
+ *      of it is the most defensible thing to open on. Sheer photo count would
+ *      reward a camera, and rating would reward one good afternoon.
+ *   3. Then the earliest, since yearTrips arrive in chronological order and a
+ *      tie has to break somewhere it can be stated.
+ */
+function heroImage(yearTrips: YearTrip[]): YearHero {
+  let best: { hero: YearHero; days: number } | null = null;
+  for (const entry of yearTrips) {
+    const hero = tripHeroImage(entry);
+    if (!hero) continue;
+    if (!best) {
+      best = { hero, days: entry.days };
+      continue;
+    }
+    const curated = hero.source === "curated";
+    const bestCurated = best.hero.source === "curated";
+    if (curated !== bestCurated) {
+      if (curated) best = { hero, days: entry.days };
+      continue;
+    }
+    if (entry.days > best.days) best = { hero, days: entry.days };
+  }
+  return best?.hero ?? NO_HERO;
 }
 
 function replayStops(
@@ -983,7 +1072,7 @@ function yearBucket(
 function buildScoreboard(
   stats: YearStats,
   label: string,
-  hero: { url: string | null; thumbUrl: string | null },
+  hero: YearHero,
 ): YearScoreboardSlide | null {
   const candidates: YearScoreLead[] = [];
   if (stats.distanceKm > 0) {
@@ -1283,6 +1372,7 @@ export function buildYearRecap(
     moments,
     insights,
     trips,
+    hero,
     mapStops: stops,
     slides,
   };

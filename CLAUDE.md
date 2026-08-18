@@ -448,9 +448,42 @@ Three rules, and everything in the file follows from them:
   at the current year, so the picker can never lead to an empty recap. The
   closing slide is the one place planned trips appear, and it is explicitly
   about what is next.
+- **Every year is named on the way in, not only inside the recap.** The picker
+  has always existed and nothing outside said so, so the archive was invisible:
+  the entry point opened the newest year and that was all anybody could see.
+  `YearRecapLauncher` names them now. The `banner` variant (dashboard, /demo,
+  /share) puts the newest year on the card at full size with its numbers and
+  lists the rest as chips under it, all of them, wrapping, because a year chip
+  is small and hiding one defeats the point. The `button` variant (stats page,
+  on a header row with other actions) is a split button: the newest year plus a
+  caret onto the same list, since chips would crowd that line. Inside the recap
+  the trigger carries the caret and an "N more" count, because a bare label read
+  as a caption rather than a control. Entry is still one tap for the obvious
+  year on every surface.
 - **Nothing is padded.** Every slide past the opener has a condition and a thin
   year simply produces fewer slides. There are no zero tiles on the scoreboard,
   no moments block without a rating, and no insight invented to fill a category.
+
+**The year's photograph is one of its TRIPS' heroes, resolved once.**
+`heroImage` asks each year-trip for its hero through the chain every other
+surface uses (`tripHeroImage`: the curated `hero` slot, then the trip cover,
+then its earliest dated photograph of the year) and picks between those. It
+used to take the earliest dated photograph of the whole year, flat, so with
+every trip on automatic the year opened on whatever carried the earliest EXIF
+timestamp, and electing a hero on any trip but the earliest changed nothing.
+
+The lead trip is **the curated one over an automatic one** (somebody answered
+this question deliberately), then **the trip that took up most of the year**
+(days already clipped to it; photo count would reward a camera and rating one
+good afternoon), then the earliest. Steps 1 and 2 of the chain read the whole
+trip rather than the year's slice, because a hero and a cover are elections
+about a TRIP and a trip that crossed new year is wholly in both years; the
+photograph fallback stays inside the slice, since it is a claim about the year.
+
+The answer is carried on `YearRecap.hero` (`YearHero`, with a `source` saying
+which step of the chain answered), and every surface that shows a photograph of
+the year reads that one field: the opening slide and the scoreboard backdrop.
+The year CARD is not in that list on purpose, because it leads with the map.
 
 **A moment shows a photograph of the experience it names, or says it does
 not.** `buildMoments` filters on `StoryPhoto.experienceId`, which is why that
@@ -586,17 +619,22 @@ else follows:
   are exactly three, and `SLOT_CAPACITY` is their capacity:
   - **Trip hero (1)**: `photos.featured_slot = 'hero'`, rank 1. The recap's
     opening frame and the share card's backdrop.
-  - **Stop photos (8 per destination)**: `photos.featured_slot = 'stop'`,
-    ranked **within the destination**. The photos that lead that stop's story
-    slides. Eight, not the four one slide draws, because the picks are spread
-    **across** the stop's days (see below), so the slot's capacity is a
-    statement about the stay and `SLIDE_PHOTO_CAP` is the one about a slide.
-    A slot is one destination ROW, so a trip that returns to a city has two of
-    them, each with its own days and its own candidates (`StopPhotoSlot`
-    carries the stay's `dateLabel`, which is what tells two slots of the same
-    name apart). What each slot offers comes from `photosByStop`, the same
-    placement the slides use, so a photograph can never be elected into a slot
-    it does not appear in.
+  - **Stop photos (`stopPhotoCapacity(dayslides)` per destination)**:
+    `photos.featured_slot = 'stop'`, ranked **within the destination**. The
+    photos that lead that stop's story slides. Its capacity is **derived, not
+    a constant**: a pick is placed on a day slide and a slide draws
+    `SLIDE_PHOTO_CAP`, so a stop with n day slides seats `n * 4` and a stop
+    with none (one stop slide) seats 4. It replaced a flat 8, which was a guess
+    at "roughly one a day for the stay most people curate": two full slides on
+    a two day stop, half of them unplaceable, and a quarter of the seats on a
+    fortnight in one city. The capacity is computed once in `stopSlots` and
+    carried on `StopPhotoSlot.capacity`, so the panel enforces the number the
+    story honours. A slot is one destination ROW, so a trip that returns to a
+    city has two of them, each with its own days and its own candidates
+    (`StopPhotoSlot` carries the stay's `dateLabel`, which is what tells two
+    slots of the same name apart). What each slot offers comes from
+    `photosByStop`, the same placement the slides use, so a photograph can
+    never be elected into a slot it does not appear in.
   - **Highlights (3, ordered)**: `experiences.featured_rank`, ranked across the
     trip. The share card's list, the story's closing, the recap's moments, and
     the trip page's own "best of" block.
@@ -679,10 +717,21 @@ grid pages at `DAY_PAGE_SIZE` (8) rather than `PAGE_SIZE` (24). Five days at
 eight is forty tiles against a flat page's twenty-four, and the point of the
 grouping is that a traveller picks one per day rather than scrolling a gallery.
 
-`MAX_FEATURED_HONORED` is 8: past it a rank is simply not honoured and falls
-back into the normal order. It is the model's ceiling and no slot capacity may
-exceed it (`check-curation` asserts this), or the panel could elect a rank
-nothing reads.
+`MAX_FEATURED_HONORED` is 8 and bounds **experience** ranks, which are scoped
+to a whole trip and have no per-surface seat count of their own; past it a rank
+is not honoured and falls back into the normal order. Neither fixed slot
+capacity may exceed it (`check-curation` asserts this).
+
+It deliberately does **not** bound a stop's photo ranks. `compareStopPhotos`
+honours every rank, and the bound is applied where the number is actually
+known: `curatedStopPhotos(photos, daySlides)` slices to `stopPhotoCapacity`,
+and the panel refuses a pick past `slot.capacity`. A flat ceiling in the
+comparator silently unranked picks the panel had just accepted, which on a ten
+day stop meant offering forty seats and honouring eight. `setStopPhotosAction`
+does not slice either: a stop's capacity needs the folded trip, which is a
+query per save to rebuild, so the server's bound is the candidate set and
+anything past the capacity falls back on read exactly as an over-long list
+always has.
 
 **The panel is bounded, because Radix mounts a dialog's whole subtree in one
 synchronous commit.** Every photo on the trip is a hero candidate and every
@@ -1203,8 +1252,8 @@ no timezone chip. Nothing in the app prompts the user to set one.
 Run `npm run build` to verify type correctness across the whole project (TypeScript strict mode). Run `npm run lint` for ESLint. There is no automated test suite, with the exceptions below, all pure, none needing a database or a dev server:
 
 - `npm run check-stays` asserts day-to-stay resolution: the boundary rule, gaps, nesting, a place visited twice in one trip (its own days, photos, journal, and curation slot, never merged with the first visit), a stored `start_date` that predates the first stop, an undated stop in a dated trip, and a single-stay trip left unchanged. Re-run it after any change to `lib/stays.ts`, `placeTripContent`, or `buildStorySlides`.
-- `npm run check-year-recap` asserts the Year in Travel derivation (year list, slicing across new year, planned exclusion, sparse years, in-progress labelling, insight selection, and that a trip slide names every stop rather than "and N more"). Re-run it after any change to `lib/year-recap.ts`.
-- `npm run check-curation` asserts the curation model end to end (rank order, the cap, the photo slots and their backwards compatibility, the three slots' contents and their automatic answers, the spread of a stop's picks across its day slides for equal, fewer, and more picks than days, the picker's day grouping and the per-day outcome each heading states, that a day with picks shows only those and a day without falls back to its own photos and then to the stop cover, that a moment shows its own experience's photograph and marks a place fallback as one, that the story opener names every stop, and what the story, the share card, and the recap select), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts`, `lib/curation-slots.ts`, or a selector that consumes them.
+- `npm run check-year-recap` asserts the Year in Travel derivation (year list, slicing across new year, planned exclusion, sparse years, in-progress labelling, insight selection, that a trip slide names every stop rather than "and N more", and that the year's photograph is a trip hero: the whole resolution chain, a curated hero outranking a longer trip's automatic one, a stop pick never opening a year, and the opener and the scoreboard reading the same field). Re-run it after any change to `lib/year-recap.ts`.
+- `npm run check-curation` asserts the curation model end to end (rank order, the cap, the photo slots and their backwards compatibility, the three slots' contents and their automatic answers, the derived per-stop capacity on a one day, ten day, and undated stop with a selection up to the maximum on each, the spread of a stop's picks across its day slides for equal, fewer, and more picks than days, the picker's day grouping and the per-day outcome each heading states, that a day with picks shows only those and a day without falls back to its own photos and then to the stop cover, that a moment shows its own experience's photograph and marks a place fallback as one, that the story opener names every stop, and what the story, the share card, and the recap select), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts`, `lib/curation-slots.ts`, or a selector that consumes them.
 - `npm run check-year-map-playback` asserts the recap map slide's clock: that 1x, 2x, and 4x all reach the end of a real multi-trip timeline, that changing speed mid-flight rescales the remaining time rather than jumping or truncating, that skip lands on the finished year, and that rebuilding the animation mid-playback resumes instead of restarting. Re-run it after any change to `advancePlayback` or to the map slide's effect wiring.
 
 Interactive features including the globe, photo lightbox, geocoding typeahead, and experience dialog require manual browser testing.

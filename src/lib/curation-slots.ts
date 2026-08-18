@@ -21,12 +21,12 @@ import {
   compareCurated,
   distributeStopPhotos,
   heroPhoto,
-  stopPhotoRank,
-  stopPhotosFirst,
+  stopPhotoCapacity,
 } from "@/lib/curation";
 import { formatDateRange } from "@/lib/format";
 import {
   buildStorySlides,
+  curatedStopPhotos,
   photosByStop,
   type StoryDestination,
   type StoryExperience,
@@ -99,6 +99,13 @@ export interface StopPhotoSlot {
    * city shows two slots with the same name; the dates are what tells the
    * traveller which visit they are curating. */
   dateLabel: string | null;
+  /**
+   * How many photographs this slot holds, derived from the stop's own day
+   * slides (see stopPhotoCapacity). Carried on the slot rather than recomputed
+   * by the panel, so what the picker enforces and what the story honours are
+   * one number.
+   */
+  capacity: number;
   /** The elected photos in slot order. Empty when the slot is on automatic. */
   chosen: SlotPhoto[];
   /** The photos the story would lead with anyway. */
@@ -164,10 +171,11 @@ function storyOrder(photos: StoryPhoto[]): StoryPhoto[] {
 function heroSlot(trip: StoryTrip): HeroSlot {
   const chosen = heroPhoto(trip.photos);
   const ordered = storyOrder(trip.photos);
-  // The two consumers fall back differently and the panel says so rather than
-  // picking one and hoping: the card reaches for the trip cover, the recap for
-  // the earliest photograph of the year. The preview shows the cover, because
-  // that is the one an exported image would actually print.
+  // Both consumers now fall back the same way (the trip cover, then the
+  // earliest photograph), so the panel states one answer rather than two. It
+  // used to read "the card reaches for the trip cover, the recap for your
+  // earliest photo", which was a documented divergence: the recap picked the
+  // earliest photograph of the whole YEAR and could not be shown here at all.
   const coverPhoto = trip.coverUrl
     ? (trip.photos.find((photo) => photo.url === trip.coverUrl) ?? null)
     : null;
@@ -176,7 +184,7 @@ function heroSlot(trip: StoryTrip): HeroSlot {
     chosen: chosen ? toSlotPhoto(chosen, 1) : null,
     automatic: automatic ? toSlotPhoto(automatic, null) : null,
     automaticReason: coverPhoto
-      ? "The trip cover backs the share card, and your earliest photo opens the recap."
+      ? "The trip cover, which backs the share card and stands for this trip in the recap."
       : automatic
         ? "Your earliest photo of the trip."
         : "No photograph yet, so the card draws its own gradient.",
@@ -201,12 +209,13 @@ function stopSlots(trip: StoryTrip): StopPhotoSlot[] {
   for (const destination of trip.destinations) {
     const photos = byDestination.get(destination.id) ?? [];
     if (photos.length === 0) continue;
-    const chosen = stopPhotosFirst(photos)
-      .filter((photo) => stopPhotoRank(photo) !== null)
-      .slice(0, SLOT_CAPACITY.stopPhotos);
     const ordered = storyOrder(photos);
     const dates = dayList.get(destination.id) ?? [];
     const dayIndex = new Set(dates.map((day) => day.date));
+    // The same call the story makes, so the panel can never show a pick as
+    // chosen that the slides have already dropped for want of a seat.
+    const capacity = stopPhotoCapacity(dates.length);
+    const chosen = curatedStopPhotos(photos, dates.length);
 
     // Group the candidates the way the slides do: a photo dated to one of this
     // stop's own day slides belongs to that day, and everything else is spare.
@@ -223,12 +232,6 @@ function stopSlots(trip: StoryTrip): StopPhotoSlot[] {
       spare.push(toSlotPhoto(photo, null));
     }
 
-    // The automatic answer is what the story leads with when nothing is
-    // elected: the first photos in date order, one slide's worth per day.
-    const automaticCap = Math.max(
-      SLIDE_PHOTO_CAP,
-      Math.min(SLOT_CAPACITY.stopPhotos, dates.length),
-    );
     slots.push({
       destinationId: destination.id,
       destinationName: destination.name,
@@ -236,9 +239,12 @@ function stopSlots(trip: StoryTrip): StopPhotoSlot[] {
         destination.arrivalDate || destination.departureDate
           ? formatDateRange(destination.arrivalDate, destination.departureDate)
           : null,
+      capacity,
       chosen: chosen.map((photo, index) => toSlotPhoto(photo, index + 1)),
+      // The automatic answer is what the story leads with when nothing is
+      // elected: the first photos in date order, up to the seats this stop has.
       automatic: ordered
-        .slice(0, automaticCap)
+        .slice(0, capacity)
         .map((photo) => toSlotPhoto(photo, null)),
       candidates: ordered.map((photo) => toSlotPhoto(photo, null)),
       days: dates.map((day) => ({
