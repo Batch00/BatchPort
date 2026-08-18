@@ -50,6 +50,7 @@ import {
   orthographicProjection,
 } from "@/lib/poster/projection";
 import { posterTheme } from "@/lib/poster/theme";
+import { arcFamily } from "@/lib/transport";
 
 export type ShareCardRatio = "square" | "story";
 
@@ -187,6 +188,10 @@ export function shareCardFromStoryTrip(trip: StoryTrip): ShareCardData {
         located[i - 1].latitude as number,
       ],
       to: [located[i].longitude as number, located[i].latitude as number],
+      // The mode is read off the ARRIVING stop, which is where a leg lives.
+      // An unrecorded hop resolves to air, so an unannotated trip draws the
+      // uniform blue route it always did.
+      family: arcFamily(located[i].transportMode ?? null),
     });
   }
 

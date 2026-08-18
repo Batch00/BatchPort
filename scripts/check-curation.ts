@@ -32,7 +32,9 @@ import {
   type PhotoSlot,
 } from "../src/lib/curation";
 import {
+  applyCurationSelection,
   buildCurationSlots,
+  hasCurationSelection,
   hasCurationSlots,
   planStopSelection,
   summarizeStopSelection,
@@ -1324,6 +1326,139 @@ function trip(
     "a ten day stop with nothing elected is untouched",
     dayPhotoIds(tenPlain.built, tenPlain.stopId).map((ids) => ids.length),
     Array.from({ length: 10 }, () => 1),
+  );
+}
+
+// --- Applying a selection the server has not confirmed yet -------------------
+//
+// The panel saves immediately, but "saved" and "back in the props" are two
+// different moments, and the story preview has to show the composition the
+// traveller is looking at rather than the one before their last tap. So the
+// panel applies its live selection to the trip and previews that.
+//
+// The round trip is the check that matters: apply a selection, rebuild the
+// slots, and get that selection back. It is what stops applyCurationSelection
+// drifting from what the three server actions actually write.
+
+{
+  const stopId = "SelStop";
+  const other = "SelStop2";
+  const base = trip("Selection", {
+    start: "2024-03-01",
+    end: "2024-03-04",
+    coverUrl: "https://example.test/s1.jpg",
+    destinations: [
+      stop(stopId, {
+        arrival: "2024-03-01",
+        departure: "2024-03-02",
+        experiences: [
+          experience("Market", { rating: 6 }),
+          experience("Cathedral", { rating: 9 }),
+          experience("Bridge", { rating: 8 }),
+        ],
+      }),
+      stop(other, { arrival: "2024-03-03", departure: "2024-03-04" }),
+    ],
+    photos: [
+      photo("s1", { dateTaken: "2024-03-01", destinationId: stopId }),
+      photo("s2", { dateTaken: "2024-03-01", destinationId: stopId }),
+      photo("s3", { dateTaken: "2024-03-02", destinationId: stopId }),
+      photo("o1", { dateTaken: "2024-03-03", destinationId: other }),
+    ],
+  });
+
+  // Nothing selected is nothing applied, and deliberately the SAME object: an
+  // untouched panel previews the real story rather than a reconstruction of it.
+  check("an empty selection is not a selection", !hasCurationSelection({}));
+  check(
+    "and applying it returns the trip untouched",
+    applyCurationSelection(base, {}) === base,
+  );
+
+  const experienceIds = base.destinations[0].experiences.map((item) => item.id);
+  const applied = applyCurationSelection(base, {
+    heroId: "s3",
+    stopPhotoIds: { [stopId]: ["s2", "s1"] },
+    highlightIds: [experienceIds[0], experienceIds[2]],
+  });
+  const appliedSlots = buildCurationSlots(applied);
+
+  equal("the hero comes back as chosen", appliedSlots.hero.chosen?.id, "s3");
+  equal(
+    "the stop's picks come back in the order they were put in",
+    appliedSlots.stops
+      .find((slot) => slot.destinationId === stopId)
+      ?.chosen.map((item) => [item.id, item.position]),
+    [
+      ["s2", 1],
+      ["s1", 2],
+    ],
+  );
+  equal(
+    "the highlights come back in the order they were put in",
+    appliedSlots.highlights.chosen.map((item) => item.name),
+    ["Market", "Bridge"],
+  );
+
+  // The other stop was not in the selection, so nothing of its was touched.
+  equal(
+    "a stop the selection did not name is left alone",
+    appliedSlots.stops.find((slot) => slot.destinationId === other)?.chosen
+      .length,
+    0,
+  );
+
+  // And the surfaces read it, which is the whole point of previewing it.
+  const previewDay = buildStorySlides(applied).find(
+    (slide) => slide.kind === "day" && slide.destination?.id === stopId,
+  );
+  // Both picks are dated this day, so both lead it, in the order they were
+  // put in rather than the order the gallery holds them (s1 before s2). That
+  // ordering is the whole reason the preview has to read the live selection.
+  equal(
+    "the story slides draw the unsaved picks, in the chosen order",
+    previewDay && previewDay.kind === "day"
+      ? previewDay.photos.map((item) => item.id)
+      : [],
+    ["s2", "s1"],
+  );
+  equal(
+    "and the share card is backed by the unsaved hero",
+    shareCardFromStoryTrip(applied).coverUrl,
+    "https://example.test/s3.jpg",
+  );
+
+  // Clearing back to automatic is the same call with nothing in it, exactly as
+  // it is against the server.
+  const cleared = buildCurationSlots(
+    applyCurationSelection(applied, {
+      heroId: null,
+      stopPhotoIds: { [stopId]: [] },
+      highlightIds: [],
+    }),
+  );
+  check(
+    "clearing every slot returns the trip to automatic",
+    cleared.untouched &&
+      cleared.hero.chosen === null &&
+      cleared.highlights.chosen.length === 0,
+  );
+
+  // A hero elected out of a stop's own photographs survives that stop's slot
+  // being rewritten, because the two are independent elections. This mirrors
+  // setStopPhotosAction, which clears only `featured_slot` null or 'stop'.
+  const heroThenStop = applyCurationSelection(
+    applyCurationSelection(base, { heroId: "s1" }),
+    { stopPhotoIds: { [stopId]: ["s2"] } },
+  );
+  const bothSlots = buildCurationSlots(heroThenStop);
+  equal("the hero survives its stop's slot being set", bothSlots.hero.chosen?.id, "s1");
+  equal(
+    "and is not also counted as one of that stop's picks",
+    bothSlots.stops
+      .find((slot) => slot.destinationId === stopId)
+      ?.chosen.map((item) => item.id),
+    ["s2"],
   );
 }
 

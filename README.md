@@ -170,6 +170,12 @@ It is built around the three **slots** where a curated choice actually shows up,
 
 Every picker shows the candidates together, with a **position badge** on the ones you have chosen, so first and second are distinguishable rather than both just "picked". Multi-item slots reorder by dragging or with the arrow buttons beside each one. Clearing a slot puts it back on automatic. Choices save as you make them.
 
+Photos are shown at their real shape rather than cropped into a grid of identical squares, because shape is most of what you are choosing between: a portrait phone photo fills a story slide, and a wide landscape shot on the same slide is shown whole over a blurred blow-up of itself. Seeing which is which before you pick is the point. Nothing extra is downloaded to do it, and the picks you have made keep the same shapes in the row above, so the row reads as the same photographs.
+
+Every candidate also carries a preview control that shows the photo exactly as a slide will draw it, at the shape a slide has on the screen you are using: filled edge to edge, or shown whole with bars, whichever it will actually be. It is the story's own image component doing the work rather than an imitation of it, so what the preview shows is what the slide does. The ones that will get bars are marked on the tile as well, so a gallery of forty does not have to be opened one at a time.
+
+**Preview the story.** Composition problems are easiest to see in sequence, so the panel opens the real story, full screen, reflecting the choices you have just made rather than the ones the server last confirmed. Closing it comes straight back to the panel with everything where you left it, so the loop is adjust, watch, adjust.
+
 - **Nothing curated means nothing changes.** Every surface falls back to exactly what it did before curation existed. An uncurated trip still looks right with zero effort, which is the point, and it is the path almost every trip is on
 - The photo galleries and the experience rows show the **result** (a position number, or a "Hero" mark) and offer no editing of their own. One mechanism, so nothing can disagree with anything
 - A curated experience still needs a rating to appear in a starred highlights row. Curation is a statement about order, not a substitute for rating something, and the picker says so on the row rather than hiding it
@@ -189,7 +195,7 @@ A full-screen, paced recap of one year, opened from a card on the dashboard, a b
 - **The closing slide names places, it does not score them.** A bucket list is interesting for what is on it, so the slide shows the places: the ones you ticked off during this year first, with the trip that did it, then the top few still to go, each with its photograph (the same one the bucket cards show, from the same cached lookup). The progress bar is underneath as a footnote rather than the whole block, and a list with nothing on it produces no block at all.
 - **Pacing.** Each slide's pieces rise and fade in on a short stagger and the numbers count up, all of it off under `prefers-reduced-motion`. Advancing is always yours: swipe, arrow keys, click zones, or the buttons.
 
-**The year card.** A shareable image of the year through the same pipeline as the trip share cards: square and 9:16, both 2160px on the short edge. Where a trip card leads with a photograph, the year card leads with the map, because a year has no single cover and picking one trip's photo to stand for twelve months would be a claim the data does not support. The map is framed to the year rather than to the planet, so a year spent in Iceland fills the panel instead of scattering four dots across an empty ocean. Under it: the countries, the headline numbers, and the year's best-rated moments. Offered from the recap's closing slide, and read-only like everything else here, so the demo and share surfaces can generate one too.
+**The year card.** A shareable image of the year through the same pipeline as the trip share cards: square and 9:16, both 2160px on the short edge. Where a trip card leads with a photograph, the year card leads with the map, because a year has no single cover and picking one trip's photo to stand for twelve months would be a claim the data does not support. The map is framed to the year rather than to the planet, so a year spent in Iceland fills the panel instead of scattering four dots across an empty ocean. Its routes are drawn in the same three transport languages the globe uses, so a year of trains looks like a year of trains. Under it: the countries, the headline numbers, and the year's best-rated moments. Offered from the recap's closing slide, and read-only like everything else here, so the demo and share surfaces can generate one too.
 
 ### On This Day
 
@@ -225,7 +231,7 @@ Output is a PNG at 300 DPI (4800 x 3600 px), or a PDF that states the physical p
 
 **Per-trip share cards.** A "Share" action next to the story, on the trip page, on the read-only demo and share surfaces, and on the story's closing slide. The card is the trip's cover photograph with the trip name and dates, the countries it crossed, the numbers (stops, countries, distance), the trip's best-rated experiences, and a small circular map of the route. Square for a feed, 9:16 for a story, both at 2160px on the short edge. Download always; where the browser supports sharing files, the OS share sheet as well.
 
-The route map is an inset, not an overlay: a little under a third of the card's width, pushed into the top-right corner on a tighter margin than the text so it reads as anchored there rather than floating near it, with a soft drop shadow so it sits on the picture rather than looking stuck to it. It is framed to the trip rather than to the planet, so a week in Europe fills the disc with the five countries it actually crossed instead of scattering five dots across a hemisphere; a trip too wide to fit falls back to the full hemisphere, and a trip in one city stops zooming before the coastline disappears. The title knows where the inset is, and on the rare card where a long name would run under it the name takes the column beside it instead.
+The route map is an inset, not an overlay: a little under a third of the card's width, pushed into the top-right corner on a tighter margin than the text so it reads as anchored there rather than floating near it, with a soft drop shadow so it sits on the picture rather than looking stuck to it. Its arcs carry the same styling the globe gives them, so a ferry hop reads as a ferry hop on the card too. It is framed to the trip rather than to the planet, so a week in Europe fills the disc with the five countries it actually crossed instead of scattering five dots across a hemisphere; a trip too wide to fit falls back to the full hemisphere, and a trip in one city stops zooming before the coastline disappears. The title knows where the inset is, and on the rare card where a long name would run under it the name takes the column beside it instead.
 
 The places line names countries, not cities, and never truncates. Countries are fewer and say more ("Netherlands, Germany, Czechia, Austria, Hungary" beats three city names and a "+8"). Seven of them fit on one line, because every size is tried on a single line before a second one is allowed, and where a wrap is genuinely needed the two lines are balanced by width rather than packing the first and orphaning whatever is left. A single-country trip shows its stops instead, since the country name alone would say almost nothing.
 
@@ -403,6 +409,12 @@ npm run check-year-recap
 # including the uncurated path on every one of them.
 # Pure functions against fixtures, no database and no dev server.
 npm run check-curation
+
+# Deterministic checks for transport arc families on the drawn maps: the mode
+# to family mapping and its dash patterns, that both exported cards style each
+# hop by the mode on its arriving stop, that the poster stays uniform, and that
+# an unannotated trip or year draws exactly the blue route it always did.
+npm run check-map-arcs
 
 # Deterministic checks for day-to-stay resolution: which stop owns a day, the
 # boundary between back-to-back stays, gaps and nesting, and above all a trip
@@ -661,6 +673,7 @@ scripts/
   generate-mock-globe.ts         Regenerates src/lib/mock-travel-data.ts, the landing hero's static fallback
   check-year-recap.ts            Asserts the Year in Travel slicing and edge cases against fixtures
   check-curation.ts              Asserts the curation model, its slots, and every surface that selects from them
+  check-map-arcs.ts              Asserts transport arc families on the exported cards, and the poster's uniform arcs
   check-stays.ts                 Asserts which stay owns a day, including a trip that visits one city twice
   check-year-map-playback.ts     Asserts the recap map slide's clock: every speed, mid-flight changes, skip, rebuilds
   backfill-photos.ts             Backfills Wikimedia cover photos for existing destinations

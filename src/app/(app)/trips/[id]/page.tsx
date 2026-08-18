@@ -254,6 +254,11 @@ export default async function TripDetailPage({
         const cover = destinationCovers.get(destination.id);
         return cover ? getPhotoUrl(cover.photo, "thumb") : null;
       })(),
+      // How this stop was reached, so the share card's route draws the same
+      // transport families the globe does. Null before the migration runs, and
+      // on any hop nobody annotated, which draws as air exactly as it always
+      // has.
+      transportMode: transportLegs.get(destination.id)?.mode ?? null,
       // Planned ideas are not part of the record of what happened.
       experiences: destination.experiences
         .filter((experience) => experience.status !== "planned")

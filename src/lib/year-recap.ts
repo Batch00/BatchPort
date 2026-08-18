@@ -1016,7 +1016,12 @@ function replayStops(
         lng: stop.longitude,
         arrivalDate: stop.arrivalDate,
         planned: false,
-        transportMode: transportModes[stop.id] ?? null,
+        // The explicit record first, since a caller passing one is being
+        // specific, then the mode the stop carries itself. Both exist because
+        // the launcher already held the trip's transport rows before a
+        // StoryDestination could carry them, and a surface that assembles a
+        // StoryTrip directly (the trip page) has them on the stop instead.
+        transportMode: transportModes[stop.id] ?? stop.transportMode ?? null,
       });
     });
   }

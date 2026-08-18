@@ -38,7 +38,65 @@ import { cn } from "@/lib/utils";
 // layer doing a second job, so contain mode costs no extra request.
 
 /** Past this much disagreement between the two aspect ratios, stop cropping. */
-const CONTAIN_THRESHOLD = 1.8;
+export const CONTAIN_THRESHOLD = 1.8;
+
+/**
+ * The rule above, as a function, so nothing has to restate it.
+ *
+ * SlideImage calls it to decide what to render. The curation picker calls it to
+ * mark the candidates that will be letterboxed, without rendering anything. A
+ * second copy of `Math.max(a / b, b / a) > 1.8` living in the picker is exactly
+ * the drift this exists to prevent: the marker would go on saying "bars" for a
+ * week after somebody moved the threshold.
+ *
+ * Null for either aspect means "not measured yet", and the answer is false: the
+ * common case is cover, and settling into contain afterwards is a far quieter
+ * change than the reverse.
+ */
+export function willContain(
+  frameAspect: number | null,
+  imageAspect: number | null,
+): boolean {
+  if (frameAspect === null || imageAspect === null) return false;
+  if (!(frameAspect > 0) || !(imageAspect > 0)) return false;
+  return (
+    Math.max(frameAspect / imageAspect, imageAspect / frameAspect) >
+    CONTAIN_THRESHOLD
+  );
+}
+
+/**
+ * The shape a story or recap slide has on THIS device: the viewport, because
+ * both surfaces are `fixed inset-0`.
+ *
+ * The picker previews against it rather than against a fixed 16:9 or a phone
+ * shape, because the story is a live surface each viewer opens at their own
+ * size, not an exported image with one baked ratio. Previewing a shape the
+ * person curating will never see would be the "approximation somebody trusts"
+ * problem wearing a different hat.
+ */
+export function useSlideFrameAspect(): number | null {
+  const [aspect, setAspect] = useState<number | null>(null);
+  useEffect(() => {
+    const measure = () => {
+      const { innerWidth, innerHeight } = window;
+      if (innerWidth > 0 && innerHeight > 0) {
+        setAspect((current) => {
+          const next = innerWidth / innerHeight;
+          // Rounded before comparing, so a mobile browser's address bar
+          // sliding away does not re-render every tile in the picker.
+          return current !== null && Math.abs(current - next) < 0.01
+            ? current
+            : next;
+        });
+      }
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  return aspect;
+}
 
 export function SlideImage({
   src,
@@ -98,12 +156,7 @@ export function SlideImage({
 
   // Until both are known, assume cover: it is the common case, and switching
   // to contain after the fact is a far quieter change than the reverse.
-  const contain =
-    allowContain &&
-    frameAspect !== null &&
-    imageAspect !== null &&
-    Math.max(frameAspect / imageAspect, imageAspect / frameAspect) >
-      CONTAIN_THRESHOLD;
+  const contain = allowContain && willContain(frameAspect, imageAspect);
 
   const placeholder = thumbSrc && thumbSrc !== src ? thumbSrc : null;
 

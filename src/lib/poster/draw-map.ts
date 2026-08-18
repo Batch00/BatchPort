@@ -13,8 +13,14 @@ import {
   traceOutline,
   tracePath,
   type MapFrame,
+  type UnitPoint,
 } from "@/lib/poster/projection";
 import type { PosterTheme } from "@/lib/poster/theme";
+import {
+  GROUND_ARC_COLOR,
+  SEA_ARC_COLOR,
+  type ArcFamily,
+} from "@/lib/transport";
 
 export interface MapPin {
   lat: number;
@@ -24,6 +30,37 @@ export interface MapPin {
 export interface MapLeg {
   from: [number, number];
   to: [number, number];
+  /**
+   * How the hop was travelled, which decides the arc's colour and dash. Absent
+   * means "air", which is the styling every arc had before transport legs
+   * existed: a caller that knows nothing about modes (the poster) passes
+   * nothing and draws exactly what it always did.
+   */
+  family?: ArcFamily;
+}
+
+/**
+ * The colour and dash each family draws in, matching the globe's own three
+ * layers: air solid brand blue with a glow, ground violet dashed, sea cyan
+ * dotted.
+ *
+ * They live here rather than in each painter because there are now three canvas
+ * surfaces drawing the same three families (the year card, the trip share card,
+ * and the recap's animated map), and three copies of "violet, dashed" is three
+ * places for them to drift apart.
+ */
+export function familyArcColor(family: ArcFamily, theme: PosterTheme): string {
+  if (family === "ground") return GROUND_ARC_COLOR;
+  if (family === "sea") return SEA_ARC_COLOR;
+  return theme.arc;
+}
+
+/** Scaled to the line width, so the pattern reads the same on a 400px inset
+ * and a 3600px print. */
+export function familyArcDash(family: ArcFamily, width: number): number[] {
+  if (family === "ground") return [width * 2.6, width * 1.8];
+  if (family === "sea") return [0, width * 2.2];
+  return [];
 }
 
 export interface DrawMapOptions {
@@ -154,28 +191,50 @@ export function drawMap(
     );
   }
 
-  // 4. Arcs. The glow is a second wider stroke rather than a shadowBlur:
-  // blurring a path across a 39 megapixel canvas costs seconds, and a
-  // translucent underlay is indistinguishable at print size.
+  // 4. Arcs, one pass per transport family. Three passes rather than one for
+  // the same reason the globe uses three layers and the recap's animated map
+  // makes three passes: a dash pattern is a property of the stroke, not of the
+  // path, so families cannot share one.
+  //
+  // A caller that sets no family on any leg produces exactly one pass, undashed
+  // and glowed, which is byte for byte what this drew before families existed.
+  //
+  // The glow is a second wider stroke rather than a shadowBlur: blurring a path
+  // across a 39 megapixel canvas costs seconds, and a translucent underlay is
+  // indistinguishable at print size. Only air carries one; a dashed line under
+  // a continuous halo reads as a solid line with a bite taken out of it.
   if (legs.length > 0) {
-    const runs = legs.flatMap((leg) =>
-      projectPath(frame, greatCirclePoints(leg.from, leg.to, ARC_SEGMENTS)),
-    );
     const arcWidth = Math.max(0.7, unit * 0.0013 * lineScale);
-    if (theme.arcGlow) {
+    const byFamily = new Map<ArcFamily, UnitPoint[][]>();
+    for (const leg of legs) {
+      const family = leg.family ?? "air";
+      const runs = byFamily.get(family) ?? [];
+      runs.push(
+        ...projectPath(frame, greatCirclePoints(leg.from, leg.to, ARC_SEGMENTS)),
+      );
+      byFamily.set(family, runs);
+    }
+
+    for (const [family, runs] of byFamily) {
+      if (runs.length === 0) continue;
+      if (family === "air" && theme.arcGlow) {
+        context.beginPath();
+        tracePath(context, runs, false);
+        context.setLineDash([]);
+        context.strokeStyle = theme.arcGlow;
+        // Tied to the arc rather than to the unit, so the halo stays in
+        // proportion to the line it is haloing at any line scale.
+        context.lineWidth = arcWidth * 3.6;
+        context.stroke();
+      }
       context.beginPath();
       tracePath(context, runs, false);
-      context.strokeStyle = theme.arcGlow;
-      // Tied to the arc rather than to the unit, so the halo stays in
-      // proportion to the line it is haloing at any line scale.
-      context.lineWidth = arcWidth * 3.6;
+      context.setLineDash(familyArcDash(family, arcWidth));
+      context.strokeStyle = familyArcColor(family, theme);
+      context.lineWidth = arcWidth;
       context.stroke();
+      context.setLineDash([]);
     }
-    context.beginPath();
-    tracePath(context, runs, false);
-    context.strokeStyle = theme.arc;
-    context.lineWidth = arcWidth;
-    context.stroke();
   }
 
   // 5. Pins last: they are the point of the whole picture.

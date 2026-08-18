@@ -43,6 +43,7 @@ import {
   type ShareCardRatio,
   type ShareCardRatioInfo,
 } from "@/lib/poster/share-card";
+import { arcFamily } from "@/lib/transport";
 import type { YearRecap } from "@/lib/year-recap";
 
 export interface YearCardData {
@@ -73,6 +74,13 @@ export function yearCardFromRecap(recap: YearRecap): YearCardData {
   // rule the globe's arcs follow. Grouping rather than zipping the flat list
   // is what stops a line being drawn from the end of one trip to the start of
   // the next.
+  //
+  // Each carries its transport family, so the card draws the same three arc
+  // languages as the globe, the recap's animated map slide, and the trip share
+  // card: air solid blue, ground violet dashed, sea cyan dotted. There is no
+  // legend and there is no room for one, which is fine: the families read as
+  // texture rather than as a code to look up, and the arriving stop's mode is
+  // where a leg lives, so an unannotated year is uniform blue as before.
   const legs: MapLeg[] = [];
   let previous: (typeof recap.mapStops)[number] | null = null;
   for (const stop of recap.mapStops) {
@@ -80,6 +88,7 @@ export function yearCardFromRecap(recap: YearRecap): YearCardData {
       legs.push({
         from: [previous.lng, previous.lat],
         to: [stop.lng, stop.lat],
+        family: arcFamily(stop.transportMode ?? null),
       });
     }
     previous = stop;

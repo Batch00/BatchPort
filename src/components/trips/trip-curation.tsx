@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -10,6 +11,9 @@ import {
   ArrowUpIcon,
   ChevronDownIcon,
   GripVerticalIcon,
+  PlayIcon,
+  RectangleHorizontalIcon,
+  ScanIcon,
   SearchIcon,
   SparklesIcon,
   XIcon,
@@ -27,12 +31,19 @@ import { CategoryIcon } from "@/components/category-icon";
 import { RatingDisplay } from "@/components/rating-display";
 import { SafeImage } from "@/components/photos/safe-image";
 import {
+  SlideImage,
+  useSlideFrameAspect,
+  willContain,
+} from "@/components/photos/slide-image";
+import { TripStory } from "@/components/trips/trip-story";
+import {
   setStopPhotosAction,
   setTripHeroPhotoAction,
   setTripHighlightsAction,
 } from "@/lib/actions/curation";
 import { SLIDE_PHOTO_CAP, SLOT_CAPACITY } from "@/lib/curation";
 import {
+  applyCurationSelection,
   buildCurationSlots,
   hasCurationSlots,
   planStopSelection,
@@ -43,6 +54,7 @@ import {
   type SlotPhoto,
   type StopDayOutcome,
   type StopDaySlot,
+  type CurationSelection,
   type StopPhotoSlot,
 } from "@/lib/curation-slots";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
@@ -66,6 +78,18 @@ import { cn } from "@/lib/utils";
 // rolls the slot back to what the server last confirmed.
 
 const PANEL_SECTION = "rounded-xl border border-white/10 bg-white/[0.02]";
+
+/**
+ * What every tile in the panel needs to know but nothing between it and the
+ * panel cares about: the shape of a slide on this device, and how to open a
+ * preview. A context rather than four levels of prop drilling through the
+ * section, the day group, and the grid, none of which have any business
+ * carrying it.
+ */
+const PickerContext = React.createContext<{
+  slideAspect: number | null;
+  preview: ((photo: SlotPhoto) => void) | null;
+}>({ slideAspect: null, preview: null });
 
 // --- What the dialog is allowed to render at once ---------------------------
 //
@@ -103,6 +127,74 @@ const LONG_SECTION = 12;
 
 // --- Shared bits ------------------------------------------------------------
 
+// --- Shape ------------------------------------------------------------------
+//
+// WHY THE TILES ARE NOT SQUARES
+//
+// A picker of uniform squares says nothing about how a photograph will
+// COMPOSE. A portrait phone shot and a landscape camera shot are the same tile
+// in a square grid and completely different objects on a slide: one fills the
+// frame, the other is shown whole over a blurred blow-up of itself (see
+// slide-image.tsx and its 1.8x rule). Choosing between them without seeing
+// which is which is choosing blind, so the candidates carry their real shape.
+//
+// Nothing is fetched to do it. There is no width or height on photos, and
+// adding two columns plus a backfill to lay out a picker would be a migration
+// paying for a layout hint. The thumbnail is already being downloaded, so its
+// natural size is read off the loaded element and remembered for the session.
+
+/**
+ * Measured aspect ratios, by photo id, for the life of the page.
+ *
+ * Module level rather than component state because a tile is unmounted every
+ * time a section collapses, a page of candidates is shown, or the same photo
+ * appears in both the hero grid and its stop's, and re-measuring on each of
+ * those would make the layout settle again in front of somebody who had
+ * already watched it settle.
+ */
+const RATIO_CACHE = new Map<string, number>();
+
+/** The shape a tile takes before its image has loaded, and the bounds any
+ * measurement is held to. A square is the neutral prior: it is what the picker
+ * looked like before shapes existed, so nothing lurches on first paint. The
+ * clamp is for the genuinely extreme, a stitched panorama at 6:1, which would
+ * otherwise be a two pixel sliver across a whole column and read as a broken
+ * tile rather than as a wide photograph. */
+const DEFAULT_RATIO = 1;
+const MIN_RATIO = 0.5;
+const MAX_RATIO = 2;
+
+function clampRatio(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_RATIO;
+  return Math.min(MAX_RATIO, Math.max(MIN_RATIO, value));
+}
+
+/** The ratio to lay a tile out at, and the measurer to hand its image. */
+function usePhotoRatio(photoId: string): {
+  ratio: number;
+  measure: (image: HTMLImageElement | null) => void;
+} {
+  const [ratio, setRatio] = useState<number>(
+    () => RATIO_CACHE.get(photoId) ?? DEFAULT_RATIO,
+  );
+  // A cached image can finish loading before React attaches onLoad, so the
+  // measure runs from the ref callback as well and checks `complete` itself.
+  // Reading `naturalWidth` off an unloaded element returns 0, which is what
+  // the guard is for.
+  const measure = useCallback(
+    (image: HTMLImageElement | null) => {
+      if (!image || !image.complete) return;
+      const { naturalWidth, naturalHeight } = image;
+      if (!naturalWidth || !naturalHeight) return;
+      const next = clampRatio(naturalWidth / naturalHeight);
+      RATIO_CACHE.set(photoId, next);
+      setRatio((current) => (current === next ? current : next));
+    },
+    [photoId],
+  );
+  return { ratio, measure };
+}
+
 /**
  * A grid thumbnail. Deliberately not SafeImage: one state hook and no skeleton
  * element, because this renders in the dozens and the placeholder is the
@@ -113,20 +205,26 @@ function Thumb({
   src,
   fallbackSrc,
   className,
+  onMeasure,
 }: {
   src: string;
   fallbackSrc?: string;
   className?: string;
+  /** Called with the element once it has pixels, for the shape it turned out
+   * to be. Optional: the small header strips are chips and do not care. */
+  onMeasure?: (image: HTMLImageElement | null) => void;
 }) {
   const [failed, setFailed] = useState(false);
   const active = failed && fallbackSrc ? fallbackSrc : src;
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
+      ref={onMeasure}
       src={active}
       alt=""
       loading="lazy"
       decoding="async"
+      onLoad={(event) => onMeasure?.(event.currentTarget)}
       onError={() => setFailed(true)}
       className={className}
     />
@@ -195,6 +293,33 @@ function SlotSection({
   );
 }
 
+/** One of the chosen photos in a slot's reorder row, at its own shape. Its own
+ * component only because the ratio hook cannot be called inside the map that
+ * renders the list. */
+function ChosenThumb({
+  photo,
+  children,
+}: {
+  photo: SlotPhoto;
+  children: React.ReactNode;
+}) {
+  const { ratio, measure } = usePhotoRatio(photo.id);
+  return (
+    <span
+      style={{ aspectRatio: ratio }}
+      className="relative block overflow-hidden rounded-lg bg-white/[0.04] ring-2 ring-brand"
+    >
+      <Thumb
+        src={photo.thumbUrl}
+        fallbackSrc={photo.url}
+        onMeasure={measure}
+        className="size-full object-cover"
+      />
+      {children}
+    </span>
+  );
+}
+
 /** A strip of up to four thumbnails, as a section header's glance. */
 function ThumbStrip({ photos, dim }: { photos: SlotPhoto[]; dim: boolean }) {
   if (photos.length === 0) return null;
@@ -222,11 +347,19 @@ function ThumbStrip({ photos, dim }: { photos: SlotPhoto[]; dim: boolean }) {
 /**
  * A candidate grid, one page at a time.
  *
- * Paging rather than virtualising: the tiles are a uniform square grid inside
- * a dialog that also runs pointer hit-testing for the reorder drag, and a
- * windowed list would have to lie about the scroll height for both. A button
- * that says how many are left is also the more honest interface on a gallery
- * of six hundred.
+ * Paging rather than virtualising: the tiles sit inside a dialog that also
+ * runs pointer hit-testing for the reorder drag, and a windowed list would
+ * have to lie about the scroll height for both. A button that says how many
+ * are left is also the more honest interface on a gallery of six hundred.
+ *
+ * MASONRY, NOT A GRID OF SQUARES. Tiles are their real shape (see
+ * usePhotoRatio), and a fixed row grid of variable heights leaves a ragged gap
+ * under every row that is not the tallest. CSS multi-column packs them with no
+ * holes, costs no measurement pass and no layout library, and it is the reading
+ * order that gives: a column at a time rather than a row. That is the right
+ * trade here, because these are candidates to recognise by sight rather than a
+ * sequence to read, and the pick order is on the badges rather than in the
+ * layout.
  */
 function CandidateGrid({
   photos,
@@ -248,7 +381,7 @@ function CandidateGrid({
   const remaining = photos.length - visible.length;
   return (
     <>
-      <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+      <div className="columns-3 gap-2 sm:columns-5 [&>*]:mb-2">
         {visible.map((photo) => {
           const position = positionOf(photo);
           return (
@@ -438,8 +571,15 @@ function useSlotDrag(
   return { register, onPointerDown, draggingId };
 }
 
-/** A thumbnail in a picker grid. The position badge is the selected state:
- * a ring alone says "this one" but not "this one, second". */
+/**
+ * A thumbnail in a picker grid, at the photograph's own shape, with the two
+ * things the shape alone cannot say.
+ *
+ * A wrapper with two buttons in it rather than one button, because a button
+ * inside a button is invalid HTML and the preview control must not also toggle
+ * the selection. The select button covers the tile; the preview control sits on
+ * top of one corner.
+ */
 function PhotoTile({
   photo,
   position,
@@ -453,33 +593,154 @@ function PhotoTile({
   disabled?: boolean;
   label: string;
 }) {
+  const { slideAspect, preview: onPreview } = React.useContext(PickerContext);
+  const { ratio, measure } = usePhotoRatio(photo.id);
+  // The slide's own rule, called rather than restated. Only meaningful once the
+  // thumbnail has been measured; an unmeasured tile sits at the square default
+  // and claims nothing.
+  const letterboxed =
+    RATIO_CACHE.has(photo.id) && willContain(slideAspect, ratio);
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={position !== null}
-      aria-label={label}
-      className={cn(
-        "relative aspect-square overflow-hidden rounded-lg ring-1 transition-all",
-        position !== null
-          ? "ring-2 ring-brand"
-          : "ring-foreground/10 hover:ring-foreground/30",
-        disabled && "cursor-default opacity-60",
-      )}
+    <div
+      // `break-inside-avoid` and the block display are what make this a tile in
+      // a masonry column rather than a fragment split across two of them.
+      style={{ aspectRatio: ratio }}
+      className="relative block w-full break-inside-avoid"
     >
-      <Thumb
-        src={photo.thumbUrl}
-        fallbackSrc={photo.url}
-        className="size-full bg-white/[0.04] object-cover"
-      />
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-pressed={position !== null}
+        aria-label={label}
+        className={cn(
+          "absolute inset-0 overflow-hidden rounded-lg ring-1 transition-all",
+          position !== null
+            ? "ring-2 ring-brand"
+            : "ring-foreground/10 hover:ring-foreground/30",
+          disabled && "cursor-default opacity-60",
+        )}
+      >
+        <Thumb
+          src={photo.thumbUrl}
+          fallbackSrc={photo.url}
+          onMeasure={measure}
+          // object-cover still, even though the frame is now the photograph's
+          // own shape: a clamped panorama is the one case where the two
+          // disagree, and a letterboxed tile there would be worse than a mild
+          // crop.
+          className="size-full bg-white/[0.04] object-cover"
+        />
+        {position !== null ? (
+          <span className="absolute inset-0 bg-brand/15" />
+        ) : null}
+      </button>
       {position !== null ? (
-        <span className="absolute inset-0 bg-brand/15" />
+        <PositionBadge
+          position={position}
+          className="pointer-events-none absolute left-1.5 top-1.5"
+        />
       ) : null}
-      {position !== null ? (
-        <PositionBadge position={position} className="absolute left-1.5 top-1.5" />
+      {/* The mark that saves previewing every candidate one at a time. Bottom
+          left, opposite the preview control and clear of the position badge.
+          It is a statement about THIS screen, which is why it is an icon with
+          the full sentence on its label rather than a word like "bars". */}
+      {letterboxed ? (
+        <span
+          title="Shown whole, with bars, on a slide this shape"
+          aria-label="Shown whole, with bars, on a slide this shape"
+          className="pointer-events-none absolute bottom-1.5 left-1.5 flex size-5 items-center justify-center rounded bg-black/65 text-white/80 backdrop-blur"
+        >
+          <RectangleHorizontalIcon className="size-3" />
+        </span>
       ) : null}
-    </button>
+      {onPreview ? (
+        <button
+          type="button"
+          onClick={() => onPreview(photo)}
+          aria-label={`Preview how this photo fills a slide`}
+          // Always present rather than hover-only: on a touch screen there is
+          // no hover to reveal it with, and a control that exists on half the
+          // devices is a control nobody learns. It is quiet until pointed at.
+          className="absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded-md bg-black/55 text-white/70 backdrop-blur transition-colors hover:bg-black/80 hover:text-white focus-visible:bg-black/80 focus-visible:text-white"
+        >
+          <ScanIcon className="size-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * One photograph in a frame the shape of this device's slide, rendered by the
+ * slide's own component.
+ *
+ * The important word is "own": this mounts SlideImage, the same component the
+ * story mounts, so the fill-versus-letterbox decision, the threshold, the
+ * blurred backdrop, and the crossfade are not reimplemented here and cannot
+ * drift. A preview that approximated the slide would be worse than none,
+ * because it would be believed.
+ */
+function SlidePreview({
+  photo,
+  slideAspect,
+  onClose,
+}: {
+  photo: SlotPhoto;
+  slideAspect: number | null;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      // The curate dialog is underneath and would otherwise close too.
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    }
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [onClose]);
+
+  const aspect = slideAspect ?? 1;
+  const shape =
+    aspect >= 1.2 ? "landscape" : aspect <= 0.85 ? "portrait" : "square";
+
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Slide preview"
+      // Above the curate dialog, and its own pointer-events island: Radix sets
+      // pointer-events none on the body while a dialog is open, so anything
+      // portalled beside it has to opt back in.
+      className="pointer-events-auto fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/85 px-4 py-[max(1rem,env(safe-area-inset-top))] backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <p className="px-4 text-center text-xs text-white/55">
+        Exactly how a story slide draws this photo on this screen
+      </p>
+      <div
+        // Fitted inside whatever room is left, at the slide's shape. Both
+        // dimensions are capped, so a wide desktop viewport does not push the
+        // caption off the bottom and a phone does not push it off the side.
+        style={{ aspectRatio: aspect }}
+        className="relative max-h-[70vh] max-w-[92vw] overflow-hidden rounded-xl ring-1 ring-white/15"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <SlideImage src={photo.url} thumbSrc={photo.thumbUrl} priority />
+      </div>
+      <p className="px-4 text-center text-[0.7rem] text-white/40">
+        {shape === "landscape"
+          ? "Your screen is landscape, so this is a landscape slide."
+          : shape === "portrait"
+            ? "Your screen is portrait, so this is a portrait slide."
+            : "Your screen is close to square, so this is a square slide."}{" "}
+        Tap anywhere to close.
+      </p>
+    </div>,
+    document.body,
   );
 }
 
@@ -573,11 +834,15 @@ function HeroSlotSection({
   slot,
   disabled,
   onSaved,
+  onSelection,
 }: {
   tripId: string;
   slot: HeroSlot;
   disabled: boolean;
   onSaved: () => void;
+  /** Report the slot's live contents up, so the story preview reflects a pick
+   * the server has not confirmed yet. */
+  onSelection: (photoId: string | null) => void;
 }) {
   const [chosenId, setChosenId] = useState<string | null>(slot.chosen?.id ?? null);
   const [saving, setSaving] = useState(false);
@@ -599,6 +864,7 @@ function HeroSlotSection({
     }
     const before = chosenId;
     setChosenId(next);
+    onSelection(next);
     setSaving(true);
     const result = await setTripHeroPhotoAction(tripId, next).catch(() => ({
       error: "Could not save the hero photo.",
@@ -606,6 +872,7 @@ function HeroSlotSection({
     setSaving(false);
     if ("error" in result) {
       setChosenId(before);
+      onSelection(before);
       toast.error(result.error);
       return;
     }
@@ -693,12 +960,14 @@ function StopSlotSection({
   disabled,
   defaultOpen,
   onSaved,
+  onSelection,
 }: {
   tripId: string;
   slot: StopPhotoSlot;
   disabled: boolean;
   defaultOpen: boolean;
   onSaved: () => void;
+  onSelection: (destinationId: string, photoIds: string[]) => void;
 }) {
   const serverIds = slot.chosen.map((photo) => photo.id);
   const serverKey = serverIds.join("|");
@@ -727,6 +996,7 @@ function StopSlotSection({
       }
       const before = ids;
       setIds(next);
+      onSelection(slot.destinationId, next);
       setSaving(true);
       const result = await setStopPhotosAction(
         tripId,
@@ -737,12 +1007,21 @@ function StopSlotSection({
       setSaving(false);
       if ("error" in result) {
         setIds(before);
+        onSelection(slot.destinationId, before);
         toast.error(result.error);
         return;
       }
       onSaved();
     },
-    [disabled, ids, onSaved, slot.candidates, slot.destinationId, tripId],
+    [
+      disabled,
+      ids,
+      onSaved,
+      onSelection,
+      slot.candidates,
+      slot.destinationId,
+      tripId,
+    ],
   );
 
   const drag = useSlotDrag(ids, setIds, (next) => void save(next), disabled);
@@ -860,7 +1139,12 @@ function StopSlotSection({
               <p className="mb-2 text-xs text-foreground/45">
                 Drag to reorder, or use the arrows.
               </p>
-              <ul className="mb-3 flex flex-wrap gap-2">
+              {/* Fixed width, own height: the picks keep the shapes they had
+                  as candidates, so the row reads as the same photographs
+                  rather than as a second, squarer set of them. The list is
+                  top-aligned, which is what lets the heights differ without
+                  the badges drifting off a shared baseline. */}
+              <ul className="mb-3 flex flex-wrap items-start gap-2">
                 {chosen.map((photo, index) => (
                   <li
                     key={photo.id}
@@ -874,12 +1158,7 @@ function StopSlotSection({
                       drag.draggingId === photo.id && "opacity-60",
                     )}
                   >
-                    <span className="relative block aspect-square overflow-hidden rounded-lg bg-white/[0.04] ring-2 ring-brand">
-                      <Thumb
-                        src={photo.thumbUrl}
-                        fallbackSrc={photo.url}
-                        className="size-full object-cover"
-                      />
+                    <ChosenThumb photo={photo}>
                       <PositionBadge
                         position={index + 1}
                         className="absolute left-1 top-1"
@@ -887,7 +1166,7 @@ function StopSlotSection({
                       <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded bg-black/55 text-white/70">
                         <GripVerticalIcon className="size-3" />
                       </span>
-                    </span>
+                    </ChosenThumb>
                     <span className="mt-1 flex items-center justify-center gap-0.5">
                       <button
                         type="button"
@@ -978,11 +1257,13 @@ function HighlightsSlotSection({
   slot,
   disabled,
   onSaved,
+  onSelection,
 }: {
   tripId: string;
   slot: HighlightsSlot;
   disabled: boolean;
   onSaved: () => void;
+  onSelection: (experienceIds: string[]) => void;
 }) {
   const serverIds = slot.chosen.map((experience) => experience.id);
   const serverKey = serverIds.join("|");
@@ -1011,6 +1292,7 @@ function HighlightsSlotSection({
       }
       const before = ids;
       setIds(next);
+      onSelection(next);
       setSaving(true);
       const result = await setTripHighlightsAction(tripId, next).catch(() => ({
         error: "Could not save the highlights.",
@@ -1018,12 +1300,13 @@ function HighlightsSlotSection({
       setSaving(false);
       if ("error" in result) {
         setIds(before);
+        onSelection(before);
         toast.error(result.error);
         return;
       }
       onSaved();
     },
-    [disabled, ids, onSaved, tripId],
+    [disabled, ids, onSaved, onSelection, tripId],
   );
 
   const drag = useSlotDrag(ids, setIds, (next) => void save(next), disabled);
@@ -1310,21 +1593,57 @@ function CurationPanel({
   trip,
   isDemo,
   onSaved,
+  onSelectionChange,
+  onPreviewStory,
 }: {
+  /** Already carrying the live selection: see TripCurationButton. */
   trip: StoryTrip;
   isDemo: boolean;
   onSaved: () => void;
+  onSelectionChange: (update: (current: CurationSelection) => CurationSelection) => void;
+  onPreviewStory: () => void;
 }) {
   const slots = useMemo(() => buildCurationSlots(trip), [trip]);
   const stopsChosen = slots.stops.filter((stop) => stop.chosen.length > 0).length;
+  const slideAspect = useSlideFrameAspect();
+  const [previewing, setPreviewing] = useState<SlotPhoto | null>(null);
+
+  const picker = useMemo(
+    () => ({ slideAspect, preview: (photo: SlotPhoto) => setPreviewing(photo) }),
+    [slideAspect],
+  );
+
+  const setHero = useCallback(
+    (photoId: string | null) =>
+      onSelectionChange((current) => ({ ...current, heroId: photoId })),
+    [onSelectionChange],
+  );
+  const setStopPhotos = useCallback(
+    (destinationId: string, photoIds: string[]) =>
+      onSelectionChange((current) => ({
+        ...current,
+        stopPhotoIds: { ...current.stopPhotoIds, [destinationId]: photoIds },
+      })),
+    [onSelectionChange],
+  );
+  const setHighlights = useCallback(
+    (experienceIds: string[]) =>
+      onSelectionChange((current) => ({
+        ...current,
+        highlightIds: experienceIds,
+      })),
+    [onSelectionChange],
+  );
 
   return (
+    <PickerContext.Provider value={picker}>
     <div className="flex flex-col gap-3">
       <HeroSlotSection
         tripId={trip.id}
         slot={slots.hero}
         disabled={isDemo}
         onSaved={onSaved}
+        onSelection={setHero}
       />
 
       {slots.stops.length > 0 ? (
@@ -1348,6 +1667,7 @@ function CurationPanel({
                 disabled={isDemo}
                 defaultOpen={slots.stops.length === 1 && index === 0}
                 onSaved={onSaved}
+                onSelection={setStopPhotos}
               />
             ))}
           </div>
@@ -1359,12 +1679,35 @@ function CurationPanel({
         slot={slots.highlights}
         disabled={isDemo}
         onSaved={onSaved}
+        onSelection={setHighlights}
       />
 
-      <p className="text-center text-[0.7rem] text-foreground/35">
-        Changes save as you make them.
-      </p>
+      {/* Composition problems are easiest to spot in sequence, so the loop is
+          adjust, watch, adjust. The story opens over the whole screen and
+          closing it comes straight back here. */}
+      <div className="flex flex-col items-center gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onPreviewStory}
+          className="inline-flex items-center gap-1.5 rounded-md border border-brand/40 bg-brand/10 px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:bg-brand/20"
+        >
+          <PlayIcon className="size-3.5 text-brand" />
+          Preview story
+        </button>
+        <p className="text-center text-[0.7rem] text-foreground/35">
+          Changes save as you make them.
+        </p>
+      </div>
+
+      {previewing ? (
+        <SlidePreview
+          photo={previewing}
+          slideAspect={slideAspect}
+          onClose={() => setPreviewing(null)}
+        />
+      ) : null}
     </div>
+    </PickerContext.Provider>
   );
 }
 
@@ -1379,9 +1722,23 @@ export function TripCurationButton({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [storyOpen, setStoryOpen] = useState(false);
+  // THE LIVE SELECTION LIVES HERE, above the dialog, for two reasons. It has to
+  // outlive the panel (the dialog is dismissed while the story plays, see
+  // below), and applying it to the trip BEFORE the slots are built is what
+  // makes one answer serve both: what the picker shows and what the preview
+  // plays are the same object. A write is followed by router.refresh(), and
+  // until that lands the trip prop still describes the selection before the
+  // last tap.
+  const [selection, setSelection] = useState<CurationSelection>({});
 
   // Cheap enough to run every render, unlike the slots themselves: it is two
   // length checks and stops at the first experience it finds.
+  const liveTrip = useMemo(
+    () => applyCurationSelection(trip, selection),
+    [trip, selection],
+  );
+
   if (!hasCurationSlots(trip)) return null;
 
   // The button's brand tint used to need the whole model built just to know
@@ -1410,7 +1767,14 @@ export function TripCurationButton({
         Curate
       </button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      {/* The dialog stands down while the story plays rather than sitting under
+          it. Radix puts `pointer-events: none` on the body for the life of an
+          open dialog and re-enables it only inside its own content, so a
+          full-screen surface portalled beside it is visible and dead to the
+          touch. Dismissing it also avoids two focus traps and two Escape
+          handlers fighting over one key. `open` is untouched, so closing the
+          story lands straight back on the panel. */}
+      <Dialog open={open && !storyOpen} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Curate {trip.name}</DialogTitle>
@@ -1422,12 +1786,18 @@ export function TripCurationButton({
           </DialogHeader>
 
           <CurationPanel
-            trip={trip}
+            trip={liveTrip}
             isDemo={isDemo}
             onSaved={() => router.refresh()}
+            onSelectionChange={setSelection}
+            onPreviewStory={() => setStoryOpen(true)}
           />
         </DialogContent>
       </Dialog>
+
+      {storyOpen ? (
+        <TripStory trip={liveTrip} onClose={() => setStoryOpen(false)} />
+      ) : null}
     </>
   );
 }

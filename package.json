@@ -21,6 +21,7 @@
     "cleanup-orphan-photos": "npx tsx scripts/cleanup-orphan-photos.ts",
     "check-year-recap": "npx tsx scripts/check-year-recap.ts",
     "check-curation": "npx tsx scripts/check-curation.ts",
+    "check-map-arcs": "npx tsx scripts/check-map-arcs.ts",
     "check-stays": "npx tsx scripts/check-stays.ts",
     "check-year-map-playback": "npx tsx scripts/check-year-map-playback.ts"
   },

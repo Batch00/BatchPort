@@ -434,6 +434,116 @@ export function buildCurationSlots(trip: StoryTrip): CurationSlots {
   };
 }
 
+// --- Previewing a selection before the server has confirmed it ---------------
+//
+// The panel saves every change immediately, but "saved" and "in the props" are
+// not the same moment: a write is followed by router.refresh(), and until that
+// round trip lands the StoryTrip on the page still describes the selection
+// before the last tap. Previewing the story off that would show the traveller
+// the composition they just changed away from, which is worse than not
+// offering a preview at all.
+//
+// So the panel keeps the selection it is holding locally and this applies it to
+// a StoryTrip, purely, for the preview to render. It mirrors what the three
+// server actions write and nothing else: hero takes slot 'hero' at rank 1, a
+// stop's picks take slot 'stop' ranked from 1 within that stop, highlights take
+// featured_rank from 1 across the trip, and every row the selection covers but
+// does not name is cleared. check-curation asserts the round trip, which is
+// what stops this drifting from lib/actions/curation.ts.
+
+/**
+ * A sparse override. An absent key means "not touched, use what the trip
+ * already says", which is what makes an untouched panel preview the real story
+ * rather than a reconstruction of it.
+ */
+export interface CurationSelection {
+  /** null clears the slot back to automatic. */
+  heroId?: string | null;
+  /** Keyed by destination id. */
+  stopPhotoIds?: Record<string, string[]>;
+  highlightIds?: string[];
+}
+
+export function hasCurationSelection(selection: CurationSelection): boolean {
+  return (
+    selection.heroId !== undefined ||
+    selection.highlightIds !== undefined ||
+    Object.keys(selection.stopPhotoIds ?? {}).length > 0
+  );
+}
+
+export function applyCurationSelection(
+  trip: StoryTrip,
+  selection: CurationSelection,
+): StoryTrip {
+  if (!hasCurationSelection(selection)) return trip;
+
+  // What each named photo becomes, and which photos are in scope to be cleared.
+  const assigned = new Map<string, { slot: "hero" | "stop"; rank: number }>();
+  const cleared = new Set<string>();
+
+  if (selection.heroId !== undefined) {
+    for (const photo of trip.photos) {
+      if (photo.featuredSlot === "hero") cleared.add(photo.id);
+    }
+    if (selection.heroId) {
+      assigned.set(selection.heroId, { slot: "hero", rank: 1 });
+    }
+  }
+
+  if (selection.stopPhotoIds) {
+    // The candidate set per stop is resolved the same way the panel offered it
+    // and the action clears it: by placement, not by which row a photo hangs
+    // off, so a revisit's two stays stay separate here too.
+    const { byDestination } = photosByStop(trip);
+    for (const [destinationId, ids] of Object.entries(selection.stopPhotoIds)) {
+      for (const photo of byDestination.get(destinationId) ?? []) {
+        // A hero elected out of this stop's photos keeps its slot: the two are
+        // independent elections, exactly as setStopPhotosAction has it.
+        if (photo.featuredSlot !== "hero") cleared.add(photo.id);
+      }
+      ids.forEach((id, index) => {
+        assigned.set(id, { slot: "stop", rank: index + 1 });
+      });
+    }
+  }
+
+  const photos =
+    assigned.size > 0 || cleared.size > 0
+      ? trip.photos.map((photo) => {
+          const next = assigned.get(photo.id);
+          if (next) {
+            return {
+              ...photo,
+              featuredSlot: next.slot,
+              featuredRank: next.rank,
+            };
+          }
+          if (!cleared.has(photo.id)) return photo;
+          return { ...photo, featuredSlot: null, featuredRank: null };
+        })
+      : trip.photos;
+
+  if (selection.highlightIds === undefined) {
+    return { ...trip, photos };
+  }
+
+  const rankById = new Map(
+    selection.highlightIds.map((id, index) => [id, index + 1] as const),
+  );
+  return {
+    ...trip,
+    photos,
+    destinations: trip.destinations.map((destination) => ({
+      ...destination,
+      experiences: destination.experiences.map((experience) => ({
+        ...experience,
+        featuredRank: rankById.get(experience.id) ?? null,
+      })),
+    })),
+  };
+}
+
 /** Whether a trip has anything to curate at all. Callers hide the entry point
  * rather than opening a panel of three empty slots. */
 export function hasCurationSlots(trip: StoryTrip): boolean {

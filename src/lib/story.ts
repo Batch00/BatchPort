@@ -20,6 +20,7 @@ import {
 // Type only, so nothing from the server-side share data layer is pulled into
 // the client bundle that renders the story.
 import type { ProfileTrip } from "@/lib/share-data";
+import type { TransportMode } from "@/lib/transport";
 
 // The trip story: everything the app knows about one trip, folded into a
 // chronological sequence of full-screen slides.
@@ -99,6 +100,17 @@ export interface StoryDestination {
   coverUrl: string | null;
   /** The same cover at thumbnail size, as the placeholder behind it. */
   coverThumbUrl?: string | null;
+  /**
+   * How this stop was REACHED, so the share card's route can draw its transport
+   * families the way the globe does. On the arriving stop because that is where
+   * a leg lives (see lib/transport.ts), which is the same place
+   * GlobeDestination.transportMode carries it.
+   *
+   * Optional: a caller with no transport rows in hand simply omits it, and
+   * every arc draws as air, which is what an unannotated trip has always
+   * looked like.
+   */
+  transportMode?: TransportMode | null;
   experiences: StoryExperience[];
 }
 
@@ -685,6 +697,11 @@ export function storyTripFromProfile(trip: ProfileTrip): StoryTrip {
   for (const entry of trip.journal) {
     journal[entry.entry_date.slice(0, 10)] = entry.body;
   }
+  // One leg per stop, keyed by the stop it arrives at, which is the whole of
+  // the transport model's shape.
+  const modeByStop = new Map(
+    trip.transport.map((leg) => [leg.destination_id, leg.mode] as const),
+  );
   return {
     id: trip.id,
     name: trip.name,
@@ -708,6 +725,7 @@ export function storyTripFromProfile(trip: ProfileTrip): StoryTrip {
       longitude: destination.longitude,
       coverUrl: destination.coverFullUrl ?? destination.coverUrl,
       coverThumbUrl: destination.coverUrl,
+      transportMode: modeByStop.get(destination.id) ?? null,
       experiences: destination.experiences
         .filter((experience) => experience.status !== "planned")
         .map((experience) => ({

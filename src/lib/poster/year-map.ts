@@ -14,7 +14,11 @@
 // are redrawn per frame.
 
 import type { CountryShape } from "@/lib/poster/countries";
-import { drawMap } from "@/lib/poster/draw-map";
+import {
+  drawMap,
+  familyArcColor,
+  familyArcDash,
+} from "@/lib/poster/draw-map";
 import {
   boundsOfProjectedPoints,
   fitProjectionToBounds,
@@ -25,11 +29,7 @@ import {
   type MapFrame,
 } from "@/lib/poster/projection";
 import type { PosterTheme } from "@/lib/poster/theme";
-import {
-  GROUND_ARC_COLOR,
-  SEA_ARC_COLOR,
-  type ArcFamily,
-} from "@/lib/transport";
+import { type ArcFamily } from "@/lib/transport";
 
 export interface YearMapPoint {
   lat: number;
@@ -118,21 +118,6 @@ export function buildYearMapView(
   return { frame, base, width, height, dpr, shapeByCode, theme };
 }
 
-function familyColor(family: ArcFamily, theme: PosterTheme): string {
-  if (family === "ground") return GROUND_ARC_COLOR;
-  if (family === "sea") return SEA_ARC_COLOR;
-  return theme.arc;
-}
-
-/** The dash pattern each family draws in, matching the globe exactly: air
- * solid, ground dashed, sea dotted. Scaled to the line width so the pattern
- * reads the same at any canvas size. */
-function familyDash(family: ArcFamily, width: number): number[] {
-  if (family === "ground") return [width * 2.6, width * 1.8];
-  if (family === "sea") return [0, width * 2.2];
-  return [];
-}
-
 export interface YearMapFrameState {
   /** Countries filled in so far. */
   revealedCodes: Set<string>;
@@ -202,7 +187,7 @@ export function drawYearMapFrame(
   for (const [family, coordRuns] of byFamily) {
     const runs = coordRuns.flatMap((coords) => projectPath(frame, coords));
     if (runs.length === 0) continue;
-    const color = familyColor(family, theme);
+    const color = familyArcColor(family, theme);
     if (family === "air" && theme.arcGlow) {
       context.beginPath();
       tracePath(context, runs, false);
@@ -213,7 +198,7 @@ export function drawYearMapFrame(
     }
     context.beginPath();
     tracePath(context, runs, false);
-    context.setLineDash(familyDash(family, arcWidth));
+    context.setLineDash(familyArcDash(family, arcWidth));
     context.strokeStyle = color;
     context.lineWidth = arcWidth;
     context.stroke();
@@ -236,7 +221,7 @@ export function drawYearMapFrame(
   if (state.head) {
     const point = frame.point(state.head.point.lng, state.head.point.lat);
     if (point) {
-      const color = familyColor(state.head.family, theme);
+      const color = familyArcColor(state.head.family, theme);
       context.beginPath();
       context.arc(point[0], point[1], pinRadius * 1.5, 0, Math.PI * 2);
       context.fillStyle = color;

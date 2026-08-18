@@ -127,6 +127,15 @@ on a desktop slide into contain (nothing cropped). Mosaic cells pass
 `allowContain={false}`: a four-photo grid is crops by design, and letterboxing
 each cell turns one composition into four small pictures floating in blur.
 
+The fit rule is exported as `willContain(frameAspect, imageAspect)` and the
+threshold as `CONTAIN_THRESHOLD`, because the curation picker marks the
+candidates that will be letterboxed without rendering them. A second copy of
+`Math.max(a / b, b / a) > 1.8` in the picker is exactly the drift that matters:
+the marker would go on saying "bars" for a week after somebody moved the
+threshold. `useSlideFrameAspect()` is the other half, the shape a slide has on
+this device, which is simply the viewport since both full-screen surfaces are
+`fixed inset-0`.
+
 ### Photo Deletion Cascade
 
 `photos` is polymorphic (`owner_type` + `owner_id`, no foreign key), so Postgres cascades never touch it: deleting a trip cascades to its destinations and experiences but leaves every photo row behind as an invisible orphan. `src/lib/photo-cleanup.ts` owns the fix and is shared by the photo delete action and the three entity delete actions.
@@ -746,6 +755,97 @@ in a grid. `buildCurationSlots` also runs only while the dialog is open: it
 folds the whole trip and builds its story slides, which is not work to do on
 every render of a page whose dialog is shut.
 
+**A candidate is shown at its own shape, because shape is what the choice is
+about.** A portrait phone photo and a landscape camera photo are the same tile
+in a square grid and completely different objects on a slide: one fills the
+frame, the other is shown whole over a blurred blow-up of itself (see the 1.8x
+rule in `slide-image.tsx`). Picking between them off identical squares is
+picking blind.
+
+Three things make it cheap enough to keep the bounds above:
+
+- **The size is measured, not stored.** `photos` carries no width or height,
+  and adding two columns plus a backfill to lay out a picker would be a
+  migration paying for a layout hint. The thumbnail is already downloading, so
+  `usePhotoRatio` reads `naturalWidth/naturalHeight` off the loaded element.
+  It measures from the ref callback as well as `onLoad`, because a cached image
+  can finish before React attaches the handler.
+- **`RATIO_CACHE` is module level**, keyed by photo id. A tile unmounts every
+  time a section collapses, a page is revealed, or the same photo appears in
+  both the hero grid and its stop's, and re-measuring on each would make the
+  layout settle again in front of somebody who already watched it settle.
+- **The layout is CSS multi-column, not a grid.** Variable heights in a row
+  grid leave a ragged gap under every row that is not the tallest; columns pack
+  with no holes, with no measurement pass and no layout library. The cost is
+  column-major reading order, which is the right trade for candidates you
+  recognise by sight: pick order lives on the position badges, not in the flow.
+
+Bounds on the shape itself: tiles start square (`DEFAULT_RATIO`), so first
+paint is what the picker always looked like and nothing lurches, and a measured
+ratio is clamped to `[MIN_RATIO, MAX_RATIO]` (0.5 to 2). The clamp is for the
+stitched panorama at 6:1, which unclamped is a two pixel sliver across a whole
+column and reads as a broken tile rather than as a wide photograph. Tiles stay
+`object-cover`, since that clamp is the one case where frame and photo
+disagree and a mild crop beats letterboxing. The chosen row does the same at a
+fixed width, so a pick keeps the shape it had as a candidate; the header
+`ThumbStrip` chips stay square, because a 28px chip says nothing about
+composition either way.
+
+**A preview that approximates the slide is worse than no preview**, because it
+would be believed. So `SlidePreview` mounts `SlideImage` itself, in a frame at
+`useSlideFrameAspect()`, and reimplements nothing: the fill-versus-letterbox
+decision, the threshold, the blurred backdrop, and the crossfade are the
+story's own component doing its own job. A photograph that will be letterboxed
+is visibly letterboxed there, which is the outcome rather than a note about it.
+
+The preview is opened by an explicit control on every tile, not by hover and
+not by tap-and-hold. Hover does not exist on a touch screen, so a hover-only
+preview is a feature half the devices never learn; tap-and-hold collides with
+the long press that starts a reorder drag in the chosen row, and is invisible
+either way. The tile is therefore a wrapper holding TWO buttons (select, and
+preview) rather than one, since a button inside a button is invalid HTML and
+the preview must not also toggle the selection.
+
+**The preview is at this device's slide shape, and says so.** Not a fixed 16:9,
+and not both orientations offered: the story is a live surface each viewer
+opens at their own size rather than an exported image with one baked ratio, so
+the honest question is "how will this look on the screen in front of me". A
+caption names the shape. The letterbox marker on the tiles is the same
+statement in miniature, which is why it is an icon with the full sentence on
+its label rather than a word like "bars", and why it renders only once the
+thumbnail has actually been measured: an unmeasured tile sits at the square
+default and must not claim anything.
+
+**Previewing the story from the panel** is the same loop one level up: adjust,
+watch it in sequence, adjust. It mounts `TripStory`, never a second renderer.
+Two things make it work:
+
+- **The dialog stands down while the story plays.** Radix puts
+  `pointer-events: none` on the body for the life of an open dialog and
+  re-enables it only inside its own content, so a full-screen surface portalled
+  beside it is visible and dead to the touch. `open` is left alone and the
+  story's own `open` flag gates it, so closing the story lands straight back on
+  the panel rather than on the trip page. It also avoids two focus traps and
+  two Escape handlers fighting over one key. (`SlidePreview` is the smaller
+  case of the same problem, and opts back in with `pointer-events-auto` plus a
+  capture-phase Escape handler, because it is small enough to sit *over* the
+  dialog rather than replace it.)
+- **The preview reflects the live selection, not the last round trip.** Every
+  change saves immediately, but "saved" and "back in the props" are different
+  moments: a write is followed by `router.refresh()`, and until that lands the
+  `StoryTrip` on the page still describes the selection before the last tap.
+  So `TripCurationButton` holds a `CurationSelection` (sparse: an absent key
+  means "not touched") and applies it with `applyCurationSelection` BEFORE the
+  slots are built. One object then serves both, so what the picker shows and
+  what the preview plays cannot disagree. The selection lives above the dialog
+  because it has to outlive the panel being dismissed for the story.
+
+`applyCurationSelection` mirrors what the three server actions write and
+nothing else, including that a hero elected out of a stop's own photographs
+survives that stop's slot being rewritten. `check-curation` asserts the round
+trip (apply a selection, rebuild the slots, get that selection back), which is
+what stops it drifting from `lib/actions/curation.ts`.
+
 Consumers, all through the same comparators: story slide photo and experience
 order, `storyClosingStats().best`, the share card's highlights **and its
 backdrop**, `tripHighlights()` on the trip page (the same three lines as the
@@ -812,6 +912,24 @@ Three rules hold the rest together:
   the arriving stop, because that is where a leg lives. There is no globe legend: the overlay corners are spoken for, and the
   trip page's leg rows carry a dot in the matching arc colour, which teaches
   the language where a leg is authored.
+- **The canvas surfaces draw the same three families**, through
+  `familyArcColor` / `familyArcDash` in `poster/draw-map.ts`. They live there
+  rather than in each painter because three surfaces now need them (the year
+  card, the trip share card, and the recap's animated map slide), and three
+  copies of "violet, dashed" is three places to drift. `MapLeg.family` is
+  optional and absent means air, so `drawMap` makes exactly one undashed glowed
+  pass for a caller that knows nothing about modes: an unannotated trip and the
+  poster both draw what they always drew. Only air carries the glow, since a
+  continuous halo under a dashed line reads as a solid line with bites out of
+  it. The mode is read off the **arriving** stop on every one of them
+  (`StoryDestination.transportMode` for the trip card,
+  `ReplayInputStop.transportMode` for the year).
+- **The poster stays uniform, deliberately.** Its one legend slot is spent on
+  visited versus bucket fills, and a print carrying three unexplained line
+  treatments is a puzzle rather than a poster. `buildPosterData` passes no
+  family. The two social cards have no legend either, but there the families
+  read as texture on an image somebody scrolls past, not as a code to look up
+  on a wall.
 - **Distance is broken down, never adjusted.** Every kilometre in
   `getTransportBreakdown` is the same great-circle measure `f_distance_traveled`
   counts, which is fair for a flight and an understatement for a road. A detour
@@ -1179,7 +1297,7 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Map projections and path clipping (pure) | `src/lib/poster/projection.ts` |
 | Country outline loader for exports | `src/lib/poster/countries.ts` |
 | Poster palettes (Midnight, Paper) | `src/lib/poster/theme.ts` |
-| Shared map painter (fills, arcs, pins) | `src/lib/poster/draw-map.ts` |
+| Shared map painter (fills, arcs, pins) and the arc family colours/dashes | `src/lib/poster/draw-map.ts` |
 | Poster layout and render | `src/lib/poster/poster.ts` |
 | Poster inputs from map data and stats | `src/lib/poster/poster-data.ts` |
 | Per-trip share card render | `src/lib/poster/share-card.ts` |
@@ -1253,7 +1371,8 @@ Run `npm run build` to verify type correctness across the whole project (TypeScr
 
 - `npm run check-stays` asserts day-to-stay resolution: the boundary rule, gaps, nesting, a place visited twice in one trip (its own days, photos, journal, and curation slot, never merged with the first visit), a stored `start_date` that predates the first stop, an undated stop in a dated trip, and a single-stay trip left unchanged. Re-run it after any change to `lib/stays.ts`, `placeTripContent`, or `buildStorySlides`.
 - `npm run check-year-recap` asserts the Year in Travel derivation (year list, slicing across new year, planned exclusion, sparse years, in-progress labelling, insight selection, that a trip slide names every stop rather than "and N more", and that the year's photograph is a trip hero: the whole resolution chain, a curated hero outranking a longer trip's automatic one, a stop pick never opening a year, and the opener and the scoreboard reading the same field). Re-run it after any change to `lib/year-recap.ts`.
-- `npm run check-curation` asserts the curation model end to end (rank order, the cap, the photo slots and their backwards compatibility, the three slots' contents and their automatic answers, the derived per-stop capacity on a one day, ten day, and undated stop with a selection up to the maximum on each, the spread of a stop's picks across its day slides for equal, fewer, and more picks than days, the picker's day grouping and the per-day outcome each heading states, that a day with picks shows only those and a day without falls back to its own photos and then to the stop cover, that a moment shows its own experience's photograph and marks a place fallback as one, that the story opener names every stop, and what the story, the share card, and the recap select), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts`, `lib/curation-slots.ts`, or a selector that consumes them.
+- `npm run check-curation` asserts the curation model end to end (rank order, the cap, the photo slots and their backwards compatibility, the three slots' contents and their automatic answers, the derived per-stop capacity on a one day, ten day, and undated stop with a selection up to the maximum on each, the spread of a stop's picks across its day slides for equal, fewer, and more picks than days, the picker's day grouping and the per-day outcome each heading states, that a day with picks shows only those and a day without falls back to its own photos and then to the stop cover, that a moment shows its own experience's photograph and marks a place fallback as one, that the story opener names every stop, what the story, the share card, and the recap select, and the round trip through `applyCurationSelection` that lets the panel preview an unsaved selection), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts`, `lib/curation-slots.ts`, or a selector that consumes them.
+- `npm run check-map-arcs` asserts the transport arc families on the drawn maps: the mode to family mapping, the dash pattern each family draws (air solid, ground dashed, sea dotted, all scaling with the line width), that both exported cards style each hop by the mode on its **arriving** stop, that an unlocatable stop drops out without sliding a mode onto the wrong arc, that the poster passes no family, and that an unannotated trip or year is uniformly air on every one of them. Re-run it after any change to `arcFamily`, `familyArcColor` / `familyArcDash`, or either card's leg builder.
 - `npm run check-year-map-playback` asserts the recap map slide's clock: that 1x, 2x, and 4x all reach the end of a real multi-trip timeline, that changing speed mid-flight rescales the remaining time rather than jumping or truncating, that skip lands on the finished year, and that rebuilding the animation mid-playback resumes instead of restarting. Re-run it after any change to `advancePlayback` or to the map slide's effect wiring.
 
 Interactive features including the globe, photo lightbox, geocoding typeahead, and experience dialog require manual browser testing.
