@@ -47,8 +47,18 @@ function DialogOverlay({
 function DialogContent({
   className,
   children,
+  showCloseButton = true,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content>) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+  /**
+   * Off for a dialog that supplies its own close control. The default one is
+   * positioned against the content box, and this content box IS the scroll
+   * container, so on a long dialog it scrolls out of reach. A dialog that can
+   * scroll should carry a sticky close of its own and turn this off rather
+   * than showing two.
+   */
+  showCloseButton?: boolean
+}) {
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -62,10 +72,12 @@ function DialogContent({
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="absolute top-2.5 right-2.5 rounded-md p-2 opacity-60 transition-opacity outline-none hover:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50">
-          <XIcon className="size-4" />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
+        {showCloseButton ? (
+          <DialogPrimitive.Close className="absolute top-2.5 right-2.5 rounded-md p-2 opacity-60 transition-opacity outline-none hover:opacity-100 focus-visible:ring-3 focus-visible:ring-ring/50">
+            <XIcon className="size-4" />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        ) : null}
       </DialogPrimitive.Content>
     </DialogPortal>
   )

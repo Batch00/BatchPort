@@ -733,9 +733,31 @@ is all that is left as prose, and it says nothing at all unless a pick found no
 seat, because the headings have already said everything else.
 
 Bounding it: a stop now mounts one grid per day rather than one grid, so a day
-grid pages at `DAY_PAGE_SIZE` (8) rather than `PAGE_SIZE` (24). Five days at
+grid opens at `DAY_PAGE_SIZE` (8) rather than `PAGE_SIZE` (24). Five days at
 eight is forty tiles against a flat page's twenty-four, and the point of the
 grouping is that a traveller picks one per day rather than scrolling a gallery.
+
+Past that opening page a grid offers **one expand and one collapse**, not a
+pager. Revealing `pageSize` more per press is a button somebody hits
+twenty-five times on a stop with two hundred photographs, and by the second
+press they want the gallery rather than another eight. The compact state is
+what keeps the dialog fast to open and is therefore kept; expanding costs
+elements and layout but no full-size fetches, because the tiles are thumbnails
+and stay `loading="lazy"`.
+
+**The chosen row is grouped by the day each pick lands on**
+(`groupChosenPhotos`). A flat run of position badges was correct about the
+order and silent about the mapping, which is the one thing somebody opens that
+row to confirm. The grouping runs the same `distributeStopPhotos` the slides
+run, so it is a reading of the distribution and never a second opinion about
+it, and `check-curation` asserts the groups against the real day slides.
+
+Reordering stays **one global sequence**. The arrows and the drag move a photo
+through the whole ranked list and the groups re-derive; there is no dragging
+between day groups, because a dated pick is anchored to the day it was taken on
+and no drag could honestly move it. Position badges stay the global rank for
+the same reason. Picks that found no seat get their own "Nowhere to go" group
+rather than being filed under a day they will not appear on.
 
 `MAX_FEATURED_HONORED` is 8 and bounds **experience** ranks, which are scoped
 to a whole trip and have no per-surface seat count of their own; past it a rank
@@ -839,6 +861,22 @@ statement in miniature, which is why it is an icon with the full sentence on
 its label rather than a word like "bars", and why it renders only once the
 thumbnail has actually been measured: an unmeasured tile sits at the square
 default and must not claim anything.
+
+**Close and "preview story" ride one sticky bar**, because both are wanted from
+any scroll position and two floating controls over a picker full of tiles are
+two things in the way. A bar also cannot obscure a tile: it reserves its own
+height in the flow. `DialogContent` takes `showCloseButton={false}` here, since
+its default close is positioned against the content box and that box IS the
+scroll container, so on a trip with a dozen stops it scrolls out of reach.
+
+Two details in the bar are load-bearing. It is full bleed (`-mx-5`) so the
+card's padding leaves no gap at either end for content to show through while it
+is stuck. And it sticks at `-top-5`, not `top-0`: a sticky element inside a
+padded scroll container sticks at the CONTENT box, which leaves the card's own
+20px of top padding as a strip above the bar for content to scroll through.
+Pulling the sticky origin up by that padding and paying it back as the bar's
+own `pt-5` covers the strip, while `-mt-5` cancels it again in flow so the
+resting layout is unchanged.
 
 **Previewing the story from the panel** is the same loop one level up: adjust,
 watch it in sequence, adjust. It mounts `TripStory`, never a second renderer.

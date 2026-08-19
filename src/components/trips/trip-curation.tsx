@@ -21,6 +21,7 @@ import {
 
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -45,6 +46,7 @@ import { SLIDE_PHOTO_CAP, SLOT_CAPACITY } from "@/lib/curation";
 import {
   applyCurationSelection,
   buildCurationSlots,
+  groupChosenPhotos,
   hasCurationSlots,
   planStopSelection,
   summarizeStopSelection,
@@ -345,12 +347,22 @@ function ThumbStrip({ photos, dim }: { photos: SlotPhoto[]; dim: boolean }) {
 }
 
 /**
- * A candidate grid, one page at a time.
+ * A candidate grid: a compact page, then all of them.
  *
- * Paging rather than virtualising: the tiles sit inside a dialog that also
- * runs pointer hit-testing for the reorder drag, and a windowed list would
- * have to lie about the scroll height for both. A button that says how many
- * are left is also the more honest interface on a gallery of six hundred.
+ * ONE EXPAND, NOT A PAGER. It used to reveal `pageSize` more per press, which
+ * on a stop with two hundred photographs is a button somebody has to hit
+ * twenty-five times. The compact state is what keeps a photo-heavy dialog fast
+ * to open, and once somebody wants more they want the gallery, not another
+ * eight. Collapsing is offered too, so opening one day's set does not leave the
+ * panel permanently long.
+ *
+ * Expanding costs elements and layout but no full-size fetches: the tiles are
+ * thumbnails and stay `loading="lazy"`, so the ones below the fold do not hit
+ * the network until they are scrolled to.
+ *
+ * Not virtualised, for the same reason as before: the tiles sit inside a dialog
+ * that also runs pointer hit-testing for the reorder drag, and a windowed list
+ * would have to lie about the scroll height for both.
  *
  * MASONRY, NOT A GRID OF SQUARES. Tiles are their real shape (see
  * usePhotoRatio), and a fixed row grid of variable heights leaves a ragged gap
@@ -376,9 +388,9 @@ function CandidateGrid({
   disabled?: boolean;
   pageSize?: number;
 }) {
-  const [shown, setShown] = useState(pageSize);
-  const visible = photos.slice(0, shown);
-  const remaining = photos.length - visible.length;
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? photos : photos.slice(0, pageSize);
+  const hidden = photos.length - visible.length;
   return (
     <>
       <div className="columns-3 gap-2 sm:columns-5 [&>*]:mb-2">
@@ -396,15 +408,17 @@ function CandidateGrid({
           );
         })}
       </div>
-      {remaining > 0 ? (
+      {hidden > 0 || expanded ? (
         <button
           type="button"
-          onClick={() =>
-            setShown((current) => Math.min(photos.length, current + pageSize))
-          }
-          className="mt-2.5 w-full rounded-lg border border-white/10 py-2 text-xs text-foreground/60 transition-colors hover:bg-white/[0.04] hover:text-foreground"
+          onClick={() => setExpanded((current) => !current)}
+          aria-expanded={expanded}
+          className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 py-2 text-xs text-foreground/60 transition-colors hover:bg-white/[0.04] hover:text-foreground"
         >
-          Show {Math.min(pageSize, remaining)} more ({remaining} left)
+          <ChevronDownIcon
+            className={cn("size-3.5 transition-transform", expanded && "rotate-180")}
+          />
+          {expanded ? "Show fewer" : `Show all ${photos.length}`}
         </button>
       ) : null}
     </>
@@ -1077,6 +1091,7 @@ function StopSlotSection({
   const isAutomatic = ids.length === 0;
   const dayCount = slot.days.length;
   const plan = planStopSelection(slot, chosen);
+  const chosenGroups = groupChosenPhotos(slot, chosen);
   const note = summarizeStopSelection(slot, chosen);
   const positionOf = (photo: SlotPhoto) => {
     const position = ids.indexOf(photo.id);
@@ -1156,68 +1171,117 @@ function StopSlotSection({
               {note ? (
                 <p className="mb-2 text-xs text-foreground/70">{note}</p>
               ) : null}
-              <p className="mb-2 text-xs text-foreground/45">
-                Drag to reorder, or use the arrows.
+              <p className="mb-3 text-xs text-foreground/45">
+                Drag to reorder, or use the arrows. A photo taken on one of
+                these days stays on that day; the rest fill the emptiest.
               </p>
-              {/* Fixed width, own height: the picks keep the shapes they had
+              {/* GROUPED BY THE DAY EACH PICK WILL LAND ON.
+                  A flat run of badges was correct about the order and silent
+                  about the mapping, which is the thing somebody opens this row
+                  to confirm. The grouping is a reading of the same
+                  distribution the slides run (groupChosenPhotos), never a
+                  second way to edit it: the arrows and the drag still move one
+                  global sequence and the groups re-derive, because a dated
+                  pick is anchored to its own day and no drag can honestly move
+                  it. Position badges stay the global rank for the same reason.
+
+                  Fixed width, own height: the picks keep the shapes they had
                   as candidates, so the row reads as the same photographs
-                  rather than as a second, squarer set of them. The list is
+                  rather than as a second, squarer set of them. Each list is
                   top-aligned, which is what lets the heights differ without
                   the badges drifting off a shared baseline. */}
-              <ul className="mb-3 flex flex-wrap items-start gap-2">
-                {chosen.map((photo, index) => (
-                  <li
-                    key={photo.id}
-                    ref={drag.register(photo.id)}
-                    onPointerDown={(event) =>
-                      drag.onPointerDown(event, photo.id)
-                    }
-                    onDragStart={(event) => event.preventDefault()}
-                    className={cn(
-                      "relative w-20 cursor-grab touch-none select-none",
-                      drag.draggingId === photo.id && "opacity-60",
-                    )}
-                  >
-                    <ChosenThumb photo={photo}>
-                      <PositionBadge
-                        position={index + 1}
-                        className="absolute left-1 top-1"
-                      />
-                      <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded bg-black/55 text-white/70">
-                        <GripVerticalIcon className="size-3" />
+              <div className="mb-3 flex flex-col gap-2.5">
+                {chosenGroups.map((group) => (
+                  <div key={group.key}>
+                    <p className="mb-1.5 flex items-baseline gap-1.5 text-[0.7rem]">
+                      <span
+                        className={cn(
+                          "font-medium",
+                          group.kind === "unplaced"
+                            ? "text-foreground/45"
+                            : "text-brand",
+                        )}
+                      >
+                        {group.kind === "day"
+                          ? group.dayNumber !== null
+                            ? `Day ${group.dayNumber}`
+                            : "Day"
+                          : group.kind === "stop"
+                            ? "This stop's slide"
+                            : "Nowhere to go"}
                       </span>
-                    </ChosenThumb>
-                    <span className="mt-1 flex items-center justify-center gap-0.5">
-                      <button
-                        type="button"
-                        aria-label={`Move ${index + 1} earlier`}
-                        disabled={index === 0}
-                        onClick={() => move(index, -1)}
-                        className="flex size-6 items-center justify-center rounded text-foreground/50 transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
-                      >
-                        <ArrowLeftIcon className="size-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Remove photo ${index + 1}`}
-                        onClick={() => toggle(photo.id)}
-                        className="flex size-6 items-center justify-center rounded text-foreground/50 transition-colors hover:bg-white/10 hover:text-foreground"
-                      >
-                        <XIcon className="size-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Move ${index + 1} later`}
-                        disabled={index === chosen.length - 1}
-                        onClick={() => move(index, 1)}
-                        className="flex size-6 items-center justify-center rounded text-foreground/50 transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
-                      >
-                        <ArrowRightIcon className="size-3.5" />
-                      </button>
-                    </span>
-                  </li>
+                      <span className="text-foreground/40">
+                        {group.kind === "day"
+                          ? journalDayLabel(group.date ?? "")
+                          : group.kind === "unplaced"
+                            ? "their own day is full, so they stay in the gallery"
+                            : "the only slide this stop has"}
+                      </span>
+                    </p>
+                    <ul className="flex flex-wrap items-start gap-2">
+                      {group.photos.map((photo) => {
+                        // The GLOBAL rank, which is what the badge shows and
+                        // what the arrows move through. Looked up rather than
+                        // taken from the group's own index, or the second day
+                        // would start again at one.
+                        const index = ids.indexOf(photo.id);
+                        return (
+                          <li
+                            key={photo.id}
+                            ref={drag.register(photo.id)}
+                            onPointerDown={(event) =>
+                              drag.onPointerDown(event, photo.id)
+                            }
+                            onDragStart={(event) => event.preventDefault()}
+                            className={cn(
+                              "relative w-20 cursor-grab touch-none select-none",
+                              drag.draggingId === photo.id && "opacity-60",
+                            )}
+                          >
+                            <ChosenThumb photo={photo}>
+                              <PositionBadge
+                                position={index + 1}
+                                className="absolute left-1 top-1"
+                              />
+                              <span className="absolute right-1 top-1 flex size-5 items-center justify-center rounded bg-black/55 text-white/70">
+                                <GripVerticalIcon className="size-3" />
+                              </span>
+                            </ChosenThumb>
+                            <span className="mt-1 flex items-center justify-center gap-0.5">
+                              <button
+                                type="button"
+                                aria-label={`Move ${index + 1} earlier`}
+                                disabled={index <= 0}
+                                onClick={() => move(index, -1)}
+                                className="flex size-6 items-center justify-center rounded text-foreground/50 transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
+                              >
+                                <ArrowLeftIcon className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`Remove photo ${index + 1}`}
+                                onClick={() => toggle(photo.id)}
+                                className="flex size-6 items-center justify-center rounded text-foreground/50 transition-colors hover:bg-white/10 hover:text-foreground"
+                              >
+                                <XIcon className="size-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`Move ${index + 1} later`}
+                                disabled={index === ids.length - 1}
+                                onClick={() => move(index, 1)}
+                                className="flex size-6 items-center justify-center rounded text-foreground/50 transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
+                              >
+                                <ArrowRightIcon className="size-3.5" />
+                              </button>
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </>
           )}
 
@@ -1614,14 +1678,12 @@ function CurationPanel({
   isDemo,
   onSaved,
   onSelectionChange,
-  onPreviewStory,
 }: {
   /** Already carrying the live selection: see TripCurationButton. */
   trip: StoryTrip;
   isDemo: boolean;
   onSaved: () => void;
   onSelectionChange: (update: (current: CurationSelection) => CurationSelection) => void;
-  onPreviewStory: () => void;
 }) {
   const slots = useMemo(() => buildCurationSlots(trip), [trip]);
   const stopsChosen = slots.stops.filter((stop) => stop.chosen.length > 0).length;
@@ -1702,22 +1764,9 @@ function CurationPanel({
         onSelection={setHighlights}
       />
 
-      {/* Composition problems are easiest to spot in sequence, so the loop is
-          adjust, watch, adjust. The story opens over the whole screen and
-          closing it comes straight back here. */}
-      <div className="flex flex-col items-center gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onPreviewStory}
-          className="inline-flex items-center gap-1.5 rounded-md border border-brand/40 bg-brand/10 px-3.5 py-2 text-sm font-medium text-foreground transition-colors hover:bg-brand/20"
-        >
-          <PlayIcon className="size-3.5 text-brand" />
-          Preview story
-        </button>
-        <p className="text-center text-[0.7rem] text-foreground/35">
-          Changes save as you make them.
-        </p>
-      </div>
+      <p className="pt-1 text-center text-[0.7rem] text-foreground/35">
+        Changes save as you make them.
+      </p>
 
       {previewing ? (
         <SlidePreview
@@ -1795,7 +1844,11 @@ export function TripCurationButton({
           handlers fighting over one key. `open` is untouched, so closing the
           story lands straight back on the panel. */}
       <Dialog open={open && !storyOpen} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        {/* The dialog's own close is turned off in favour of the sticky bar
+            below: the default one is positioned against the content box, and
+            that box IS the scroll container, so on a trip with a dozen stops it
+            scrolls out of reach within a screen or two. */}
+        <DialogContent className="sm:max-w-2xl" showCloseButton={false}>
           <DialogHeader>
             <DialogTitle>Curate {trip.name}</DialogTitle>
             <DialogDescription>
@@ -1805,12 +1858,46 @@ export function TripCurationButton({
             </DialogDescription>
           </DialogHeader>
 
+          {/* ONE STICKY BAR, CARRYING BOTH.
+              Close and "preview the story" are the two things wanted from any
+              scroll position, and two separately floating controls over a
+              picker full of tiles is two things in the way. A bar is also the
+              only treatment that cannot obscure a tile, since it reserves its
+              own height in the flow rather than hovering over content.
+
+              Full bleed (`-mx-5`) so the card's own padding does not leave a
+              gap at either end for content to show through while it is stuck,
+              and `bg-card` rather than a translucent blur so a photograph
+              passing underneath does not muddy the two controls. It sits after
+              the header, so the title reads normally at the top and the bar
+              takes over once the header has scrolled away. */}
+          {/* `-top-5` and not `top-0`: a sticky element inside a padded scroll
+              container sticks at the CONTENT box, which would leave the card's
+              own 20px of top padding as a strip above the bar for content to
+              scroll through. Pulling the sticky origin up by that padding, and
+              paying it back as the bar's own `pt-5`, covers the strip while
+              leaving the resting layout exactly where it was (`-mt-5` cancels
+              the padding again in flow). */}
+          <div className="sticky -top-5 z-30 -mx-5 -mt-5 flex items-center justify-between gap-3 border-b border-white/10 bg-card px-5 pb-2.5 pt-5">
+            <button
+              type="button"
+              onClick={() => setStoryOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-brand/40 bg-brand/10 px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-brand/20"
+            >
+              <PlayIcon className="size-3.5 text-brand" />
+              Preview story
+            </button>
+            <DialogClose className="flex size-8 shrink-0 items-center justify-center rounded-md text-foreground/60 transition-colors outline-none hover:bg-white/[0.07] hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
+              <XIcon className="size-4" />
+              <span className="sr-only">Close</span>
+            </DialogClose>
+          </div>
+
           <CurationPanel
             trip={liveTrip}
             isDemo={isDemo}
             onSaved={() => router.refresh()}
             onSelectionChange={setSelection}
-            onPreviewStory={() => setStoryOpen(true)}
           />
         </DialogContent>
       </Dialog>

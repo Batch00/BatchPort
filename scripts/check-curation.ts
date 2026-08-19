@@ -34,6 +34,7 @@ import {
 import {
   applyCurationSelection,
   buildCurationSlots,
+  groupChosenPhotos,
   hasCurationSelection,
   hasCurationSlots,
   planStopSelection,
@@ -1327,6 +1328,121 @@ function trip(
     dayPhotoIds(tenPlain.built, tenPlain.stopId).map((ids) => ids.length),
     Array.from({ length: 10 }, () => 1),
   );
+}
+
+// --- The chosen row, grouped by the day each pick lands on -------------------
+//
+// The row above the picker shows what has been chosen, and it is grouped by day
+// so the mapping is visible rather than implied by a rank badge. It has to be
+// the SAME distribution the slides draw, or the row would be a second opinion
+// about where a photograph goes.
+
+{
+  const stopId = "GroupStop";
+  const days = ["2024-06-01", "2024-06-02", "2024-06-03"];
+  const grouped = trip("Grouped", {
+    start: days[0],
+    end: days[2],
+    destinations: [stop(stopId, { arrival: days[0], departure: days[2] })],
+    photos: [
+      // One ordinary photo a day, so all three days are real slides.
+      ...days.map((date, index) =>
+        photo(`g-own${index + 1}`, { dateTaken: date, destinationId: stopId }),
+      ),
+      // A dated pick on day three, and two undated ones to fill around it.
+      pick("g-dated", 1, { dateTaken: days[2], destinationId: stopId }),
+      pick("g-free1", 2, { destinationId: stopId }),
+      pick("g-free2", 3, { destinationId: stopId }),
+    ],
+  });
+  const slot = buildCurationSlots(grouped).stops[0];
+  const groups = groupChosenPhotos(slot, slot.chosen);
+
+  equal(
+    "every pick is grouped under the day it will land on",
+    groups.map((group) => [
+      group.kind,
+      group.dayNumber,
+      group.photos.map((photo) => photo.id),
+    ]),
+    [
+      ["day", 1, ["g-free1"]],
+      ["day", 2, ["g-free2"]],
+      ["day", 3, ["g-dated"]],
+    ],
+  );
+
+  // The grouping is a reading of the distribution, so it must agree with the
+  // slides photograph for photograph. This is the check that stops the row
+  // becoming a second opinion.
+  const slideDays = buildStorySlides(grouped)
+    .filter(
+      (slide): slide is Extract<StorySlide, { kind: "day" }> =>
+        slide.kind === "day" && slide.destination?.id === stopId,
+    )
+    .map((slide) => slide.photos.map((item) => item.id));
+  equal(
+    "and the story draws exactly those photographs on those days",
+    groups.filter((g) => g.kind === "day").map((g) => g.photos.map((p) => p.id)),
+    slideDays,
+  );
+
+  // A pick whose OWN DAY is full has nowhere to go, and the row says so rather
+  // than quietly filing it under a day it will not appear on. Five picks all
+  // dated to day one, on a three day stop: the slot's capacity is twelve so all
+  // five are chosen, but one day seats only four.
+  const fullDay = trip("Grouped full", {
+    start: days[0],
+    end: days[2],
+    destinations: [stop("FullStop", { arrival: days[0], departure: days[2] })],
+    photos: [
+      ...days.map((date, index) =>
+        photo(`f-own${index + 1}`, { dateTaken: date, destinationId: "FullStop" }),
+      ),
+      ...Array.from({ length: 5 }, (_, index) =>
+        pick(`f-pick${index + 1}`, index + 1, {
+          dateTaken: days[0],
+          destinationId: "FullStop",
+        }),
+      ),
+    ],
+  });
+  const fullSlot = buildCurationSlots(fullDay).stops[0];
+  equal("all five are within the stop's capacity", fullSlot.chosen.length, 5);
+  equal(
+    "a pick past its own day's cap is grouped as having nowhere to go",
+    groupChosenPhotos(fullSlot, fullSlot.chosen).map((group) => [
+      group.kind,
+      group.photos.map((p) => p.id),
+    ]),
+    [
+      ["day", ["f-pick1", "f-pick2", "f-pick3", "f-pick4"]],
+      ["unplaced", ["f-pick5"]],
+    ],
+  );
+
+  // A stop with no dated day has one slide, and the row names it as such. Its
+  // capacity IS one slide's worth, so there is never anything left over.
+  const undated = trip("Grouped undated", {
+    destinations: [stop("UndatedGroup")],
+    photos: [
+      photo("u-own", { destinationId: "UndatedGroup" }),
+      ...Array.from({ length: 5 }, (_, index) =>
+        pick(`u-p${index + 1}`, index + 1, { destinationId: "UndatedGroup" }),
+      ),
+    ],
+  });
+  const undatedSlot = buildCurationSlots(undated).stops[0];
+  equal(
+    "an undated stop groups everything under its single slide",
+    groupChosenPhotos(undatedSlot, undatedSlot.chosen).map((group) => [
+      group.kind,
+      group.photos.length,
+    ]),
+    [["stop", SLIDE_PHOTO_CAP]],
+  );
+
+  equal("nothing chosen groups nothing", groupChosenPhotos(slot, []), []);
 }
 
 // --- Applying a selection the server has not confirmed yet -------------------

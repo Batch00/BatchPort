@@ -326,6 +326,109 @@ export function planStopSelection(
 }
 
 /**
+ * The chosen photos of one stop, split into the day slides they will actually
+ * land on.
+ *
+ * The picks are a single ranked SEQUENCE and their days are derived from it
+ * (see distributeStopPhotos), so the row that shows them had been a flat run
+ * with position badges: correct, and silent about the one thing the traveller
+ * is trying to confirm, which is what ends up on which day. This groups the row
+ * by running the same distribution the slides run.
+ *
+ * It is a reading of the sequence, never a second way to edit it. Reordering
+ * still moves a photo through one global order and the grouping re-derives,
+ * because a dated pick is anchored to the day it was taken on and no amount of
+ * dragging can honestly move it somewhere else. Two mechanisms that could
+ * disagree is exactly what the slot model exists to avoid.
+ */
+export type ChosenGroupKind =
+  /** A day slide of this stay. */
+  | "day"
+  /** The single slide a stop with no dated day gets. */
+  | "stop"
+  /** Picks with no seat: their own day was already full, or the stop's one
+   * slide was. They stay in the gallery, like any pick past the cap. */
+  | "unplaced";
+
+export interface ChosenGroup {
+  key: string;
+  kind: ChosenGroupKind;
+  /** YYYY-MM-DD for a day group, null otherwise. */
+  date: string | null;
+  /** Its number within the trip, when it has one. */
+  dayNumber: number | null;
+  photos: SlotPhoto[];
+}
+
+export function groupChosenPhotos(
+  slot: StopPhotoSlot,
+  chosen: SlotPhoto[],
+): ChosenGroup[] {
+  if (chosen.length === 0) return [];
+
+  // A stop with no dated day has one slide, so there is nothing to spread
+  // across: it shows what a slide draws and the rest have nowhere to go.
+  if (slot.days.length === 0) {
+    const groups: ChosenGroup[] = [
+      {
+        key: "stop",
+        kind: "stop",
+        date: null,
+        dayNumber: null,
+        photos: chosen.slice(0, SLIDE_PHOTO_CAP),
+      },
+    ];
+    const over = chosen.slice(SLIDE_PHOTO_CAP);
+    if (over.length > 0) {
+      groups.push({
+        key: "unplaced",
+        kind: "unplaced",
+        date: null,
+        dayNumber: null,
+        photos: over,
+      });
+    }
+    return groups;
+  }
+
+  const plan = distributeStopPhotos(
+    slot.days.map((day) => day.date),
+    chosen,
+    SLIDE_PHOTO_CAP,
+  );
+  const byId = new Map(chosen.map((photo) => [photo.id, photo]));
+  const placed = new Set<string>();
+  const groups: ChosenGroup[] = [];
+
+  for (const day of slot.days) {
+    const ids = plan.get(day.date) ?? [];
+    if (ids.length === 0) continue;
+    for (const id of ids) placed.add(id);
+    groups.push({
+      key: day.date,
+      kind: "day",
+      date: day.date,
+      dayNumber: day.dayNumber,
+      photos: ids
+        .map((id) => byId.get(id))
+        .filter((photo): photo is SlotPhoto => photo !== undefined),
+    });
+  }
+
+  const unplaced = chosen.filter((photo) => !placed.has(photo.id));
+  if (unplaced.length > 0) {
+    groups.push({
+      key: "unplaced",
+      kind: "unplaced",
+      date: null,
+      dayNumber: null,
+      photos: unplaced,
+    });
+  }
+  return groups;
+}
+
+/**
  * The one line left over once every day states its own outcome: what happened
  * to a pick that could not be placed. Empty the rest of the time, because the
  * day headings have already said everything else.
