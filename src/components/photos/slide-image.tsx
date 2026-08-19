@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -123,6 +123,7 @@ export function SlideImage({
   alt?: string;
 }) {
   const frameRef = useRef<HTMLDivElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [frameAspect, setFrameAspect] = useState<number | null>(null);
   const [imageAspect, setImageAspect] = useState<number | null>(null);
@@ -137,6 +138,31 @@ export function SlideImage({
     setLoaded(false);
     setImageAspect(null);
   }
+
+  /** What onLoad does, pulled out so a already-complete image can run it too. */
+  const applyLoaded = useCallback((image: HTMLImageElement) => {
+    if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+      setImageAspect(image.naturalWidth / image.naturalHeight);
+    }
+    setLoaded(true);
+  }, []);
+
+  // A CACHED IMAGE NEVER FIRES onLoad.
+  //
+  // The browser can finish an image out of cache before React has attached the
+  // handler, and the event is then simply missed: `loaded` stays false, the
+  // crossfade never runs, and a photograph that downloaded perfectly sits at
+  // opacity 0 forever. It is easy to miss because the first view of any photo
+  // is uncached and works, and it is the same trap `usePhotoRatio` in the
+  // curation picker already guards against.
+  //
+  // Keyed on src rather than run once, because the render above resets `loaded`
+  // when the photo in this slot changes (the recap swaps years in place) and
+  // the replacement may be cached too.
+  useEffect(() => {
+    const image = imageRef.current;
+    if (image && image.complete) applyLoaded(image);
+  }, [src, applyLoaded]);
 
   useEffect(() => {
     const element = frameRef.current;
@@ -180,17 +206,12 @@ export function SlideImage({
       ) : null}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        ref={imageRef}
         src={src}
         alt={alt}
         loading={priority ? "eager" : "lazy"}
         decoding="async"
-        onLoad={(event) => {
-          const image = event.currentTarget;
-          if (image.naturalWidth > 0 && image.naturalHeight > 0) {
-            setImageAspect(image.naturalWidth / image.naturalHeight);
-          }
-          setLoaded(true);
-        }}
+        onLoad={(event) => applyLoaded(event.currentTarget)}
         className={cn(
           "absolute inset-0 size-full transition-opacity duration-500",
           contain ? "object-contain" : "object-cover",

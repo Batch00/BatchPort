@@ -127,6 +127,17 @@ on a desktop slide into contain (nothing cropped). Mosaic cells pass
 `allowContain={false}`: a four-photo grid is crops by design, and letterboxing
 each cell turns one composition into four small pictures floating in blur.
 
+**A cached image never fires `onLoad`.** The browser can finish an image out of
+cache before React has attached the handler, and the event is then simply
+missed: `loaded` stays false, the crossfade never runs, and a photograph that
+downloaded perfectly sits at `opacity: 0` forever. `SlideImage` therefore keeps
+a ref to its `<img>` and re-checks `complete` in an effect keyed on `src`, as
+well as handling `onLoad`. It is easy to miss because the first view of any
+photo is uncached and works; it bites on a second look at the same photo, and
+it bit the curation preview immediately, where the thumbnail and the full image
+can be the same file. `usePhotoRatio` in the picker guards the same trap for
+the same reason.
+
 The fit rule is exported as `willContain(frameAspect, imageAspect)` and the
 threshold as `CONTAIN_THRESHOLD`, because the curation picker marks the
 candidates that will be letterboxed without rendering them. A second copy of
@@ -797,6 +808,19 @@ would be believed. So `SlidePreview` mounts `SlideImage` itself, in a frame at
 decision, the threshold, the blurred backdrop, and the crossfade are the
 story's own component doing its own job. A photograph that will be letterboxed
 is visibly letterboxed there, which is the outcome rather than a note about it.
+
+**The preview frame needs a DEFINITE WIDTH, not an aspect ratio and two max
+caps.** It is a flex item in a column, so its cross axis is sized by its
+contents, and its only content is `SlideImage`'s `size-full` wrapper (100% of a
+parent whose width is being derived from it) over absolutely positioned images,
+which contribute no intrinsic size at all. That circularity resolves to zero,
+and `aspect-ratio` cannot break it: it derives one dimension from the other and
+here neither is ever determined. The first version shipped with `aspect-ratio`
+plus `max-h`/`max-w` and painted a perfectly loaded photograph into a 0x0 box.
+`width: min(92dvw, {aspect * 70}dvh)` fixes it and keeps both caps, since the
+derived height is then exactly `min(92dvw / aspect, 70dvh)`. `dvh` rather than
+`vh` because a mobile address bar is part of `vh` and would let the frame
+overflow the visual viewport.
 
 The preview is opened by an explicit control on every tile, not by hover and
 not by tap-and-hold. Hover does not exist on a touch screen, so a hover-only

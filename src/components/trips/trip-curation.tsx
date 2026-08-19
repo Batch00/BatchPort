@@ -715,18 +715,38 @@ function SlidePreview({
       // Above the curate dialog, and its own pointer-events island: Radix sets
       // pointer-events none on the body while a dialog is open, so anything
       // portalled beside it has to opt back in.
-      className="pointer-events-auto fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-black/85 px-4 py-[max(1rem,env(safe-area-inset-top))] backdrop-blur-sm"
+      // `overflow-y-auto` is the guard for a very short viewport (a landscape
+      // phone): the frame is capped at 70dvh and the two captions have to fit
+      // in what is left, and if they ever cannot, this scrolls rather than
+      // clipping both ends against `justify-center`.
+      className="pointer-events-auto fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 overflow-y-auto bg-black/85 px-4 py-[max(1rem,env(safe-area-inset-top))] backdrop-blur-sm"
       onClick={onClose}
     >
       <p className="px-4 text-center text-xs text-white/55">
         Exactly how a story slide draws this photo on this screen
       </p>
       <div
-        // Fitted inside whatever room is left, at the slide's shape. Both
-        // dimensions are capped, so a wide desktop viewport does not push the
-        // caption off the bottom and a phone does not push it off the side.
-        style={{ aspectRatio: aspect }}
-        className="relative max-h-[70vh] max-w-[92vw] overflow-hidden rounded-xl ring-1 ring-white/15"
+        // A DEFINITE WIDTH, not just an aspect ratio and two max caps.
+        //
+        // This frame is a flex item in a column, so its cross axis is sized by
+        // its contents, and its only content is SlideImage's `size-full`
+        // wrapper (100% of a parent whose width is being derived from it) over
+        // absolutely positioned images, which contribute no intrinsic size at
+        // all. That circularity resolves to zero, and `aspect-ratio` cannot
+        // break it: it derives one dimension from the other and here neither is
+        // ever determined. The photograph loaded correctly and was painted into
+        // a 0x0 box.
+        //
+        // One expression fixes it and keeps both caps: at this width the
+        // derived height is exactly min(92dvw / aspect, 70dvh), so the frame
+        // can never push the captions off the top or the sides off the screen.
+        // `dvh` rather than `vh` because a mobile address bar is part of `vh`
+        // and would let the frame overflow the visual viewport.
+        style={{
+          aspectRatio: aspect,
+          width: `min(92dvw, ${(aspect * 70).toFixed(3)}dvh)`,
+        }}
+        className="relative shrink-0 overflow-hidden rounded-xl ring-1 ring-white/15"
         onClick={(event) => event.stopPropagation()}
       >
         <SlideImage src={photo.url} thumbSrc={photo.thumbUrl} priority />
