@@ -26,6 +26,7 @@ import { journalDayLabel } from "@/lib/journal";
 import {
   buildStorySlides,
   slideImageUrls,
+  storyTripImage,
   type StoryDaySlide,
   type StoryExperience,
   type StoryPhoto,
@@ -297,13 +298,17 @@ function SlideView({ slide }: { slide: StorySlide }) {
   if (slide.kind === "opener") {
     const trip = slide.trip;
     const days = durationDays(trip.startDate, trip.endDate);
+    // The elected hero, else the cover. Resolved rather than read straight off
+    // trip.coverUrl, so the slot that names itself the trip's opening frame
+    // actually opens the trip's own story too.
+    const image = storyTripImage(trip);
     return (
       <div className="relative size-full bg-[#0a0a0a]">
-        {trip.coverUrl ? (
+        {image.url ? (
           <div className="absolute inset-0">
             <SlideImage
-              src={trip.coverUrl}
-              thumbSrc={trip.coverThumbUrl}
+              src={image.url}
+              thumbSrc={image.thumbUrl}
               priority
             />
           </div>
@@ -379,12 +384,14 @@ function SlideView({ slide }: { slide: StorySlide }) {
   }
   if (stats.photos > 0) supporting("Photos", String(stats.photos));
 
-  const cover = slide.trip.coverUrl;
+  // The same image the opener used, hero first: the two bookends of one story
+  // should not disagree about which photograph the trip is.
+  const image = storyTripImage(slide.trip);
   return (
     <div className="relative size-full bg-[#0a0a0a]">
-      {cover ? (
+      {image.url ? (
         <div className="absolute inset-0">
-          <SlideImage src={cover} thumbSrc={slide.trip.coverThumbUrl} />
+          <SlideImage src={image.url} thumbSrc={image.thumbUrl} />
         </div>
       ) : null}
       <div className="absolute inset-0 bg-black/75" />

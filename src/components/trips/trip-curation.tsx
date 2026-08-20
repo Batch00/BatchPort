@@ -916,7 +916,7 @@ function HeroSlotSection({
   return (
     <SlotSection
       title="Trip hero"
-      where="Opens the Year in Travel recap and backs the share card."
+      where="Opens the trip story and the Year in Travel recap, and backs the share card."
       status={saving ? "Saving..." : isAutomatic ? "Automatic" : "Chosen"}
       accent={!isAutomatic}
       summary={preview ? <ThumbStrip photos={[preview]} dim={isAutomatic} /> : undefined}
@@ -951,7 +951,7 @@ function HeroSlotSection({
       </div>
       <div className="mt-2 flex items-start justify-between gap-3">
         <p className="text-xs text-foreground/45">
-          {isAutomatic ? slot.automaticReason : "Your pick opens the recap."}
+          {isAutomatic ? slot.automaticReason : "Your pick opens the story and the recap."}
         </p>
         {isAutomatic ? null : (
           <button

@@ -43,7 +43,9 @@ import {
 } from "../src/lib/curation-slots";
 import {
   buildStorySlides,
+  slideImageUrls,
   storyClosingStats,
+  storyTripImage,
   type StoryDestination,
   type StoryExperience,
   type StoryPhoto,
@@ -1522,6 +1524,31 @@ function trip(
     appliedSlots.stops.find((slot) => slot.destinationId === other)?.chosen
       .length,
     0,
+  );
+
+  // THE STORY OPENS ON THE HERO TOO.
+  //
+  // The opener and the closing scoreboard used to read `trip.coverUrl`
+  // directly, so the hero slot changed the share card and the recap and left
+  // the story alone. That was true of a SAVED hero as much as an unsaved one,
+  // because electing a hero does not touch cover_photo_id, and it made the
+  // panel's own "Preview story" look like the selection had not taken.
+  equal(
+    "the story resolves the elected hero, not the trip cover",
+    storyTripImage(applied).url,
+    "https://example.test/s3.jpg",
+  );
+  equal(
+    "and the warm-up names the same file the opener will request",
+    slideImageUrls(
+      buildStorySlides(applied).find((slide) => slide.kind === "opener")!,
+    )[0],
+    "https://example.test/s3.jpg",
+  );
+  equal(
+    "with nothing elected it is still the trip cover",
+    storyTripImage(base).url,
+    "https://example.test/s1.jpg",
   );
 
   // And the surfaces read it, which is the whole point of previewing it.

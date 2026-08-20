@@ -184,7 +184,7 @@ function heroSlot(trip: StoryTrip): HeroSlot {
     chosen: chosen ? toSlotPhoto(chosen, 1) : null,
     automatic: automatic ? toSlotPhoto(automatic, null) : null,
     automaticReason: coverPhoto
-      ? "The trip cover, which backs the share card and stands for this trip in the recap."
+      ? "The trip cover, which opens the story and stands for this trip on the card and in the recap."
       : automatic
         ? "Your earliest photo of the trip."
         : "No photograph yet, so the card draws its own gradient.",

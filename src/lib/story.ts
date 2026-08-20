@@ -436,6 +436,28 @@ export function storyHeroPhoto(trip: StoryTrip): StoryPhoto | null {
 }
 
 /**
+ * The one image that stands for the trip: the elected hero, else the cover.
+ *
+ * The story's opener and its closing scoreboard both sit over "the trip's
+ * photograph", and both used to read `trip.coverUrl` directly, which meant the
+ * hero slot changed the share card and the recap and left the story alone.
+ * Electing a hero does not touch `cover_photo_id`, so that was true of a SAVED
+ * hero too, not just an unsaved one: the slot simply did not reach here.
+ *
+ * Resolving it in one place is also what makes the curation panel's preview
+ * honest, since the preview applies its unsaved selection to the photo rows
+ * and every surface that reads the rows picks it up for free.
+ */
+export function storyTripImage(trip: StoryTrip): {
+  url: string | null;
+  thumbUrl: string | null;
+} {
+  const hero = storyHeroPhoto(trip);
+  if (hero) return { url: hero.url, thumbUrl: hero.thumbUrl };
+  return { url: trip.coverUrl, thumbUrl: trip.coverThumbUrl ?? trip.coverUrl };
+}
+
+/**
  * Fold a trip into its slides: an opener, the days (or stops) in visit order,
  * and a closing scoreboard. Always returns at least the opener and the
  * closing, so the view never has to handle an empty sequence.
@@ -757,11 +779,15 @@ export function hasStory(trip: {
  * slide's first image from this. */
 export function slideImageUrls(slide: StorySlide): string[] {
   switch (slide.kind) {
-    case "opener":
+    case "opener": {
+      // The same resolver the slide renders through, or the warm-up would
+      // fetch the cover while the slide asks for the hero.
+      const image = storyTripImage(slide.trip);
       return [
-        ...(slide.trip.coverUrl ? [slide.trip.coverUrl] : []),
+        ...(image.url ? [image.url] : []),
         ...slide.photos.map((photo) => photo.url),
       ];
+    }
     case "day":
       return [
         ...slide.photos.map((photo) => photo.url),
@@ -772,11 +798,13 @@ export function slideImageUrls(slide: StorySlide): string[] {
         ...slide.photos.map((photo) => photo.url),
         ...(slide.destination.coverUrl ? [slide.destination.coverUrl] : []),
       ];
-    case "closing":
-      // The closing scoreboard sits over the trip cover, so the warm-up has to
-      // name it too. It is the same file the opener already fetched, so this
-      // costs nothing and simply keeps the rule true.
-      return slide.trip.coverUrl ? [slide.trip.coverUrl] : [];
+    case "closing": {
+      // The closing scoreboard sits over the same image the opener does, so
+      // the warm-up has to name it too. It is the same file the opener already
+      // fetched, so this costs nothing and simply keeps the rule true.
+      const image = storyTripImage(slide.trip);
+      return image.url ? [image.url] : [];
+    }
     default:
       return [];
   }

@@ -637,8 +637,14 @@ else follows:
 
 - **A rank belongs to a SLOT, and a slot is a place on a real surface.** There
   are exactly three, and `SLOT_CAPACITY` is their capacity:
-  - **Trip hero (1)**: `photos.featured_slot = 'hero'`, rank 1. The recap's
-    opening frame and the share card's backdrop.
+  - **Trip hero (1)**: `photos.featured_slot = 'hero'`, rank 1. The frame the
+    trip story opens and closes on, the recap's opening frame, and the share
+    card's backdrop. The story reads it through `storyTripImage` (hero, else
+    the trip cover); it used to read `trip.coverUrl` directly, which meant the
+    slot named "the trip's opening frame" was the one surface it did not open.
+    Electing a hero does not touch `cover_photo_id`, so that was true of a
+    SAVED hero too, and it also made the panel's "Preview story" look like the
+    selection had not taken.
   - **Stop photos (`stopPhotoCapacity(dayslides)` per destination)**:
     `photos.featured_slot = 'stop'`, ranked **within the destination**. The
     photos that lead that stop's story slides. Its capacity is **derived, not
