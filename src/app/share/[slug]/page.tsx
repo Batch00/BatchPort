@@ -59,6 +59,14 @@ export default async function SharePage({ params }: SharePageProps) {
     );
   }
 
+  // NO EXPENSES FLAG, AND THIS IS LOAD-BEARING RATHER THAN AN OMISSION.
+  // getUserBySlug resolves a slug when public_share_enabled OR is_demo, so
+  // /share/demo reaches this line with the demo account's id, and the expenses
+  // RLS policy would happily serve that read. Nothing but the absence of this
+  // argument stops a public profile publishing a spending ledger. Do not add
+  // it, do not derive it from the user, and do not move the decision into
+  // SharedProfileView, which cannot know which route mounted it.
+  // scripts/check-share-gate.ts asserts this over HTTP.
   const profile = await getSharedProfile(userId);
 
   return (

@@ -2,6 +2,7 @@ import { formatDate } from "@/lib/format";
 import {
   formatUsd,
   unattributedLine,
+  unattributedSubject,
   type GroupSpend,
   type TripExpenseSummary,
   type UnattributedSummary,
@@ -144,11 +145,23 @@ function GroupBar({ groups }: { groups: GroupSpend[] }) {
  * and the refund count.
  */
 function Unattributed({ summary }: { summary: UnattributedSummary }) {
+  // The summary clause is omitted where the count alone says everything, so a
+  // lone prepaid flight reads "Not on any stop, so it is absent from the
+  // per-stop table below." with the row underneath, rather than the four-row
+  // sentence with a stub where the interesting part should be.
+  const line = unattributedLine(summary);
   return (
     <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
       <p className="text-xs text-foreground/60">
-        Not on any stop, so these are absent from the per-stop table below:{" "}
-        <span className="text-foreground/80">{unattributedLine(summary)}</span>.
+        Not on any stop, so {unattributedSubject(summary)} absent from the
+        per-stop table below
+        {line ? (
+          <>
+            {": "}
+            <span className="text-foreground/80">{line}</span>
+          </>
+        ) : null}
+        .
       </p>
       {summary.listable ? (
         <ul className="mt-2 flex flex-col gap-1">

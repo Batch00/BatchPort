@@ -12,26 +12,24 @@
 // the geocoder rather than replacing them.
 //
 // ---------------------------------------------------------------------------
-// BEFORE ADDING DEMO EXPENSES, READ THIS.
+// RESOLVED 2026-08-23, and worth keeping as the record of a note that fired.
 //
-// scripts/check-expense-attribution.ts asserts that the anon key CAN see the
-// demo account's expenses, which is what lets /demo render them. To do that
-// without putting a phantom trip on the public demo profile, it attaches ONE
-// real expense row to an existing demo trip for the duration of the run,
-// marked with the vendor "__parity_fixture__", and purges it on entry and in a
-// finally.
+// This file used to carry a warning: check-expense-attribution asserted that
+// the anon key can see the demo account's expenses, and since the demo had no
+// expenses to assert against, it inserted a throwaway row onto a real demo
+// trip for the duration of each run. That row was invisible only because no
+// surface rendered expenses, and the warning said so: the moment a demo
+// expense surface shipped, a crashed run could leave "__parity_fixture__" on
+// the public /demo page.
 //
-// That row is invisible today because no surface renders expenses. The moment
-// the demo expense surface ships, it becomes briefly visible on /demo and
-// /share/demo while the harness runs, and would survive a crashed run until
-// the next one sweeps it.
+// Seeding EXPENSES below is that moment, and it resolved the problem by
+// removing it rather than working around it. The harness now asserts against
+// these real seeded ledgers, so it writes nothing to the demo account at all.
+// Neither of the two workarounds the old note proposed (filter the probe out
+// on the demo surface, or accept the visibility window) was needed.
 //
-// So when demo expenses are added here, do one of:
-//   - have the harness filter its probe row out of nothing (it already carries
-//     a reserved vendor, so the demo surface can exclude that vendor), or
-//   - accept the window and say so, since the purge is on entry as well.
-//
-// Do not discover this by seeing "__parity_fixture__" on the live demo page.
+// The rule that survives: nothing may write to the demo account except this
+// seeder. It is a public profile.
 // ---------------------------------------------------------------------------
 
 // --- Types -----------------------------------------------------------------
@@ -1707,6 +1705,144 @@ export const TRANSPORT_LEGS: Record<
     "El Calafate": { mode: "bus", carrier: "Cootra", durationMinutes: 320 },
     Ushuaia: { mode: "flight", carrier: "AR 1893", durationMinutes: 80 },
   },
+};
+
+// --- Expenses ---------------------------------------------------------------
+//
+// Fictional ledgers for the demo account. Two trips rather than all eleven,
+// deliberately: a demo needs enough to show the shape of the feature, and a
+// third invented ledger would be more fixture to review for nothing extra
+// demonstrated. Two is also the minimum that makes a cross-trip comparison
+// mean anything, and the pair is chosen to spend very differently. Interrail
+// Summer is 2019 backpacking (hostels, seat reservations, supermarket beer);
+// Iceland Ring Road is a 4x4 and groceries at Icelandic prices.
+//
+// Between them they exercise every part of the surface:
+//
+//   - all five groups, so the group bar is never one colour
+//   - the ALCOHOL CROSS-CUT on both sides of its point: bar rounds, and
+//     supermarket beer filed under Groceries and Markets, which is the whole
+//     reason it is a boolean rather than a category
+//   - a REFUND (a cancelled seat reservation) so a negative row renders
+//   - an UNDATED prepaid row (the rail pass, bought months before)
+//   - a row DATED BEFORE THE FIRST STOP ARRIVES (the outbound flight), which
+//     no stay owns, so /demo shows the unattributed block doing its job
+//   - every row categorised, so the demo never shows the uncategorized nag
+//
+// Every other date sits inside the range of the stay that should own it.
+
+export interface SeedExpense {
+  vendor: string;
+  amountUsd: number;
+  /** Omitted for a prepaid row with no date. */
+  spentOn?: string;
+  /** Slug from batchport.expense_categories. */
+  slug: string;
+  /** The cross-cut. True on shop-bought drink as well as on bar rounds. */
+  alcohol?: boolean;
+  note?: string;
+}
+
+export const EXPENSES: Record<string, SeedExpense[]> = {
+  "Interrail Summer": [
+    // Booked ahead: one with no date at all, one dated before the first stop.
+    { vendor: "Eurail Global Pass", amountUsd: 465, slug: "rail" },
+    { vendor: "KLM Amsterdam", amountUsd: 312, spentOn: "2019-07-25", slug: "flights" },
+
+    // Amsterdam, 27 to 30 July
+    { vendor: "Flying Pig Hostel", amountUsd: 96, spentOn: "2019-07-27", slug: "hostel" },
+    { vendor: "Albert Heijn", amountUsd: 14, spentOn: "2019-07-27", slug: "groceries-and-markets" },
+    { vendor: "Cafe de Prins", amountUsd: 31, spentOn: "2019-07-28", slug: "restaurants" },
+    { vendor: "Van Gogh Museum", amountUsd: 22, spentOn: "2019-07-28", slug: "museums-and-galleries" },
+    { vendor: "Cafe Belgique", amountUsd: 18, spentOn: "2019-07-28", slug: "bars-and-nightlife", alcohol: true },
+    { vendor: "Canal boat at dusk", amountUsd: 19, spentOn: "2019-07-29", slug: "tours-and-guides" },
+    { vendor: "Albert Heijn", amountUsd: 9, spentOn: "2019-07-29", slug: "groceries-and-markets", alcohol: true, note: "Beers for the Vondelpark picnic" },
+    { vendor: "Foodhallen", amountUsd: 27, spentOn: "2019-07-29", slug: "restaurants" },
+    { vendor: "Anne Frank House", amountUsd: 16, spentOn: "2019-07-30", slug: "museums-and-galleries" },
+    { vendor: "MacBike", amountUsd: 12, spentOn: "2019-07-30", slug: "micromobility" },
+    { vendor: "Haarlemmerstraat bakery", amountUsd: 6, spentOn: "2019-07-30", slug: "cafe-and-bakery" },
+
+    // Berlin, 31 July to 3 August
+    { vendor: "ICE 145 seat reservation", amountUsd: 24, spentOn: "2019-07-31", slug: "rail" },
+    { vendor: "Circus Hostel", amountUsd: 108, spentOn: "2019-07-31", slug: "hostel" },
+    { vendor: "Mustafas Gemuse Kebap", amountUsd: 8, spentOn: "2019-07-31", slug: "restaurants" },
+    { vendor: "Pergamon Museum", amountUsd: 19, spentOn: "2019-08-01", slug: "museums-and-galleries" },
+    { vendor: "BVG week pass", amountUsd: 34, spentOn: "2019-08-01", slug: "transit-and-passes" },
+    { vendor: "Berghain queue", amountUsd: 41, spentOn: "2019-08-01", slug: "bars-and-nightlife", alcohol: true },
+    { vendor: "East Side Gallery walk", amountUsd: 14, spentOn: "2019-08-02", slug: "tours-and-guides" },
+    { vendor: "Curry 36", amountUsd: 7, spentOn: "2019-08-02", slug: "restaurants" },
+    { vendor: "REWE", amountUsd: 16, spentOn: "2019-08-02", slug: "groceries-and-markets" },
+    { vendor: "REWE", amountUsd: 11, spentOn: "2019-08-03", slug: "groceries-and-markets", alcohol: true },
+    { vendor: "Vodafone top-up", amountUsd: 15, spentOn: "2019-08-03", slug: "connectivity" },
+
+    // Prague, 4 to 6 August
+    { vendor: "EC 179 seat reservation", amountUsd: 19, spentOn: "2019-08-04", slug: "rail" },
+    { vendor: "Sir Tobys Hostel", amountUsd: 63, spentOn: "2019-08-04", slug: "hostel" },
+    { vendor: "Lokal U Bile kuzelky", amountUsd: 21, spentOn: "2019-08-04", slug: "restaurants" },
+    { vendor: "Prague Castle", amountUsd: 17, spentOn: "2019-08-05", slug: "attractions-and-landmarks" },
+    { vendor: "Letna Beer Garden", amountUsd: 13, spentOn: "2019-08-05", slug: "bars-and-nightlife", alcohol: true },
+    { vendor: "Kafka Museum", amountUsd: 11, spentOn: "2019-08-06", slug: "museums-and-galleries" },
+    { vendor: "DPP tram tickets", amountUsd: 6, spentOn: "2019-08-06", slug: "transit-and-passes" },
+    { vendor: "Hostel laundry", amountUsd: 8, spentOn: "2019-08-06", slug: "convenience-and-sundries" },
+
+    // Vienna, 7 to 10 August
+    { vendor: "RJ 71 seat reservation", amountUsd: 22, spentOn: "2019-08-07", slug: "rail" },
+    { vendor: "Wombats Hostel", amountUsd: 104, spentOn: "2019-08-07", slug: "hostel" },
+    { vendor: "Kunsthistorisches Museum", amountUsd: 21, spentOn: "2019-08-08", slug: "museums-and-galleries" },
+    { vendor: "Figlmuller", amountUsd: 26, spentOn: "2019-08-08", slug: "restaurants" },
+    { vendor: "RJ 71 seat reservation", amountUsd: -19, spentOn: "2019-08-08", slug: "rail", note: "Refund for the leg we rebooked a day later" },
+    { vendor: "Naschmarkt", amountUsd: 18, spentOn: "2019-08-09", slug: "groceries-and-markets" },
+    { vendor: "Staatsoper standing ticket", amountUsd: 4, spentOn: "2019-08-09", slug: "entertainment-and-events" },
+    { vendor: "Cafe Central", amountUsd: 13, spentOn: "2019-08-10", slug: "cafe-and-bakery" },
+
+    // Budapest, 11 to 14 August
+    { vendor: "RJ 41 seat reservation", amountUsd: 15, spentOn: "2019-08-11", slug: "rail" },
+    { vendor: "Maverick Hostel", amountUsd: 71, spentOn: "2019-08-11", slug: "hostel" },
+    { vendor: "Szechenyi Baths", amountUsd: 24, spentOn: "2019-08-12", slug: "wellness-and-spa" },
+    { vendor: "Szimpla Kert", amountUsd: 29, spentOn: "2019-08-12", slug: "bars-and-nightlife", alcohol: true },
+    { vendor: "Great Market Hall", amountUsd: 15, spentOn: "2019-08-13", slug: "groceries-and-markets" },
+    { vendor: "Langos stand", amountUsd: 5, spentOn: "2019-08-13", slug: "restaurants" },
+    { vendor: "100E airport shuttle", amountUsd: 11, spentOn: "2019-08-14", slug: "transit-and-passes" },
+    { vendor: "Paprika tin", amountUsd: 9, spentOn: "2019-08-14", slug: "shopping-and-souvenirs" },
+    { vendor: "Wizz Air home", amountUsd: 288, spentOn: "2019-08-14", slug: "flights" },
+  ],
+
+  "Iceland Ring Road": [
+    { vendor: "Icelandair", amountUsd: 604, spentOn: "2026-03-12", slug: "flights" },
+    { vendor: "Blue Car Rental", amountUsd: 812, spentOn: "2026-03-14", slug: "car-and-fuel", note: "Ten days of 4x4" },
+
+    // Reykjavik, 14 to 16 March
+    { vendor: "Kex Hostel", amountUsd: 189, spentOn: "2026-03-14", slug: "hostel" },
+    { vendor: "Bonus", amountUsd: 62, spentOn: "2026-03-14", slug: "groceries-and-markets" },
+    { vendor: "Baejarins Beztu", amountUsd: 12, spentOn: "2026-03-15", slug: "restaurants" },
+    { vendor: "Sky Lagoon", amountUsd: 78, spentOn: "2026-03-15", slug: "wellness-and-spa" },
+    { vendor: "Vinbudin", amountUsd: 34, spentOn: "2026-03-15", slug: "groceries-and-markets", alcohol: true },
+    { vendor: "Reykjavik Roasters", amountUsd: 9, spentOn: "2026-03-16", slug: "cafe-and-bakery" },
+    { vendor: "Hallgrimskirkja tower", amountUsd: 8, spentOn: "2026-03-16", slug: "attractions-and-landmarks" },
+
+    // Vik, 17 to 18 March
+    { vendor: "N1 Selfoss", amountUsd: 96, spentOn: "2026-03-17", slug: "car-and-fuel" },
+    { vendor: "Guesthouse Carina", amountUsd: 142, spentOn: "2026-03-17", slug: "short-term-rental" },
+    { vendor: "Skogafoss car park", amountUsd: 7, spentOn: "2026-03-17", slug: "fees-and-admin" },
+    { vendor: "Sudur Vik", amountUsd: 48, spentOn: "2026-03-18", slug: "restaurants" },
+    { vendor: "Katla ice cave tour", amountUsd: 165, spentOn: "2026-03-18", slug: "tours-and-guides" },
+
+    // Hofn, 19 to 20 March
+    { vendor: "N1 Kirkjubaejarklaustur", amountUsd: 88, spentOn: "2026-03-19", slug: "car-and-fuel" },
+    { vendor: "Hofn Guesthouse", amountUsd: 136, spentOn: "2026-03-19", slug: "short-term-rental" },
+    { vendor: "Jokulsarlon boat", amountUsd: 92, spentOn: "2026-03-19", slug: "tours-and-guides" },
+    { vendor: "Pakkhus", amountUsd: 71, spentOn: "2026-03-20", slug: "restaurants" },
+    { vendor: "Kronan", amountUsd: 41, spentOn: "2026-03-20", slug: "groceries-and-markets" },
+
+    // Akureyri, 21 to 24 March
+    { vendor: "N1 Egilsstadir", amountUsd: 104, spentOn: "2026-03-21", slug: "car-and-fuel" },
+    { vendor: "Akureyri Backpackers", amountUsd: 168, spentOn: "2026-03-21", slug: "hostel" },
+    { vendor: "Myvatn Nature Baths", amountUsd: 66, spentOn: "2026-03-22", slug: "wellness-and-spa" },
+    { vendor: "Strikid", amountUsd: 58, spentOn: "2026-03-23", slug: "restaurants" },
+    { vendor: "Bruggsmidjan Kaldi", amountUsd: 27, spentOn: "2026-03-23", slug: "bars-and-nightlife", alcohol: true },
+    { vendor: "Kronan", amountUsd: 38, spentOn: "2026-03-23", slug: "groceries-and-markets" },
+    { vendor: "Netto", amountUsd: 22, spentOn: "2026-03-24", slug: "convenience-and-sundries" },
+  ],
 };
 
 export const BUCKET_ITEMS: SeedBucketItem[] = [

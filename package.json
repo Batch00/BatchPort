@@ -28,7 +28,8 @@
     "check-expense-attribution": "npx tsx scripts/check-expense-attribution.ts",
     "purge-parity-fixture": "npx tsx scripts/check-expense-attribution.ts --purge",
     "import-expenses": "npx tsx scripts/import-expenses.ts",
-    "read-destination-expense": "npx tsx scripts/read-destination-expense.ts"
+    "read-destination-expense": "npx tsx scripts/read-destination-expense.ts",
+    "check-share-gate": "npx tsx scripts/check-share-gate.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

@@ -38,11 +38,13 @@
 //    visited country on the globe.
 //  * Purge runs ON ENTRY as well as in a finally, so a previous crashed run is
 //    swept by the next run rather than waiting to be noticed.
-//  * The demo half attaches ONE expense to an EXISTING demo trip rather than
-//    creating a phantom trip on the public demo profile. No surface renders
-//    expenses yet, so it is invisible while it exists; once the demo expense
-//    surface ships it will be briefly visible during a run, and that is the
-//    moment to re-read this note.
+//  * THE DEMO ACCOUNT IS NEVER WRITTEN TO. Everything this harness creates
+//    belongs to the fixture trip on the non-demo account. An earlier version
+//    inserted one throwaway expense onto a real demo trip, because the demo
+//    had no spending to assert against; scripts/demo-dataset.ts now seeds
+//    fictional ledgers, so the assertion reads those instead and the write is
+//    gone. That matters: /demo and /share/demo are public, and a crashed run
+//    used to be able to leave a row on them.
 //  * npm run purge-parity-fixture removes everything by hand at any time.
 //
 // Prerequisites:
@@ -334,36 +336,6 @@ async function insertFixture(admin: Client, userId: string): Promise<Inserted> {
   return { tripId, stopIds, expenseIds };
 }
 
-/** One expense on an EXISTING demo trip, so the anon positive assertion has
- * something real to see without a phantom trip appearing on /demo. Returns
- * null when the demo account has no trips, in which case that half is skipped
- * rather than silently passing. */
-async function insertDemoProbe(admin: Client, demoUserId: string): Promise<string | null> {
-  const { data: trip } = await admin
-    .from("trips")
-    .select("id")
-    .eq("user_id", demoUserId)
-    .neq("name", FIXTURE_MARKER)
-    .limit(1)
-    .maybeSingle();
-  if (!trip) return null;
-
-  const { data, error } = await admin
-    .from("expenses")
-    .insert({
-      user_id: demoUserId,
-      trip_id: (trip as { id: string }).id,
-      vendor: FIXTURE_MARKER,
-      amount_usd: 1,
-      spent_on: null,
-      note: "anon gate probe",
-    })
-    .select("id")
-    .single();
-  if (error || !data) return null;
-  return (data as { id: string }).id;
-}
-
 // --- Half one: the rule -----------------------------------------------------
 
 async function checkRule(admin: Client, inserted: Inserted): Promise<void> {
@@ -441,7 +413,6 @@ async function checkGate(
   anon: Client,
   users: Users,
   inserted: Inserted,
-  demoProbeId: string | null,
 ): Promise<void> {
   // A zero-row anon result proves nothing unless the rows exist and the anon
   // client works. Both are established first.
@@ -536,26 +507,40 @@ async function checkGate(
       `${leaked.length} of them non-demo`,
   );
 
-  // And the other direction, which is what makes /demo able to render them.
-  if (demoProbeId === null) {
+  // And the other direction, which is what makes /demo able to render spending
+  // at all. This reads the demo account's REAL seeded expenses (see EXPENSES
+  // in scripts/demo-dataset.ts). It used to insert a throwaway probe row onto
+  // a demo trip, because the demo had no expenses to assert against; seeding
+  // them removed the need, and with it the only write this harness ever made
+  // to a publicly visible account.
+  const { data: anonDemo, error: demoError } = await anon
+    .from("v_expense_rows")
+    .select("id, group_slug")
+    .eq("user_id", users.demo);
+  const demoRows = (anonDemo ?? []) as { group_slug: string | null }[];
+  if (!demoError && demoRows.length === 0) {
     note(
-      "SKIPPED the demo-visible half: the demo account has no trip to hang the probe on, " +
-        "so this run did NOT prove /demo can read expenses",
+      "SKIPPED the demo-visible half: the demo account has no expenses. " +
+        "Run npm run seed-demo. This run did NOT prove /demo can read spending.",
     );
     return;
   }
-  const { data: anonDemo, error: demoError } = await anon
-    .from("v_expense_rows")
-    .select("id")
-    .eq("user_id", users.demo);
   check(
     "anon CAN see the demo account's expenses (so /demo can render them)",
-    !demoError && (anonDemo ?? []).some((row) => (row as { id: string }).id === demoProbeId),
-    demoError ? demoError.message : "the demo probe row was not visible to anon",
+    !demoError && demoRows.length > 0,
+    demoError ? demoError.message : "anon read no demo expense rows",
+  );
+  // The taxonomy join has to survive the anon path too. A row whose group is
+  // null through anon and non-null through service role is the RLS bug this
+  // feature shipped with, wearing a different hat.
+  check(
+    "the demo rows carry a resolved group through anon (the taxonomy join survives RLS)",
+    demoRows.some((row) => row.group_slug !== null),
+    `all ${demoRows.length} demo rows came back with a null group_slug`,
   );
   note(
-    `demo-visible: anon read ${(anonDemo ?? []).length} demo expense row(s), ` +
-      "including the probe",
+    `demo-visible: anon read ${demoRows.length} demo expense row(s), ` +
+      `${demoRows.filter((r) => r.group_slug !== null).length} with a resolved group`,
   );
 }
 
@@ -605,15 +590,13 @@ async function main(): Promise<void> {
   }
 
   let inserted: Inserted | null = null;
-  let demoProbeId: string | null = null;
   try {
     inserted = await insertFixture(admin, users.parity);
-    demoProbeId = await insertDemoProbe(admin, users.demo);
 
     phase = "rule";
     await checkRule(admin, inserted);
     phase = "gate";
-    await checkGate(admin, anon, users, inserted, demoProbeId);
+    await checkGate(admin, anon, users, inserted);
   } finally {
     const removed = await purge(admin);
     const expected = (inserted ? 1 : 0);

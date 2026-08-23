@@ -102,6 +102,35 @@ export interface SharedProfile {
   bucketItems: BucketItem[];
   /** Fulfilling-trip covers for completed bucket items, keyed by item id. */
   bucketTripCovers: Record<string, SharedBucketCover>;
+  /**
+   * Per-trip spending, or NULL when the surface did not ask for it.
+   *
+   * Null rather than an empty array on purpose: an empty array would mean
+   * "this profile has no spending", which is a claim, and /share/[slug] is not
+   * entitled to make it. Null means the question was never asked. See the
+   * gate note on getSharedProfile.
+   */
+  expenses: SharedTripExpenses[] | null;
+}
+
+/** One trip's spending, as a read-only surface shows it. Deliberately a
+ * summary and never the transactions: /demo is a portfolio piece, not a
+ * ledger, and there is no reason to publish 75 individual rows to show what a
+ * trip cost. */
+export interface SharedTripExpenses {
+  tripId: string;
+  totalUsd: number;
+  usdPerDay: number | null;
+  tripDays: number | null;
+  txnCount: number;
+  alcoholUsd: number;
+  groups: {
+    groupSlug: string;
+    groupLabel: string;
+    groupColor: string | null;
+    totalUsd: number;
+    pctOfTrip: number | null;
+  }[];
 }
 
 // Resolve a public slug to a user id, but only when that profile is actually
@@ -533,7 +562,97 @@ async function getBucketTripCovers(
 
 // Everything the public/demo surface needs, in parallel. The share view only
 // renders summary stats, so it skips the chart and extremes queries entirely.
-export async function getSharedProfile(userId: string): Promise<SharedProfile> {
+/**
+ * Per-trip spending for a shared surface. Anon client plus an explicit user
+ * filter, exactly like getSharedJournalByTrip and getSharedTransportByTrip.
+ *
+ * This is the SECOND layer of the gate, and it is genuinely independent of the
+ * first: the expenses RLS policy grants anon only through is_demo_account(),
+ * so even if a caller passed `expenses: true` for a non-demo user, this comes
+ * back empty. The route-level flag is what stops /share/demo, where RLS does
+ * permit the read. Neither layer covers the other's case, which is why there
+ * are two.
+ *
+ * Degrades to an empty list rather than throwing: a database without the
+ * expenses migration should render a profile with no spending on it, not fail.
+ */
+async function getSharedExpenseSummaries(
+  userId: string,
+): Promise<SharedTripExpenses[]> {
+  const supabase = await createClient();
+  const [summaryResult, groupResult] = await Promise.all([
+    supabase
+      .from("v_trip_expense_summary")
+      .select("trip_id, total_usd, usd_per_day, trip_days, txn_count, alcohol_usd")
+      .eq("user_id", userId),
+    supabase
+      .from("v_trip_expense_by_group")
+      .select("trip_id, group_slug, group_label, group_color, total_usd, pct_of_trip")
+      .eq("user_id", userId)
+      .order("total_usd", { ascending: false }),
+  ]);
+  if (summaryResult.error || !summaryResult.data) return [];
+
+  const num = (value: unknown): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const numOrNull = (value: unknown): number | null => {
+    if (value === null || value === undefined) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const groupsByTrip = new Map<string, SharedTripExpenses["groups"]>();
+  for (const row of (groupResult.data ?? []) as Record<string, unknown>[]) {
+    const tripId = String(row.trip_id);
+    const list = groupsByTrip.get(tripId) ?? [];
+    list.push({
+      groupSlug: String(row.group_slug),
+      groupLabel: String(row.group_label),
+      groupColor:
+        typeof row.group_color === "string" ? row.group_color : null,
+      totalUsd: num(row.total_usd),
+      pctOfTrip: numOrNull(row.pct_of_trip),
+    });
+    groupsByTrip.set(tripId, list);
+  }
+
+  return (summaryResult.data as Record<string, unknown>[]).map((row) => ({
+    tripId: String(row.trip_id),
+    totalUsd: num(row.total_usd),
+    usdPerDay: numOrNull(row.usd_per_day),
+    tripDays: numOrNull(row.trip_days),
+    txnCount: num(row.txn_count),
+    alcoholUsd: num(row.alcohol_usd),
+    groups: groupsByTrip.get(String(row.trip_id)) ?? [],
+  }));
+}
+
+/**
+ * Everything a read-only profile surface renders.
+ *
+ * THE `expenses` OPTION IS A PRIVACY GATE, NOT A PERFORMANCE ONE, and it
+ * defaults to OFF because the safe answer has to be the one you get by
+ * forgetting to think about it.
+ *
+ * Expenses are the only data in this app that reach /demo and must never reach
+ * /share/[slug]. RLS alone cannot express that: batchport.is_demo_account()
+ * lets the anon key read the demo account's expenses, and getUserBySlug
+ * resolves a slug when `public_share_enabled = true` OR `is_demo = true`, so
+ * /share/demo renders the demo user through this very function. The database
+ * will happily serve that read. Only the caller refuses it.
+ *
+ * Hence: the flag is passed BY THE ROUTE, and only by src/app/demo/page.tsx.
+ * Never derive it from the user (the demo account is exactly the case where
+ * that would be wrong) and never let SharedProfileView decide, because the
+ * component cannot know which route mounted it. scripts/check-share-gate.ts
+ * asserts the negative case over HTTP.
+ */
+export async function getSharedProfile(
+  userId: string,
+  options: { expenses?: boolean } = {},
+): Promise<SharedProfile> {
   const [stats, mapData, photoMapData, trips, bucketItems] = await Promise.all([
     getSummaryStats(userId),
     getMapData(userId),
@@ -543,5 +662,18 @@ export async function getSharedProfile(userId: string): Promise<SharedProfile> {
     getSharedBucketList(userId),
   ]);
   const bucketTripCovers = await getBucketTripCovers(userId, bucketItems);
-  return { stats, mapData, photoMapData, trips, bucketItems, bucketTripCovers };
+  // Not fetched at all unless asked for, so a surface that forgets the flag
+  // has nothing to leak rather than a field it might render by accident.
+  const expenses = options.expenses
+    ? await getSharedExpenseSummaries(userId)
+    : null;
+  return {
+    stats,
+    mapData,
+    photoMapData,
+    trips,
+    bucketItems,
+    bucketTripCovers,
+    expenses,
+  };
 }

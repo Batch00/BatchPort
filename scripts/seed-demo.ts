@@ -31,6 +31,7 @@ import { createClient } from "@supabase/supabase-js";
 
 import {
   BUCKET_ITEMS,
+  EXPENSES,
   TRANSPORT_LEGS,
   TRIPS,
   type ExperienceStatus,
@@ -619,6 +620,88 @@ async function seedTrips(
   return { totals, tripIds };
 }
 
+/**
+ * Fictional expense ledgers for the demo trips.
+ *
+ * Runs after seedTrips because it resolves trip ids by name. Nothing needs
+ * wiping first: expenses.trip_id cascades, so resetDemoData's trip delete
+ * already took the previous run's rows with it.
+ *
+ * destination_id is deliberately left NULL on every row. Which stop a spend
+ * belongs to is derived by the boundary rule in v_expense_rows; a value there
+ * would mean the traveller overruled that rule, and seeding one would make the
+ * demo show a manual override on every single line.
+ *
+ * Best effort, like the transport legs: a database without the expenses
+ * migration still seeds a complete demo account, it just has no spending on it.
+ */
+async function seedExpenses(
+  supabase: SeedClient,
+  userId: string,
+  tripIds: Map<string, string>,
+): Promise<{ rows: number; totalUsd: number; skipped: boolean }> {
+  const { data: cats, error: catError } = await supabase
+    .from("expense_categories")
+    .select("id, slug");
+  if (catError) {
+    console.warn(`  Skipping expenses: ${catError.message}`);
+    return { rows: 0, totalUsd: 0, skipped: true };
+  }
+  const slugToId = new Map<string, string>(
+    ((cats ?? []) as { id: string; slug: string }[]).map((c) => [c.slug, c.id]),
+  );
+  if (slugToId.size === 0) {
+    // Zero rows with no error is the RLS-with-no-policy signature (see the
+    // amendment note in scripts/sql/2026-08-19-expenses.sql). Seeding every
+    // expense uncategorised would be worse than seeding none, so stop.
+    console.warn(
+      "  Skipping expenses: expense_categories returned no rows. The reference tables need a SELECT policy, not just a grant.",
+    );
+    return { rows: 0, totalUsd: 0, skipped: true };
+  }
+
+  let rows = 0;
+  let totalUsd = 0;
+  for (const [tripName, ledger] of Object.entries(EXPENSES)) {
+    const tripId = tripIds.get(tripName);
+    if (!tripId) {
+      console.warn(`  No trip named "${tripName}"; its ledger was skipped.`);
+      continue;
+    }
+    const payload = ledger.map((expense) => {
+      const categoryId = slugToId.get(expense.slug);
+      if (!categoryId) {
+        throw new Error(
+          `Expense "${expense.vendor}" names category "${expense.slug}", which is not seeded.`,
+        );
+      }
+      return {
+        user_id: userId,
+        trip_id: tripId,
+        destination_id: null,
+        category_id: categoryId,
+        vendor: expense.vendor,
+        amount_usd: expense.amountUsd,
+        spent_on: expense.spentOn ?? null,
+        is_alcohol: expense.alcohol ?? false,
+        note: expense.note ?? null,
+      };
+    });
+    const { error } = await supabase.from("expenses").insert(payload);
+    if (error) {
+      console.warn(`  ${tripName}: ${error.message}`);
+      continue;
+    }
+    const sum = payload.reduce((a, r) => a + r.amount_usd, 0);
+    rows += payload.length;
+    totalUsd += sum;
+    console.log(
+      `  ${tripName}: ${payload.length} transactions, ${sum.toFixed(2)}`,
+    );
+  }
+  return { rows, totalUsd: Math.round(totalUsd * 100) / 100, skipped: false };
+}
+
 async function seedBucketList(
   supabase: SeedClient,
   userId: string,
@@ -721,11 +804,81 @@ async function reportStats(
 
 // --- Main ------------------------------------------------------------------
 
+/**
+ * Reseed ONLY the expense ledgers, leaving everything else alone.
+ *
+ * A full run wipes the demo account's photos and refetches them from
+ * Wikimedia, which is the genuinely destructive part: a P18 lookup that fails
+ * or returns a different image degrades /demo and /share/demo for reasons that
+ * have nothing to do with the change being made. Rebuilding the whole account
+ * should not be the price of seeding one table.
+ *
+ * So this path touches exactly one table. It needs no --reset (it destroys
+ * nothing that cannot be regenerated from this file) and no dev server (it
+ * does no geocoding and fetches no imagery).
+ */
+async function reseedExpensesOnly(
+  supabase: SeedClient,
+  userId: string,
+): Promise<void> {
+  console.log("\n=== Expenses only ===");
+  console.log(
+    "  Photos, trips, destinations, experiences and the bucket list are untouched.",
+  );
+
+  const before = await countOtherUsers(supabase, userId);
+
+  const { data: tripRows, error: tripError } = await supabase
+    .from("trips")
+    .select("id, name")
+    .eq("user_id", userId);
+  if (tripError) throw tripError;
+  const tripIds = new Map<string, string>(
+    ((tripRows ?? []) as { id: string; name: string }[]).map((t) => [
+      t.name,
+      t.id,
+    ]),
+  );
+  console.log(`  ${tripIds.size} existing trip(s).`);
+
+  const { data: cleared, error: clearError } = await supabase
+    .from("expenses")
+    .delete()
+    .eq("user_id", userId)
+    .select("id");
+  if (clearError) {
+    throw new Error(
+      `Could not clear the demo expenses: ${clearError.message}. ` +
+        "If the table does not exist, apply scripts/sql/2026-08-19-expenses.sql first.",
+    );
+  }
+  console.log(`  cleared ${cleared?.length ?? 0} existing expense row(s).`);
+
+  const expenses = await seedExpenses(supabase, userId, tripIds);
+  console.log(
+    expenses.skipped
+      ? "  expenses: skipped (the taxonomy is unreadable)."
+      : `  ${expenses.rows} expenses totalling ${expenses.totalUsd.toFixed(2)}.`,
+  );
+
+  console.log("\n=== Blast radius check ===");
+  const after = await countOtherUsers(supabase, userId);
+  if (!reportOtherUserDelta(before, after)) {
+    throw new Error(
+      "Non-demo row counts changed. Investigate before trusting this run.",
+    );
+  }
+}
+
 async function main() {
   const argv = process.argv.slice(2);
-  if (!argv.includes("--reset")) {
+  // The expenses-only path rewrites one table and regenerates it from this
+  // file, so it does not carry the --reset warning the full rebuild does.
+  const expensesOnly = argv.includes("--expenses-only");
+  if (!expensesOnly && !argv.includes("--reset")) {
     throw new Error(
-      "Refusing to run without --reset. This script DELETES all demo travel data before reseeding it. Run: npm run seed-demo -- --reset",
+      "Refusing to run without --reset. This script DELETES all demo travel data before reseeding it. Run: npm run seed-demo -- --reset\n" +
+        "To reseed only the expense ledgers, leaving photos and trips alone: npm run seed-demo -- --expenses-only",
     );
   }
 
@@ -743,6 +896,11 @@ async function main() {
   const userId = resolveTargetUser(argv, env);
   const supabase = makeSupabase(supabaseUrl, serviceKey);
   await assertIsDemoAccount(supabase, userId);
+
+  if (expensesOnly) {
+    await reseedExpensesOnly(supabase, userId);
+    return;
+  }
 
   // Confirm the dev server is reachable before doing any work: without it
   // there is no geocoding and no Wikimedia imagery.
@@ -771,6 +929,9 @@ async function main() {
 
   const { totals, tripIds } = await seedTrips(supabase, userId, categoryMap);
 
+  console.log("\n=== Expenses ===");
+  const expenses = await seedExpenses(supabase, userId, tripIds);
+
   console.log("\n=== Bucket list ===");
   const bucket = await seedBucketList(supabase, userId, tripIds);
   console.log(`  ${bucket.total} item(s), ${bucket.fulfilled} fulfilled.`);
@@ -778,6 +939,11 @@ async function main() {
   console.log("\n=== Seeded ===");
   console.log(
     `  ${totals.trips} trips, ${totals.destinations} destinations, ${totals.experiences} experiences, ${totals.photos} photos, ${totals.covers} trip covers, ${totals.transport} transport legs.`,
+  );
+  console.log(
+    expenses.skipped
+      ? "  expenses: skipped (migration not applied, or the taxonomy is unreadable)."
+      : `  ${expenses.rows} expenses totalling ${expenses.totalUsd.toFixed(2)}.`,
   );
 
   console.log("\n=== Blast radius check ===");

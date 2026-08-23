@@ -223,16 +223,45 @@ export function summarizeUnattributed(rows: ExpenseRow[]): UnattributedSummary |
   };
 }
 
-/** The one-line version, for the collapsed case and for the trip page card.
- * Always carries the count; carries the refund count whenever there is one,
- * because that is what explains a net far smaller than the rows behind it. */
-export function unattributedLine(summary: UnattributedSummary): string {
+/**
+ * The one-line summary of the set.
+ *
+ * Always carries the count, and carries the refund count whenever there is
+ * one, because that is what explains a net far smaller than the rows behind
+ * it.
+ *
+ * "NETTING X" IS DROPPED WHEN IT WOULD SAY NOTHING. It was written for the
+ * four-row case with two refunds, where the net is the surprising part; on a
+ * single listed row with no refund it is worse than redundant, because
+ * "1 row, netting $312" invites the reader to look for the arithmetic that
+ * produced $312 when there is none. It is kept whenever a refund is involved
+ * (the net genuinely differs from the sum of the magnitudes) or the rows are
+ * not listed (there is nothing on screen to add up).
+ *
+ * Returns null when the count alone says everything, so the caller can leave
+ * the clause off rather than print a sentence with a stub on the end.
+ */
+export function unattributedLine(summary: UnattributedSummary): string | null {
+  // A single listed row needs no summary at all. It is on screen directly
+  // below, with its own amount and its own sign, so every clause here would
+  // restate it, and the refund phrasing ("1 of them a refund") is not even
+  // grammatical about one row.
+  if (summary.count === 1 && summary.listable) return null;
+
+  const informative = summary.refundCount > 0 || !summary.listable;
   const rows = `${summary.count} ${summary.count === 1 ? "row" : "rows"}`;
   const refunds =
     summary.refundCount > 0
       ? `, ${summary.refundCount} of them ${summary.refundCount === 1 ? "a refund" : "refunds"}`
       : "";
-  return `${rows}${refunds}, netting ${formatUsd(summary.netUsd)}`;
+  const net = informative ? `, netting ${formatUsd(summary.netUsd)}` : "";
+  return `${rows}${refunds}${net}`;
+}
+
+/** "it is" or "these are", so a single unattributed row does not get a
+ * sentence written for a group. */
+export function unattributedSubject(summary: UnattributedSummary): string {
+  return summary.count === 1 ? "it is" : "these are";
 }
 
 // --- Entry ------------------------------------------------------------------

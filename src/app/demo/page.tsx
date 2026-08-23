@@ -13,7 +13,11 @@ export const metadata = {
 
 export default async function DemoPage() {
   const userId = await getDemoUserId();
-  const profile = await getSharedProfile(userId);
+  // THE ONLY PLACE THE EXPENSES FLAG IS PASSED. /demo is the surface expenses
+  // are allowed on; /share/[slug] is not, INCLUDING when its slug resolves to
+  // this same demo account, which it does ("demo"). RLS permits that read, so
+  // the route is the only thing that refuses it. See getSharedProfile.
+  const profile = await getSharedProfile(userId, { expenses: true });
 
   return (
     <div className="flex min-h-dvh flex-col bg-[#0a0a0a]">

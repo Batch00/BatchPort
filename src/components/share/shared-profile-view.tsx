@@ -6,6 +6,7 @@ import { DiscoveryProvider } from "@/components/discover/discovery-host";
 import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
 import { todayIso } from "@/lib/year-recap";
 import { placeKey } from "@/lib/geo";
+import { SharedTripSpend } from "@/components/share/shared-trip-spend";
 import type { SharedProfile } from "@/lib/share-data";
 
 // The read-only profile shown on both the demo and public share surfaces:
@@ -13,8 +14,24 @@ import type { SharedProfile } from "@/lib/share-data";
 // A single read-only discovery host serves the globe, search, and bucket
 // cards; no write affordance exists anywhere in this tree.
 export function SharedProfileView({ profile }: { profile: SharedProfile }) {
-  const { stats, mapData, photoMapData, trips, bucketItems, bucketTripCovers } =
-    profile;
+  const {
+    stats,
+    mapData,
+    photoMapData,
+    trips,
+    bucketItems,
+    bucketTripCovers,
+    expenses,
+  } = profile;
+
+  // NULL means the route did not ask for spending, which is the case on
+  // /share/[slug] including when its slug is "demo". This component must not
+  // decide: it cannot know which route mounted it, and deriving the answer
+  // from the user would be wrong for exactly the demo account. See the gate
+  // note on getSharedProfile.
+  const spendByTrip = new Map(
+    (expenses ?? []).map((entry) => [entry.tripId, entry]),
+  );
 
   const bucketPlaceKeys = mapData.bucketPlaces.map((place) =>
     placeKey(place.name, place.countryCode),
@@ -53,7 +70,10 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               {trips.map((trip) => (
-                <SharedTripCard key={trip.id} trip={trip} />
+                <div key={trip.id} className="flex flex-col">
+                  <SharedTripCard trip={trip} />
+                  <SharedTripSpend spend={spendByTrip.get(trip.id) ?? null} />
+                </div>
               ))}
             </div>
           )}
