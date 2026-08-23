@@ -6,6 +6,58 @@ was left.
 
 ---
 
+## The expense entry row is four rows tall on a phone
+
+**Found** 2026-08-23, during the expenses visual pass.
+**Status** open, deliberately deferred. A layout design pass, not a bug fix.
+
+### What happens
+
+`/trips/[id]/expenses` at 375px and 390px wraps the entry row onto roughly four
+lines. Nothing is broken or unreachable, and every control still works; it is
+simply much taller than it should be. The inline editor in
+`expense-workspace.tsx` (`EditRow`) has the identical shape and the identical
+problem.
+
+### Why it matters more here than it would elsewhere
+
+The stated design target for this surface is a day's spending logged from a
+phone in a hostel, and the fast-entry loop (amount, Enter, repeat) is the
+reason the page is shaped the way it is. A four-row form pushes the ledger
+below the fold on every commit, so the row you just added is not visible
+without scrolling, which is exactly the feedback the loop depends on.
+
+### Cause
+
+The controls carry minimum widths that cannot coexist at phone width:
+
+| control | class | min width |
+|---|---|---|
+| amount | `w-24` | 96px |
+| vendor | `min-w-40 flex-1` | 160px |
+| category | `min-w-40 flex-1` | 160px |
+| date | `w-36` | 144px |
+| alcohol toggle | `size-9` | 36px |
+| Add button | auto | ~80px |
+
+That is roughly 676px of minimum content in a 327px content box (375px less
+the page's `p-6`), so `flex-wrap` does what it is told.
+
+### Fix sketch (not applied)
+
+This wants a deliberate two-row phone layout rather than tightening widths one
+at a time. Roughly: amount and vendor on the first row, category and date on
+the second, alcohol and Add sharing the end of it, with the whole thing
+collapsing back to one row at `sm`. Whatever shape it takes, the ledger's first
+row should still be visible under the form after a commit at 375px, which is
+the test that actually matters.
+
+`EditRow` should get the same treatment in the same pass, since it duplicates
+the entry row's field list by design (one mental model for both), and fixing
+one without the other would break that.
+
+---
+
 ## A signed-in user cannot view anyone else's shared profile
 
 **Found** 2026-08-23, while verifying the expenses privacy gate.

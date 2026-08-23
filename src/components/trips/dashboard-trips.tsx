@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { DashboardTripCard } from "@/components/trips/dashboard-trip-card";
 import { cn } from "@/lib/utils";
-import type { ProfileTrip } from "@/lib/share-data";
+import type { ProfileTrip, SharedTripExpenses } from "@/lib/share-data";
 
 type SortKey = "newest" | "oldest" | "name";
 
@@ -43,7 +43,16 @@ function sortTrips(trips: ProfileTrip[], sort: SortKey): ProfileTrip[] {
 
 // The dashboard trips section. Client-side so the user can reorder the cards
 // with the sort dropdown without a round trip. Defaults to newest first.
-export function DashboardTrips({ trips }: { trips: ProfileTrip[] }) {
+export function DashboardTrips({
+  trips,
+  spend,
+}: {
+  trips: ProfileTrip[];
+  /** Per-trip spending keyed by trip id, or an empty object when expenses are
+   * not set up. Passed as a plain object rather than a Map so it crosses the
+   * server boundary. */
+  spend?: Record<string, SharedTripExpenses>;
+}) {
   const [sort, setSort] = useState<SortKey>("newest");
   const sorted = sortTrips(trips, sort);
 
@@ -97,7 +106,11 @@ export function DashboardTrips({ trips }: { trips: ProfileTrip[] }) {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {sorted.map((trip) => (
-            <DashboardTripCard key={trip.id} trip={trip} />
+            <DashboardTripCard
+              key={trip.id}
+              trip={trip}
+              spend={spend?.[trip.id] ?? null}
+            />
           ))}
         </div>
       )}

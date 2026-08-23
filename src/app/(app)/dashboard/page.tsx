@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
+import { getTripSpendByTrip } from "@/lib/expenses-data";
 import { getProfileTrips } from "@/lib/share-data";
 import { getMapData } from "@/lib/map-data";
 import { getPhotoMapData } from "@/lib/photo-map-data";
@@ -44,6 +45,7 @@ export default async function DashboardPage() {
     categories,
     plannedPoints,
     memories,
+    tripSpend,
   ] = await Promise.all([
     // The story payload rides along because the year recap reads it: the
     // hero image, the photo count, and the journal days all come from it, and
@@ -64,6 +66,7 @@ export default async function DashboardPage() {
     // look up any context. Returns null on a day with nothing, which is what
     // keeps the section absent rather than empty.
     getOnThisDay(),
+    getTripSpendByTrip(),
   ]);
 
   const toVisit = bucketItems.filter((item) => !item.fulfilled_at);
@@ -114,7 +117,7 @@ export default async function DashboardPage() {
 
         {memories ? <OnThisDaySection memories={memories} /> : null}
 
-        <DashboardTrips trips={trips} />
+        <DashboardTrips trips={trips} spend={Object.fromEntries(tripSpend)} />
 
         <DashboardBucket
           toVisit={toVisit}

@@ -6,7 +6,6 @@ import { DiscoveryProvider } from "@/components/discover/discovery-host";
 import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
 import { todayIso } from "@/lib/year-recap";
 import { placeKey } from "@/lib/geo";
-import { SharedTripSpend } from "@/components/share/shared-trip-spend";
 import type { SharedProfile } from "@/lib/share-data";
 
 // The read-only profile shown on both the demo and public share surfaces:
@@ -70,10 +69,11 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               {trips.map((trip) => (
-                <div key={trip.id} className="flex flex-col">
-                  <SharedTripCard trip={trip} />
-                  <SharedTripSpend spend={spendByTrip.get(trip.id) ?? null} />
-                </div>
+                <SharedTripCard
+                  key={trip.id}
+                  trip={trip}
+                  spend={spendByTrip.get(trip.id) ?? null}
+                />
               ))}
             </div>
           )}

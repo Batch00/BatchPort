@@ -1305,6 +1305,27 @@ no timezone chip. Nothing in the app prompts the user to set one.
 
 - **batchport schema must be exposed in Supabase:** Settings, API, Exposed schemas must include `batchport`. Without this, PostgREST rejects all anon-client queries to the schema.
 
+- **A stale `.next/dev` lies to you, and a server restart is not enough.** Three distinct failures traced to it in a single session, all of which looked like application bugs:
+
+  1. **Missing utility classes.** `gap-x-8` and `gap-y-3` were in the markup and computed to `normal`, because they appear only in new files and the dev chunk had not rescanned. The summary figures collided on screen.
+  2. **A module factory error after a hot reload**, where the running page referenced a factory the rebuilt chunk no longer had.
+  3. **Missing container query rules.** `@container/card` and its `@[16rem]/card:` variants were absent from the served stylesheet, so the base case rendered and every conditional part hid. This looked exactly like a mis-scoped container.
+
+  The fix in all three was `rm -rf .next` (or at least `.next/dev`) and a hard reload. **In two of them a plain `npm run dev` restart did not help**, because the build directory was reused: the served chunk hash was byte-identical across the restart. If a class is in the DOM and does nothing, suspect this before suspecting the class.
+
+  A related symptom worth knowing: a hung dev server (listening on the port, answering nothing, connections piling up in `CLOSE_WAIT`) makes Claude in Chrome look broken. Navigations appear not to stick and `Runtime.evaluate` times out, because the page never finishes loading. Check the server before blaming the extension. A restart after a hang may also come up on **3001**, because the stale lock makes it think 3000 is still taken.
+
+- **`.next/static` is not evidence about dev.** Grepping the built CSS proves what `npm run build` produced and says nothing about what the dev server is serving; the two diverge exactly when a stale dev chunk is the problem, which is the case you are usually trying to diagnose. This mistake was made twice in one session, both times concluding "the CSS generated, so the markup must be wrong".
+
+  The check that actually works, and the only one worth trusting:
+
+  ```
+  curl -s http://localhost:3000/<page> | grep -o 'href="[^"]*\.css[^"]*"'
+  curl -s "http://localhost:3000<that href>" -o probe.css   # then search probe.css
+  ```
+
+  Fetch the stylesheet the page actually links, and search that. Note that dev CSS is pretty-printed (`container: card / inline-size`) while production is minified (`container:card/inline-size`), so a grep tuned to one will silently miss the other; search for a distinctive fragment rather than an exact declaration.
+
 - **A grant is not a policy, and the difference is silent.** Supabase enables RLS on new tables by default, so a table created by a migration has RLS on whether or not the migration says so. RLS enabled with **zero policies denies everything**, and PostgREST reports that as **zero rows and no error**. A missing GRANT is the opposite: it raises `42501 permission denied`. So the loud failure is the one you did not cause, and the quiet one is.
 
   Every new table needs its policies **stated explicitly**, including reference tables that "everyone can read". Do not infer the behaviour from how `batchport.categories` happens to work: whether that table has RLS off or RLS on with a permissive policy is not observable through PostgREST (both read 12 rows through anon), and inheriting an assumption from it is exactly what caused this. Settle it with `select relrowsecurity from pg_class where oid = 'batchport.categories'::regclass;` and `select * from pg_policies where schemaname = 'batchport';` before copying its shape.

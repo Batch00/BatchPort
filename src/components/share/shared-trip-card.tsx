@@ -23,7 +23,12 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TripStatus } from "@/lib/types";
-import type { ProfileDestination, ProfileTrip } from "@/lib/share-data";
+import { TripSpendLine } from "@/components/trips/trip-spend-line";
+import type {
+  ProfileDestination,
+  ProfileTrip,
+  SharedTripExpenses,
+} from "@/lib/share-data";
 
 // Read-only planned ideas for one destination. On a dated stay with any
 // day-assigned idea, the list groups under "Day N · date" headers (matching
@@ -86,7 +91,15 @@ function ReadOnlyPlannedList({
 // A read-only trip card that expands inline to reveal its destinations and
 // experiences. No links into the app (those routes are protected); this is a
 // self-contained showcase.
-export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
+export function SharedTripCard({
+  trip,
+  spend,
+}: {
+  trip: ProfileTrip;
+  /** Null when the route did not ask for spending (every /share/[slug]
+   * request, including /share/demo). See the gate on getSharedProfile. */
+  spend?: SharedTripExpenses | null;
+}) {
   const [expanded, setExpanded] = useState(false);
   const destinationCount = trip.destinations.length;
   // A leg belongs to the stop it arrives at, so the list is keyed by that id.
@@ -99,7 +112,9 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
     trip.status === "planned" ? daysUntil(trip.start_date) : null;
 
   return (
-    <div className="relative isolate overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
+    // @container/card: the spend line sheds its tail by CARD width, not
+    // viewport width. See components/trips/trip-spend-line.tsx.
+    <div className="@container/card relative isolate overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10">
       {/* Outside the expand button, not inside it: a button cannot nest. The
           story is read-only, so it belongs on the public surfaces too. */}
       {hasStory(trip) ? (
@@ -171,6 +186,7 @@ export function SharedTripCard({ trip }: { trip: ProfileTrip }) {
               />
             </span>
           </div>
+          <TripSpendLine spend={spend ?? null} />
         </div>
       </button>
 

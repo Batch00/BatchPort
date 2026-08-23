@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { CountryFlag } from "@/components/country-flag";
 import { formatUsd, type DestinationSpend } from "@/lib/expenses";
-import { formatDateRange } from "@/lib/format";
+import { formatDateRangeShort } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 // What each stop cost per day.
@@ -76,46 +76,73 @@ export function DestinationCosts({ stops }: { stops: DestinationSpend[] }) {
             ? stop.usdPerDay - stop.onGroundUsdPerDay
             : 0;
           return (
-            <li key={stop.destinationId} className="flex items-center gap-3">
-              <div className="w-32 shrink-0 sm:w-40">
-                <p className="flex items-center gap-1.5 truncate text-sm text-foreground">
-                  {stop.countryCode ? (
-                    <CountryFlag code={stop.countryCode} />
-                  ) : null}
-                  <span className="truncate">{stop.destinationName}</span>
-                </p>
-                <p className="truncate text-[0.7rem] text-foreground/40">
-                  {stop.daysOwned} {stop.daysOwned === 1 ? "day" : "days"}
-                  {stop.arrivalDate ? (
-                    <>
-                      {" · "}
-                      {formatDateRange(stop.arrivalDate, stop.departureDate)}
-                    </>
-                  ) : null}
-                </p>
+            // Stacked on a phone, three columns from sm up. At 375px the old
+            // three-column row left the bar about fifty pixels wide and clipped
+            // the date range, which is the one thing in the row that has to be
+            // readable: it is what a per-day figure is per.
+            <li
+              key={stop.destinationId}
+              className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3"
+            >
+              <div className="min-w-0 sm:w-44 sm:shrink-0">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
+                    {stop.countryCode ? (
+                      <CountryFlag code={stop.countryCode} />
+                    ) : null}
+                    {/* The NAME may still truncate: it can be arbitrarily long
+                        and its first word is enough to recognise a stop. */}
+                    <span className="truncate">{stop.destinationName}</span>
+                  </p>
+                  {/* On a phone the figures ride up beside the name and dates
+                      so the bar below can have the full width. From sm up they
+                      live in their own column on the right instead. */}
+                  <p className="shrink-0 text-sm tabular-nums text-foreground sm:hidden">
+                    {value === null ? "-" : `${formatUsd(value)}/day`}
+                  </p>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  {/* NOT truncated. With the short format it fits, and if a
+                      long name ever squeezes it, wrapping to a second line is
+                      the right failure. A tooltip would not be: the range is
+                      what a per-day figure is per, and there is no hover on a
+                      phone. */}
+                  <p className="text-[0.7rem] text-foreground/40">
+                    {stop.daysOwned} {stop.daysOwned === 1 ? "day" : "days"}
+                    {stop.arrivalDate ? (
+                      <>
+                        {" · "}
+                        {formatDateRangeShort(
+                          stop.arrivalDate,
+                          stop.departureDate,
+                        )}
+                      </>
+                    ) : null}
+                  </p>
+                  <p className="shrink-0 text-[0.7rem] tabular-nums text-foreground/40 sm:hidden">
+                    {formatUsd(total(stop))}
+                    {!allIn && gap > 0 ? (
+                      <span className="text-foreground/30"> +{formatUsd(gap)}</span>
+                    ) : null}
+                  </p>
+                </div>
               </div>
 
-              <div className="h-6 min-w-0 flex-1 rounded bg-white/[0.03]">
+              <div className="h-2 min-w-0 flex-1 rounded bg-white/[0.03] sm:h-6">
                 <div
                   className="h-full rounded bg-brand/50"
                   style={{ width: `${Math.max(width, value ? 2 : 0)}%` }}
                 />
               </div>
 
-              <div className="w-28 shrink-0 text-right">
+              <div className="hidden w-28 shrink-0 text-right sm:block">
                 <p className="text-sm tabular-nums text-foreground">
                   {value === null ? "-" : `${formatUsd(value)}/day`}
                 </p>
                 <p className="text-[0.7rem] tabular-nums text-foreground/40">
                   {formatUsd(total(stop))}
                   {!allIn && gap > 0 ? (
-                    <span
-                      className="text-foreground/30"
-                      title={`${formatUsd(gap)}/day of transport is excluded`}
-                    >
-                      {" "}
-                      +{formatUsd(gap)}
-                    </span>
+                    <span className="text-foreground/30"> +{formatUsd(gap)}</span>
                   ) : null}
                 </p>
               </div>

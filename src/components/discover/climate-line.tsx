@@ -99,7 +99,7 @@ export function ClimateSection({
           className="cursor-pointer appearance-none rounded-full border border-white/10 bg-white/5 py-1 pl-6 pr-6 text-xs text-foreground/70 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
         >
           {MONTH_NAMES.map((label, index) => (
-            <option key={label} value={index + 1} className="bg-[#0a0a0a]">
+            <option key={label} value={index + 1}>
               {label}
             </option>
           ))}

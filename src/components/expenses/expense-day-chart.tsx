@@ -24,7 +24,20 @@ import { cn } from "@/lib/utils";
 const BAR_MIN_PX = 2;
 
 export function ExpenseDayChart({ days }: { days: DaySpend[] }) {
+  // TWO WAYS IN, because hover is not one of them on a phone.
+  //
+  // The first version set `hovered` on mouseenter and put the rest in a
+  // `title`, neither of which exists on touch, so the per-day detail was
+  // simply unreachable on the device this whole surface is shaped around. A
+  // tooltip was the wrong answer for the truncated date range for the same
+  // reason, and it is the wrong answer here.
+  //
+  // So each day is a real <button>: tapping pins it (and tapping again lets
+  // it go), hovering previews it, and focusing it does the same, which gets
+  // keyboard users the detail for free. A pin outranks a hover so the readout
+  // does not change under a moving cursor once somebody has chosen a day.
   const [hovered, setHovered] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<string | null>(null);
 
   const scale = useMemo(() => {
     const peakSpend = Math.max(0, ...days.map((day) => day.spendUsd));
@@ -38,7 +51,8 @@ export function ExpenseDayChart({ days }: { days: DaySpend[] }) {
   // ordinary trip is not given a permanent empty band below its bars.
   const spendH = 96;
   const refundH = scale.hasRefunds ? 40 : 0;
-  const active = days.find((day) => day.spendDate === hovered) ?? null;
+  const shown = pinned ?? hovered;
+  const active = days.find((day) => day.spendDate === shown) ?? null;
 
   return (
     <section>
@@ -56,19 +70,30 @@ export function ExpenseDayChart({ days }: { days: DaySpend[] }) {
             {formatDate(active.spendDate)}
             {": "}
             <span className="text-foreground">{formatUsd(active.spendUsd)}</span>
+            {/* A day with both is the only one where the net would mislead, so
+                both halves are named. Interrail Summer's 2019-08-08 is the
+                real case: 47 spent, 19 refunded, netting 28. */}
+            {/* The magnitude, not the signed value: "and -$19 back" reads as a
+                double negative. The colour and the word "back" carry the
+                direction. */}
             {active.refundUsd !== 0 ? (
               <span className="text-emerald-400">
                 {" "}
-                and {formatUsd(active.refundUsd)}
+                and {formatUsd(-active.refundUsd)} back
               </span>
             ) : null}
             <span className="text-foreground/40">
               {" "}
               · {active.txnCount}{" "}
               {active.txnCount === 1 ? "transaction" : "transactions"}
+              {active.refundUsd !== 0 ? `, netting ${formatUsd(active.totalUsd)}` : ""}
             </span>
           </p>
-        ) : null}
+        ) : (
+          // Device-neutral wording: "tap" is wrong on a desktop and "hover" is
+          // wrong on a phone, and this component is used on both.
+          <p className="text-xs text-foreground/35">Pick a day for its detail.</p>
+        )}
       </div>
 
       <div
@@ -87,15 +112,29 @@ export function ExpenseDayChart({ days }: { days: DaySpend[] }) {
                   BAR_MIN_PX,
                 )
               : 0;
-          const isActive = hovered === day.spendDate;
+          const isActive = shown === day.spendDate;
           return (
-            <div
+            <button
               key={day.spendDate}
-              className="group flex min-w-0 flex-1 flex-col items-stretch"
+              type="button"
+              // Tap to pin, tap again to release. Hover and focus preview.
+              onClick={() =>
+                setPinned((current) =>
+                  current === day.spendDate ? null : day.spendDate,
+                )
+              }
               onMouseEnter={() => setHovered(day.spendDate)}
-              title={`${formatDate(day.spendDate)}: ${formatUsd(day.spendUsd)}${
-                day.refundUsd !== 0 ? ` and ${formatUsd(day.refundUsd)}` : ""
-              }`}
+              onFocus={() => setHovered(day.spendDate)}
+              onBlur={() => setHovered(null)}
+              aria-pressed={pinned === day.spendDate}
+              // The whole readout, spoken. A title attribute would have said
+              // this only to a mouse.
+              aria-label={`${formatDate(day.spendDate)}: ${formatUsd(day.spendUsd)} spent${
+                day.refundUsd !== 0 ? `, ${formatUsd(-day.refundUsd)} refunded` : ""
+              }, ${day.txnCount} ${day.txnCount === 1 ? "transaction" : "transactions"}`}
+              // A one-day-wide bar is a tiny tap target, so the whole column
+              // height is tappable rather than just the painted part.
+              className="group flex min-w-0 flex-1 cursor-pointer flex-col items-stretch rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
             >
               <div
                 className="flex flex-col justify-end"
@@ -121,7 +160,7 @@ export function ExpenseDayChart({ days }: { days: DaySpend[] }) {
                   />
                 </div>
               ) : null}
-            </div>
+            </button>
           );
         })}
       </div>

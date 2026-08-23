@@ -47,14 +47,23 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TripStatus } from "@/lib/types";
-import type { ProfileTrip } from "@/lib/share-data";
+import { TripSpendLine } from "@/components/trips/trip-spend-line";
+import type { ProfileTrip, SharedTripExpenses } from "@/lib/share-data";
 
 // The authenticated dashboard trip card. Visually identical to the demo/share
 // card (panoramic cover, overlaid title, expandable destination list) but with
 // cover-edit and edit/delete controls in the top corner and destinations that
 // link into the app. Clicking the cover opens the trip; the stops chevron
 // expands the inline destination list without navigating.
-export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
+export function DashboardTripCard({
+  trip,
+  spend,
+}: {
+  trip: ProfileTrip;
+  /** Undefined for a trip with no ledger, which renders nothing and leaves
+   * the overlay (and so the card) exactly the height it was. */
+  spend?: SharedTripExpenses | null;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -89,7 +98,9 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
   }
 
   return (
-    <div className="relative isolate overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 transition-all hover:ring-brand/40">
+    // @container/card: the spend line sheds its tail by CARD width, not
+    // viewport width. See components/trips/trip-spend-line.tsx.
+    <div className="@container/card relative isolate overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 transition-all hover:ring-brand/40">
       <div className={cn("group relative w-full", COVER_CARD_ASPECT)}>
         {trip.coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -159,6 +170,7 @@ export function DashboardTripCard({ trip }: { trip: ProfileTrip }) {
               />
             </button>
           </div>
+          <TripSpendLine spend={spend ?? null} />
         </div>
       </div>
 

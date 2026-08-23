@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/current-user";
 import type { ExpenseCsvRow } from "@/lib/expenses-csv";
+import type { SharedTripExpenses } from "@/lib/share-data";
 import type {
   CategorySpend,
   DaySpend,
@@ -378,4 +379,62 @@ export async function getExpenseCsvRows(): Promise<ExpenseCsvRow[]> {
     isAlcohol: Boolean(row.is_alcohol),
     note: row.note ?? "",
   }));
+}
+
+/**
+ * Per-trip spending for every trip the caller owns, keyed by trip id.
+ *
+ * The dashboard's own version of getSharedExpenseSummaries: same shape, same
+ * two views, but through requireUser()'s session client rather than an
+ * explicit user id. One round trip for the whole grid rather than one per
+ * card.
+ *
+ * Returns an empty map rather than null when the tables are unreachable. The
+ * card renders nothing for a missing entry either way, and unlike the trip
+ * page's summary card there is no claim being made here that an empty result
+ * could turn into a falsehood.
+ */
+export async function getTripSpendByTrip(): Promise<
+  Map<string, SharedTripExpenses>
+> {
+  const { supabase } = await requireUser();
+  const [summaryResult, groupResult] = await Promise.all([
+    supabase
+      .from("v_trip_expense_summary")
+      .select("trip_id, total_usd, usd_per_day, trip_days, txn_count, alcohol_usd"),
+    supabase
+      .from("v_trip_expense_by_group")
+      .select("trip_id, group_slug, group_label, group_color, total_usd, pct_of_trip")
+      .order("total_usd", { ascending: false }),
+  ]);
+  const byTrip = new Map<string, SharedTripExpenses>();
+  if (summaryResult.error || !summaryResult.data) return byTrip;
+
+  const groups = new Map<string, SharedTripExpenses["groups"]>();
+  for (const row of (groupResult.data ?? []) as Record<string, unknown>[]) {
+    const tripId = String(row.trip_id);
+    const list = groups.get(tripId) ?? [];
+    list.push({
+      groupSlug: String(row.group_slug),
+      groupLabel: String(row.group_label),
+      groupColor: str(row.group_color),
+      totalUsd: num(row.total_usd),
+      pctOfTrip: numOrNull(row.pct_of_trip),
+    });
+    groups.set(tripId, list);
+  }
+
+  for (const row of summaryResult.data as Record<string, unknown>[]) {
+    const tripId = String(row.trip_id);
+    byTrip.set(tripId, {
+      tripId,
+      totalUsd: num(row.total_usd),
+      usdPerDay: numOrNull(row.usd_per_day),
+      tripDays: numOrNull(row.trip_days),
+      txnCount: num(row.txn_count),
+      alcoholUsd: num(row.alcohol_usd),
+      groups: groups.get(tripId) ?? [],
+    });
+  }
+  return byTrip;
 }

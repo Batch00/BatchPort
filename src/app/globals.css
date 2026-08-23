@@ -159,5 +159,23 @@
   }
   html {
     @apply font-sans;
+    /* NATIVE CONTROLS HAVE TO BE TOLD THE APP IS DARK. Without this the
+       browser paints anything it draws itself with the OS light palette while
+       our CSS sets only the text colour, which produced white-on-white
+       <option> lists in every native <select> in the app: the popup background
+       came from the platform and the text colour was inherited from the dark
+       theme. It also fixes the date input's calendar picker and scrollbars,
+       which had the same cause and were quietly just as unreadable.
+
+       This app is dark-only (the `dark` class is hardcoded on <html> in
+       layout.tsx), so the value is fixed rather than following a toggle. */
+    color-scheme: dark;
+  }
+  /* Belt and braces for platforms that honour color-scheme for the popup but
+     not for the option rows. Uses the popover tokens so a native select and a
+     Radix one look like the same control. */
+  select option {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
   }
 }

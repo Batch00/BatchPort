@@ -327,16 +327,30 @@ function LedgerRow({
             />
           ) : null}
         </p>
-        <p className="flex items-center gap-1.5 truncate text-xs text-foreground/45">
-          <span>
+        {/* WRAPS, and `truncate` is NOT on this flex container. It used to be,
+            which does nothing useful: truncate is overflow-hidden plus
+            text-overflow-ellipsis plus nowrap, and on a flex parent the
+            children simply overflow instead of ellipsizing. So the note fell
+            off the end with no ellipsis to say it had. Same bug as the
+            truncated date range in destination-costs.tsx, in a different
+            place.
+
+            The category and the stop are short and always meaningful, so they
+            never shrink. Only the note may truncate, and only after the line
+            has already wrapped, because a note is the one field here that can
+            be arbitrarily long. */}
+        <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-foreground/45">
+          <span className="shrink-0">
             {row.categoryLabel ?? (
               <span className="text-amber-400/70">Uncategorized</span>
             )}
           </span>
           {row.destinationName ? (
             <>
-              <span aria-hidden>·</span>
-              <span className="inline-flex items-center gap-0.5">
+              <span aria-hidden className="shrink-0">
+                ·
+              </span>
+              <span className="inline-flex shrink-0 items-center gap-0.5">
                 {row.pinnedDestinationId ? (
                   <PinIcon className="size-3" aria-label="Pinned to this stop" />
                 ) : (
@@ -348,8 +362,10 @@ function LedgerRow({
           ) : null}
           {row.note ? (
             <>
-              <span aria-hidden>·</span>
-              <span className="truncate">{row.note}</span>
+              <span aria-hidden className="shrink-0">
+                ·
+              </span>
+              <span className="min-w-0 truncate">{row.note}</span>
             </>
           ) : null}
         </p>

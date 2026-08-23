@@ -53,6 +53,35 @@ export function formatDateRange(
 
 // Inclusive day count for a YYYY-MM-DD range: Jun 10 to Jun 12 is 3 days.
 // Returns null when either date is missing, malformed, or out of order.
+/**
+ * A date range for somewhere tight, e.g. a per-stop row.
+ *
+ * "Sep 28 to Oct 9" rather than "Sep 28, 2025 to Oct 9, 2025". The year is
+ * dropped only when BOTH ends share it, because a stay that crosses new year
+ * is exactly the case where the year is the interesting part. It is the same
+ * abbreviation a person writes by hand, and it is what stops the range being
+ * the thing that truncates in a row whose whole point is the range.
+ */
+export function formatDateRangeShort(
+  start?: string | null,
+  end?: string | null,
+): string {
+  if (!start && !end) return "Dates to be decided";
+  const one = (value: string, withYear: boolean): string => {
+    const date = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      ...(withYear ? { year: "numeric" } : {}),
+    });
+  };
+  if (start && !end) return one(start, true);
+  if (!start && end) return one(end, true);
+  const sameYear = (start as string).slice(0, 4) === (end as string).slice(0, 4);
+  return `${one(start as string, !sameYear)} to ${one(end as string, !sameYear)}`;
+}
+
 export function durationDays(
   start?: string | null,
   end?: string | null,
