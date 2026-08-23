@@ -1,6 +1,11 @@
 -- Expense metrics: the five views the ledger surface reads.
 --
 -- Run this in the Supabase dashboard SQL editor (or psql). Safe to re-run.
+--
+-- !! AMENDED 2026-08-23: v_trip_expense_by_day gained spend_usd and refund_usd.
+-- !! RE-RUN THIS FILE if you applied an earlier copy, or the per-day chart will
+-- !! net refunds away instead of drawing them. The new columns are appended, so
+-- !! CREATE OR REPLACE accepts them without a drop.
 -- DEPENDS on scripts/sql/2026-08-19-expenses.sql (expenses, v_trip_days,
 -- v_expense_rows, v_trip_expense_summary).
 --
@@ -143,11 +148,28 @@ day_series as (
     and b.to_day is not null
     and b.to_day >= b.from_day
 )
+-- AMENDED 2026-08-23: spend_usd and refund_usd added alongside total_usd.
+--
+-- total_usd is the NET, and a net is the wrong thing to draw. A day holding a
+-- 689 charge and a -700 refund nets to -11, which a bar chart renders as a
+-- quiet dip on an otherwise ordinary day; the two facts that actually happened
+-- are invisible. Same for a "biggest expenses" list: showing 689 without -700
+-- beside it is telling half a fact.
+--
+-- So the gross halves are carried separately and the surfaces draw both. All
+-- three columns are kept rather than deriving one, because total_usd is what
+-- reconciles against v_trip_expense_summary and the two halves are what get
+-- drawn. spend_usd + refund_usd = total_usd by construction (refund_usd is
+-- negative or zero).
 select
   d.user_id,
   d.trip_id,
   d.spend_date,
   round(coalesce(sum(r.amount_usd), 0), 2) as total_usd,
+  round(coalesce(sum(r.amount_usd) filter (where r.amount_usd > 0), 0), 2)
+    as spend_usd,
+  round(coalesce(sum(r.amount_usd) filter (where r.amount_usd < 0), 0), 2)
+    as refund_usd,
   count(r.id) as txn_count,
   round(coalesce(sum(r.amount_usd) filter (where r.is_alcohol), 0), 2)
     as alcohol_usd

@@ -61,7 +61,12 @@ export interface CategorySpend extends GroupSpend {
 
 export interface DaySpend {
   spendDate: string;
+  /** The net. Reconciles against the trip total; NOT what the chart draws. */
   totalUsd: number;
+  /** Positive rows only. */
+  spendUsd: number;
+  /** Negative rows only, so this is <= 0. */
+  refundUsd: number;
   txnCount: number;
   alcoholUsd: number;
 }
@@ -262,6 +267,101 @@ export function unattributedLine(summary: UnattributedSummary): string | null {
  * sentence written for a group. */
 export function unattributedSubject(summary: UnattributedSummary): string {
   return summary.count === 1 ? "it is" : "these are";
+}
+
+// --- Biggest movements ------------------------------------------------------
+
+/**
+ * The largest movements on a trip, RANKED BY SIZE REGARDLESS OF DIRECTION.
+ *
+ * Not "biggest expenses", and the difference is the whole point. On the Post
+ * Grad Trip the four largest rows are a 689 flight against a -700 refund and a
+ * 382 rail pass against a -355; a list of the biggest *charges* shows 689 and
+ * 382 and silently drops the two rows that cancel them, which is telling half
+ * a fact about the most expensive things on the trip.
+ *
+ * Ranking on the absolute value puts each pair adjacent (700 then 689, 382
+ * then 355) without the list having to guess which refund offsets which
+ * charge, which is an inference the data does not support: nothing links a
+ * refund row to the charge it reverses beyond the vendor name and the reader's
+ * judgement. Showing them next to each other lets the reader make that call.
+ */
+export function biggestMovements(rows: ExpenseRow[], limit = 8): ExpenseRow[] {
+  return [...rows]
+    .sort((a, b) => {
+      const size = Math.abs(b.amountUsd) - Math.abs(a.amountUsd);
+      if (size !== 0) return size;
+      return (a.vendor ?? "").localeCompare(b.vendor ?? "");
+    })
+    .slice(0, limit);
+}
+
+/** Every refund on the trip, largest first. Carried separately so a trip with
+ * refunds can state how many there are even when none is large enough to
+ * reach the movements list. */
+export function refunds(rows: ExpenseRow[]): ExpenseRow[] {
+  return rows
+    .filter((row) => row.amountUsd < 0)
+    .sort((a, b) => a.amountUsd - b.amountUsd);
+}
+
+// --- Alcohol ----------------------------------------------------------------
+
+export interface AlcoholCrossCut {
+  totalUsd: number;
+  txnCount: number;
+  perDayUsd: number | null;
+  /** Share of the whole trip, 0 to 100, or null when the trip nets to zero. */
+  pctOfTrip: number | null;
+  /** The categories it is spread across, largest first. This is what makes it
+   * a cross-cut rather than a category: it is never all in Bars and
+   * Nightlife. */
+  byCategory: { categoryLabel: string; totalUsd: number }[];
+}
+
+/**
+ * The drinking total, as a cross-cut rather than a slice.
+ *
+ * It deliberately reports WHICH CATEGORIES it spans, because that is the
+ * evidence for the modelling decision: shop-bought beer sits in Groceries and
+ * Markets and still counts, which is why is_alcohol is a boolean and not a
+ * category. A single number would look like a category total and invite
+ * someone to add it to the group bar, where it would double-count.
+ */
+export function alcoholCrossCut(
+  rows: ExpenseRow[],
+  tripDays: number | null,
+  tripTotalUsd: number,
+): AlcoholCrossCut | null {
+  const drinking = rows.filter((row) => row.isAlcohol);
+  if (drinking.length === 0) return null;
+
+  const totalUsd = drinking.reduce((sum, row) => sum + row.amountUsd, 0);
+  const byLabel = new Map<string, number>();
+  for (const row of drinking) {
+    const label = row.categoryLabel ?? "Uncategorized";
+    byLabel.set(label, (byLabel.get(label) ?? 0) + row.amountUsd);
+  }
+
+  return {
+    totalUsd: round2(totalUsd),
+    txnCount: drinking.length,
+    perDayUsd: tripDays && tripDays > 0 ? round2(totalUsd / tripDays) : null,
+    pctOfTrip:
+      tripTotalUsd !== 0
+        ? Math.round((totalUsd / tripTotalUsd) * 1000) / 10
+        : null,
+    byCategory: [...byLabel.entries()]
+      .map(([categoryLabel, total]) => ({
+        categoryLabel,
+        totalUsd: round2(total),
+      }))
+      .sort((a, b) => b.totalUsd - a.totalUsd),
+  };
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 // --- Entry ------------------------------------------------------------------

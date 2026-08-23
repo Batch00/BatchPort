@@ -22,13 +22,23 @@
 //   npm run import-expenses -- --dry-run   resolve and report, write nothing
 //   npm run import-expenses                upsert
 //   npm run import-expenses -- --undo      delete exactly these 226 rows
+//   npm run import-expenses -- --csv path  import an exported CSV instead
+//
+// THE --csv MODE IS THE OTHER HALF OF THE EXPORT. It reads exactly what
+// /api/export?format=expenses-csv writes, through the same definition in
+// src/lib/expenses-csv.ts, so the escape hatch is a round trip rather than a
+// one-way door. A row that carries its id updates that row; a row typed in by
+// hand leaves the id blank and gets a deterministic one from its content, so
+// editing the spreadsheet and adding lines both work.
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createClient } from "@supabase/supabase-js";
 
 import { EXPENSE_FIXTURE, type FixtureExpense } from "./expense-fixture";
+import { parseExpenseCsv } from "../src/lib/expenses-csv";
 
 // --- Client -----------------------------------------------------------------
 
@@ -283,6 +293,78 @@ async function countExisting(admin: Client, rows: ExpenseRow[]): Promise<number>
 
 // --- Main -------------------------------------------------------------------
 
+/**
+ * Read an exported CSV into the same shape the fixture uses.
+ *
+ * Parsing and validation live in src/lib/expenses-csv.ts so the exporter and
+ * this reader cannot drift. Everything this adds is the fixture's own
+ * metadata, which a CSV does not carry and does not need: the review fields
+ * are provenance for the workbook import, not something the database stores.
+ *
+ * A row with no id gets a deterministic uuid v5 over its content, matching how
+ * the workbook fixture was built, so re-importing the same hand-edited file
+ * twice updates rather than duplicates.
+ */
+function readCsvSource(path: string | undefined): FixtureExpense[] {
+  if (!path) throw new Error("--csv needs a file path.");
+  const { rows, errors } = parseExpenseCsv(readFileSync(path, "utf8"));
+  if (errors.length > 0) {
+    throw new Error(
+      [`Could not read ${path}:`, ...errors.map((e) => `  ${e}`)].join("\n"),
+    );
+  }
+  if (rows.length === 0) throw new Error(`${path} has no rows.`);
+
+  return rows.map((row, index) => ({
+    id:
+      row.id !== ""
+        ? row.id
+        : uuidV5(
+            [
+              row.tripName,
+              row.spentOn,
+              row.vendor,
+              row.amountUsd.toFixed(2),
+              row.note,
+              String(index),
+            ].join("|"),
+          ),
+    tripName: row.tripName,
+    vendor: row.vendor,
+    amountUsd: row.amountUsd,
+    spentOn: row.spentOn === "" ? null : row.spentOn,
+    categorySlug: row.categorySlug === "" ? null : row.categorySlug,
+    isAlcohol: row.isAlcohol,
+    note: row.note === "" ? null : row.note,
+    sourceSection: "csv",
+    sourceSubsection: "",
+    sourceLine: index + 2,
+    review: "agrees",
+    why: "imported from CSV",
+  }));
+}
+
+/** uuid v5 over a stable key, same construction the fixture generator uses. */
+function uuidV5(name: string): string {
+  const NAMESPACE = "6f5a1d3e-2b47-4f8c-9a1e-7c0d5b3e9a24";
+  const namespaceBytes = Buffer.from(NAMESPACE.replace(/-/g, ""), "hex");
+  const hash = createHash("sha1")
+    .update(namespaceBytes)
+    .update(Buffer.from(name, "utf8"))
+    .digest();
+  const bytes = Buffer.from(hash.subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join("-");
+}
+
 async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
   const undo = process.argv.includes("--undo");
@@ -299,10 +381,17 @@ async function main(): Promise<void> {
 
   const admin = makeClient(url, serviceKey);
   const userId = await resolveUser(admin, env);
-  const tripNames = [...new Set(EXPENSE_FIXTURE.map((row) => row.tripName))];
+
+  // --csv swaps the source and nothing else: the same trip resolution, the
+  // same category resolution, the same upsert, the same read-back.
+  const csvIndex = process.argv.indexOf("--csv");
+  const source: FixtureExpense[] =
+    csvIndex !== -1 ? readCsvSource(process.argv[csvIndex + 1]) : EXPENSE_FIXTURE;
+
+  const tripNames = [...new Set(source.map((row) => row.tripName))];
   const trips = await resolveTrips(admin, userId, tripNames);
   const categories = await resolveCategories(admin);
-  const rows = buildRows(EXPENSE_FIXTURE, userId, trips, categories);
+  const rows = buildRows(source, userId, trips, categories);
 
   console.log(`\nOwner: ${userId}`);
   reportPlan(rows, trips);

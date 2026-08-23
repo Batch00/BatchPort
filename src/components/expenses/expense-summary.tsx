@@ -3,11 +3,12 @@ import {
   formatUsd,
   unattributedLine,
   unattributedSubject,
+  type CategorySpend,
   type GroupSpend,
   type TripExpenseSummary,
   type UnattributedSummary,
 } from "@/lib/expenses";
-import { GroupDot } from "@/components/expenses/category-picker";
+import { GroupBreakdown } from "@/components/expenses/group-breakdown";
 
 // The numbers at the top of the expenses page, and the group split under them.
 //
@@ -17,6 +18,7 @@ import { GroupDot } from "@/components/expenses/category-picker";
 export function ExpenseSummary({
   summary,
   groups,
+  categories,
   unattributed,
 }: {
   summary: TripExpenseSummary;
@@ -24,6 +26,8 @@ export function ExpenseSummary({
    * split matters: a bar rendered off an absent read would be describing
    * spending the database never reported. */
   groups: GroupSpend[] | null;
+  /** Same null-versus-empty rule as groups. Feeds the drill-down. */
+  categories: CategorySpend[] | null;
   unattributed: UnattributedSummary | null;
 }) {
   return (
@@ -49,7 +53,9 @@ export function ExpenseSummary({
         ) : null}
       </div>
 
-      {groups && groups.length > 0 ? <GroupBar groups={groups} /> : null}
+      {groups && groups.length > 0 ? (
+        <GroupBreakdown groups={groups} categories={categories} />
+      ) : null}
 
       {summary.uncategorizedCount > 0 ? (
         <p className="text-xs text-amber-400/80">
@@ -85,50 +91,6 @@ function Figure({
       >
         {value}
       </p>
-    </div>
-  );
-}
-
-/** The group split as one bar plus a legend. Negative-netting groups are
- * possible (a group of pure refunds) and are given no width rather than a
- * nonsensical one, but they keep their legend row so the money is not hidden. */
-function GroupBar({ groups }: { groups: GroupSpend[] }) {
-  const positive = groups.filter((group) => group.totalUsd > 0);
-  const total = positive.reduce((sum, group) => sum + group.totalUsd, 0);
-
-  return (
-    <div className="flex flex-col gap-2">
-      {total > 0 ? (
-        <div className="flex h-2 w-full overflow-hidden rounded-full bg-white/5">
-          {positive.map((group) => (
-            <div
-              key={group.groupSlug}
-              style={{
-                width: `${(group.totalUsd / total) * 100}%`,
-                backgroundColor: group.groupColor ?? "rgba(255,255,255,0.25)",
-              }}
-              title={`${group.groupLabel} ${formatUsd(group.totalUsd)}`}
-            />
-          ))}
-        </div>
-      ) : null}
-      <ul className="flex flex-wrap gap-x-4 gap-y-1">
-        {groups.map((group) => (
-          <li
-            key={group.groupSlug}
-            className="flex items-center gap-1.5 text-xs text-foreground/70"
-          >
-            <GroupDot color={group.groupColor} />
-            <span>{group.groupLabel}</span>
-            <span className="tabular-nums text-foreground/90">
-              {formatUsd(group.totalUsd)}
-            </span>
-            {group.pctOfTrip !== null ? (
-              <span className="text-foreground/40">{group.pctOfTrip}%</span>
-            ) : null}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

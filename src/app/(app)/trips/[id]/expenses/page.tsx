@@ -10,6 +10,8 @@ import {
   expensesAvailable,
   getDestinationExpense,
   getExpenseCategories,
+  getTripExpenseByCategory,
+  getTripExpenseByDay,
   getTripExpenseByGroup,
   getTripExpenseSummary,
   getTripExpenses,
@@ -18,6 +20,8 @@ import {
 import { summarizeUnattributed } from "@/lib/expenses";
 import { chronologicalDestinations, resolveTripDates } from "@/lib/trip-dates";
 import { ExpenseSummary } from "@/components/expenses/expense-summary";
+import { ExpenseDayChart } from "@/components/expenses/expense-day-chart";
+import { ExpenseHighlights } from "@/components/expenses/expense-highlights";
 import { ExpenseWorkspace } from "@/components/expenses/expense-workspace";
 import { DestinationCosts } from "@/components/expenses/destination-costs";
 
@@ -56,10 +60,21 @@ export default async function TripExpensesPage({
     );
   }
 
-  const [rows, summary, groups, stops, categories, vendors] = await Promise.all([
+  const [
+    rows,
+    summary,
+    groups,
+    categorySpend,
+    days,
+    stops,
+    categories,
+    vendors,
+  ] = await Promise.all([
     getTripExpenses(id),
     getTripExpenseSummary(id),
     getTripExpenseByGroup(id),
+    getTripExpenseByCategory(id),
+    getTripExpenseByDay(id),
     getDestinationExpense(id),
     getExpenseCategories(),
     getVendorSuggestions(),
@@ -89,6 +104,7 @@ export default async function TripExpensesPage({
           <ExpenseSummary
             summary={summary}
             groups={groups}
+            categories={categorySpend}
             unattributed={unattributed}
           />
         ) : null}
@@ -109,8 +125,20 @@ export default async function TripExpensesPage({
           disabledReason={isDemo ? DEMO_READONLY_MESSAGE : null}
         />
 
+        {summary && summary.txnCount > 0 ? (
+          <ExpenseDayChart days={days} />
+        ) : null}
+
         {stops.length > 0 && summary && summary.txnCount > 0 ? (
           <DestinationCosts stops={stops} />
+        ) : null}
+
+        {summary && summary.txnCount > 0 ? (
+          <ExpenseHighlights
+            rows={rows}
+            tripDays={summary.tripDays}
+            tripTotalUsd={summary.totalUsd}
+          />
         ) : null}
       </div>
     </Shell>

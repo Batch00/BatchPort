@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/current-user";
+import type { ExpenseCsvRow } from "@/lib/expenses-csv";
 import type {
   CategorySpend,
   DaySpend,
@@ -203,13 +204,15 @@ export async function getTripExpenseByDay(tripId: string): Promise<DaySpend[]> {
   const { supabase } = await requireUser();
   const { data, error } = await supabase
     .from("v_trip_expense_by_day")
-    .select("spend_date, total_usd, txn_count, alcohol_usd")
+    .select("spend_date, total_usd, spend_usd, refund_usd, txn_count, alcohol_usd")
     .eq("trip_id", tripId)
     .order("spend_date", { ascending: true });
   if (error || !data) return [];
   return (data as Record<string, unknown>[]).map((row) => ({
     spendDate: String(row.spend_date).slice(0, 10),
     totalUsd: num(row.total_usd),
+    spendUsd: num(row.spend_usd),
+    refundUsd: num(row.refund_usd),
     txnCount: num(row.txn_count),
     alcoholUsd: num(row.alcohol_usd),
   }));
@@ -331,4 +334,48 @@ export async function getExpenseCategories(): Promise<ExpenseCategory[] | null> 
       if (groupA !== groupB) return groupA - groupB;
       return a.sortOrder - b.sortOrder;
     });
+}
+
+/**
+ * Every expense the caller owns, in the CSV row shape.
+ *
+ * Across every trip, not one, because this backs the export: the escape hatch
+ * is "give me my ledger", not "give me this page". Ordered so a re-export of
+ * an unchanged ledger is byte-identical (see check-expense-csv).
+ *
+ * Reads through requireUser()'s client like everything else here, so RLS is
+ * the boundary and no request can name another account.
+ */
+export async function getExpenseCsvRows(): Promise<ExpenseCsvRow[]> {
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase
+    .from("expenses")
+    .select(
+      "id, amount_usd, vendor, spent_on, is_alcohol, note, trips(name), expense_categories(slug)",
+    )
+    .order("spent_on", { ascending: true, nullsFirst: true })
+    .order("id", { ascending: true });
+  if (error || !data) return [];
+
+  const rows = data as unknown as {
+    id: string;
+    amount_usd: number | string;
+    vendor: string | null;
+    spent_on: string | null;
+    is_alcohol: boolean;
+    note: string | null;
+    trips: { name: string } | null;
+    expense_categories: { slug: string } | null;
+  }[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    tripName: row.trips?.name ?? "",
+    spentOn: row.spent_on ? String(row.spent_on).slice(0, 10) : "",
+    vendor: row.vendor ?? "",
+    amountUsd: num(row.amount_usd),
+    categorySlug: row.expense_categories?.slug ?? "",
+    isAlcohol: Boolean(row.is_alcohol),
+    note: row.note ?? "",
+  }));
 }

@@ -13,13 +13,27 @@ import type { PhotoSource, TripStatus } from "@/lib/types";
 // Nothing here takes a userId argument on purpose: there is no way to ask this
 // module for somebody else's data.
 
-export const EXPORT_FORMATS = ["json", "geojson"] as const;
+// "expenses-csv" is the ledger as a spreadsheet, and it is the one format
+// that goes BACK IN as well as out: scripts/import-expenses.ts --csv reads
+// exactly what this writes, through the shared definition in
+// lib/expenses-csv.ts. See check-expense-csv for the round-trip assertion.
+export const EXPORT_FORMATS = ["json", "geojson", "expenses-csv"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 /** "batchport-export-2026-07-29.json" */
 export function exportFilename(format: ExportFormat, now = new Date()): string {
   const date = now.toISOString().slice(0, 10);
+  if (format === "expenses-csv") return `batchport-expenses-${date}.csv`;
   return `batchport-export-${date}.${format}`;
+}
+
+/** The ledger as a spreadsheet. Separate from the JSON bundle because it is a
+ * different question ("give me my expenses in something I can edit") and has a
+ * different answer shape. */
+export async function buildExpenseCsvExport(): Promise<string> {
+  const { getExpenseCsvRows } = await import("@/lib/expenses-data");
+  const { buildExpenseCsv } = await import("@/lib/expenses-csv");
+  return buildExpenseCsv(await getExpenseCsvRows());
 }
 
 // --- Row shapes as they come back from PostgREST -----------------------------
@@ -285,9 +299,48 @@ export async function buildExportJson(): Promise<string> {
       fulfilled_at: item.fulfilled_at,
       created_at: item.created_at,
     })),
+    // The ledger, flat rather than nested under its trip, because an expense
+    // belongs to a trip but is attributed to a STOP by a rule rather than by a
+    // column (see v_expense_rows). Nesting it under a destination would bake
+    // one reading of that rule into the file; nesting under a trip and
+    // omitting the stop would drop it. Flat with trip_id keeps the export
+    // faithful to what is stored.
+    //
+    // Best effort: a database without the expenses migration exports
+    // everything else and an empty array here.
+    expenses: await expensesJson(),
   };
 
   return JSON.stringify(payload, null, 2);
+}
+
+async function expensesJson(): Promise<
+  {
+    id: string;
+    trip: string;
+    spent_on: string | null;
+    vendor: string | null;
+    amount_usd: number;
+    category_slug: string | null;
+    is_alcohol: boolean;
+    note: string | null;
+  }[]
+> {
+  try {
+    const { getExpenseCsvRows } = await import("@/lib/expenses-data");
+    return (await getExpenseCsvRows()).map((row) => ({
+      id: row.id,
+      trip: row.tripName,
+      spent_on: row.spentOn === "" ? null : row.spentOn,
+      vendor: row.vendor === "" ? null : row.vendor,
+      amount_usd: row.amountUsd,
+      category_slug: row.categorySlug === "" ? null : row.categorySlug,
+      is_alcohol: row.isAlcohol,
+      note: row.note === "" ? null : row.note,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 // --- GeoJSON -----------------------------------------------------------------
