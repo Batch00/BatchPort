@@ -10,6 +10,29 @@
 // It lives in its own module so those two can never drift apart. Coordinates
 // here are the authored source of truth; the seeder sanity-checks them against
 // the geocoder rather than replacing them.
+//
+// ---------------------------------------------------------------------------
+// BEFORE ADDING DEMO EXPENSES, READ THIS.
+//
+// scripts/check-expense-attribution.ts asserts that the anon key CAN see the
+// demo account's expenses, which is what lets /demo render them. To do that
+// without putting a phantom trip on the public demo profile, it attaches ONE
+// real expense row to an existing demo trip for the duration of the run,
+// marked with the vendor "__parity_fixture__", and purges it on entry and in a
+// finally.
+//
+// That row is invisible today because no surface renders expenses. The moment
+// the demo expense surface ships, it becomes briefly visible on /demo and
+// /share/demo while the harness runs, and would survive a crashed run until
+// the next one sweeps it.
+//
+// So when demo expenses are added here, do one of:
+//   - have the harness filter its probe row out of nothing (it already carries
+//     a reserved vendor, so the demo surface can exclude that vendor), or
+//   - accept the window and say so, since the purge is on entry as well.
+//
+// Do not discover this by seeing "__parity_fixture__" on the live demo page.
+// ---------------------------------------------------------------------------
 
 // --- Types -----------------------------------------------------------------
 

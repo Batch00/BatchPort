@@ -1,5 +1,22 @@
 -- Trip planner: planned experiences.
 --
+-- !! AMENDED 2026-08-19: THE VIEW STATEMENTS IN SECTION 2 BELOW DO NOT MATCH
+-- !! THE LIVE DEFINITIONS. Do not copy them as a starting point.
+-- !!
+-- !! Two differences found while writing 2026-08-19-trip-days-alignment.sql:
+-- !!
+-- !!   - Every count here is cast ::int. The live views return bigint from a
+-- !!     raw count(). A CREATE OR REPLACE built on this file fails with
+-- !!     "ERROR 42P16: cannot change data type of view column".
+-- !!   - world_pct here is round(x * 100 / 195, 2). Live is
+-- !!     round(x / 195 * 100, 1). That one applies SILENTLY and moves a
+-- !!     number on the stats page.
+-- !!
+-- !! The file's own advice was already right and is worth following literally:
+-- !! open the live definition with pg_get_viewdef and merge into THAT, rather
+-- !! than running what is written here. The corrected v_user_travel_summary
+-- !! lives in 2026-08-19-trip-days-alignment.sql.
+--
 -- Adds a status column to experiences ('planned' ideas vs 'done' logged
 -- activities) and excludes planned experiences from the two stats surfaces
 -- that count experiences. Run in the Supabase SQL editor.

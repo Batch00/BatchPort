@@ -7,6 +7,7 @@ import { getPhotos, getPhotosForOwners } from "@/lib/photos-data";
 import { getJournalEntries, journalAvailable } from "@/lib/journal-data";
 import { journalDays, journalingApplies } from "@/lib/journal";
 import { getTransportLegs, transportAvailable } from "@/lib/transport-data";
+import { getTripExpenseCount } from "@/lib/expenses-data";
 import { TripJournal } from "@/components/trips/trip-journal";
 import { TripOfflineToggle } from "@/components/offline/trip-offline-toggle";
 import { TransportLegRow } from "@/components/trips/transport-leg";
@@ -88,6 +89,9 @@ export default async function TripDetailPage({
   // transportLegs and transportReady ride along for the same reason: without
   // the migration the connector rows are left out entirely rather than
   // offering a control that cannot save.
+  // expenseCount rides along so the delete confirmation can name the ledger it
+  // would cascade away. Null before the migration runs, which the dialog
+  // renders as silence rather than as "no expenses".
   const [
     destPhotos,
     expPhotos,
@@ -96,6 +100,7 @@ export default async function TripDetailPage({
     journalReady,
     transportLegs,
     transportReady,
+    expenseCount,
   ] = await Promise.all([
     getPhotosForOwners("destination", destIds),
     getPhotosForOwners("experience", experienceIds),
@@ -104,6 +109,7 @@ export default async function TripDetailPage({
     journalAvailable(),
     getTransportLegs(id),
     transportAvailable(),
+    getTripExpenseCount(id),
   ]);
 
   // Distance from home is the trip's furthest stop. With no home set, or no
@@ -320,7 +326,11 @@ export default async function TripDetailPage({
             <PencilIcon />
             Edit
           </Link>
-          <DeleteTripButton tripId={trip.id} tripName={trip.name} />
+          <DeleteTripButton
+            tripId={trip.id}
+            tripName={trip.name}
+            expenseCount={expenseCount}
+          />
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

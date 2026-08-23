@@ -23,7 +23,11 @@
     "check-curation": "npx tsx scripts/check-curation.ts",
     "check-map-arcs": "npx tsx scripts/check-map-arcs.ts",
     "check-stays": "npx tsx scripts/check-stays.ts",
-    "check-year-map-playback": "npx tsx scripts/check-year-map-playback.ts"
+    "check-year-map-playback": "npx tsx scripts/check-year-map-playback.ts",
+    "build-expense-fixture": "npx tsx scripts/build-expense-fixture.ts",
+    "check-expense-attribution": "npx tsx scripts/check-expense-attribution.ts",
+    "purge-parity-fixture": "npx tsx scripts/check-expense-attribution.ts --purge",
+    "import-expenses": "npx tsx scripts/import-expenses.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
