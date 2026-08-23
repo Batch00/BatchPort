@@ -2,10 +2,40 @@
 --
 -- Run this in the Supabase dashboard SQL editor (or psql). Safe to re-run.
 --
--- !! AMENDED 2026-08-23: v_trip_expense_by_day gained spend_usd and refund_usd.
--- !! RE-RUN THIS FILE if you applied an earlier copy, or the per-day chart will
--- !! net refunds away instead of drawing them. The new columns are appended, so
--- !! CREATE OR REPLACE accepts them without a drop.
+-- ############################################################################
+-- #  THIS FILE IS RE-RUN AGAINST A LIVE SCHEMA, SO COLUMN ORDER IS A         #
+-- #  CONTRACT. CREATE OR REPLACE VIEW cannot rename, reorder, remove, or     #
+-- #  retype a column. A NEW COLUMN GOES AT THE END OF THE SELECT LIST, even  #
+-- #  when it reads better somewhere else, or the whole statement fails:      #
+-- #                                                                          #
+-- #    ERROR 42P16: cannot change name of view column "txn_count"            #
+-- #                 to "spend_usd"                                           #
+-- #                                                                          #
+-- #  Dropping and recreating would allow the tidier order and would take     #
+-- #  the grants to anon and authenticated with it. A forgotten re-grant is   #
+-- #  a silent zero-rows failure, which is the same shape as the RLS bug      #
+-- #  documented in 2026-08-19-expenses.sql and cost an evening to find. Do   #
+-- #  not reach for a drop to get a nicer column order.                       #
+-- #                                                                          #
+-- #  This is the SECOND time the type/order contract has caught a mistake    #
+-- #  in this feature; the first was ::int casts on v_user_travel_summary     #
+-- #  (see 2026-08-19-trip-days-alignment.sql). Both times the error was the  #
+-- #  good outcome. What it cannot catch is a changed EXPRESSION behind an    #
+-- #  unchanged column, so diff the arithmetic by hand.                       #
+-- ############################################################################
+--
+-- !! AMENDED 2026-08-23: v_trip_expense_by_day gained spend_usd and refund_usd,
+-- !! appended after alcohol_usd. RE-RUN THIS FILE if you applied an earlier
+-- !! copy, or the per-day chart will net refunds away instead of drawing them.
+-- !!
+-- !! Audited 2026-08-23 against the live column order of all five views:
+-- !!   v_trip_expense_by_group      identical
+-- !!   v_trip_expense_by_category   identical
+-- !!   v_trip_expense_by_day        append only (+spend_usd, +refund_usd)
+-- !!   v_destination_expense        identical
+-- !!   v_expense_vendors            identical
+-- !! So re-running the whole file makes exactly one change and the other four
+-- !! statements are no-ops.
 -- DEPENDS on scripts/sql/2026-08-19-expenses.sql (expenses, v_trip_days,
 -- v_expense_rows, v_trip_expense_summary).
 --
@@ -161,18 +191,31 @@ day_series as (
 -- reconciles against v_trip_expense_summary and the two halves are what get
 -- drawn. spend_usd + refund_usd = total_usd by construction (refund_usd is
 -- negative or zero).
+-- COLUMN ORDER IS THE LIVE VIEW'S ORDER. spend_usd and refund_usd are at the
+-- END, after alcohol_usd, even though they read better next to total_usd,
+-- because CREATE OR REPLACE VIEW cannot reorder columns and this file is
+-- re-run against a live schema. Putting them where they belong logically
+-- produced:
+--
+--   ERROR 42P16: cannot change name of view column "txn_count" to "spend_usd"
+--
+-- Do not tidy them into place. Dropping and recreating would allow it and
+-- would also take the grants to anon and authenticated with it, and a
+-- forgotten re-grant is a silent zero-rows bug (see the RLS amendment in
+-- 2026-08-19-expenses.sql for what that costs to find).
 select
   d.user_id,
   d.trip_id,
   d.spend_date,
   round(coalesce(sum(r.amount_usd), 0), 2) as total_usd,
+  count(r.id) as txn_count,
+  round(coalesce(sum(r.amount_usd) filter (where r.is_alcohol), 0), 2)
+    as alcohol_usd,
+  -- Appended 2026-08-23.
   round(coalesce(sum(r.amount_usd) filter (where r.amount_usd > 0), 0), 2)
     as spend_usd,
   round(coalesce(sum(r.amount_usd) filter (where r.amount_usd < 0), 0), 2)
-    as refund_usd,
-  count(r.id) as txn_count,
-  round(coalesce(sum(r.amount_usd) filter (where r.is_alcohol), 0), 2)
-    as alcohol_usd
+    as refund_usd
 from day_series d
 left join batchport.v_expense_rows r
   on r.trip_id = d.trip_id
