@@ -31,8 +31,10 @@ import { cn } from "@/lib/utils";
 //      goes away.
 //
 // Only the flush marks the save "final", which is what triggers the app-wide
-// revalidation; the debounced writes deliberately do not, so the page cannot
-// re-render out from under the caret mid-sentence.
+// revalidation; the debounced writes deliberately do not. NOT because that
+// keeps the page still (any Server Action refetches the current route anyway,
+// see the note in lib/actions/journal.ts) but because it keeps a paragraph
+// from firing a whole-app revalidatePath on every debounce.
 //
 // Two levels of collapse keep a long trip readable. A month in Patagonia is 30
 // day rows, most of them empty, and unfolded they bury the destination list and

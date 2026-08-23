@@ -11,10 +11,27 @@ import type { ActionResult } from "@/lib/action-result";
 // stored, which keeps "has an entry" a row check everywhere else.
 //
 // This deliberately does NOT call revalidateAppData on every keystroke-driven
-// autosave. The editor is a controlled textarea and an app-wide revalidation
-// mid-typing would re-render the trip page underneath the caret. The caller
-// passes `final: true` on the save that ends an editing session (blur, or the
-// explicit Save), and only that one revalidates.
+// autosave. The caller passes `final: true` on the save that ends an editing
+// session (blur, or the explicit Save), and only that one revalidates.
+//
+// CORRECTED 2026-08-23. The original reason given here was that an app-wide
+// revalidation mid-typing would re-render the trip page underneath the caret.
+// That is not what happens: invoking ANY Server Action makes the Next router
+// refetch the current route's RSC payload regardless of whether the action
+// calls revalidatePath, so every debounced autosave already re-renders this
+// page. Measured on createExpenseAction in this app, which calls no
+// revalidation and still moved the page's server data within 900ms; the
+// journal save is the same mechanism.
+//
+// The refetch is harmless, which is why nobody noticed: the textarea holds its
+// own value in client state, so React reconciles rather than remounting and
+// the caret stays put (the expense entry's amount input recorded zero blur
+// events across a six-row burst).
+//
+// What `final` actually buys is that a paragraph does not fire twenty
+// revalidatePath("/", "layout") calls, each invalidating every route in the
+// app. That is a real cost and worth avoiding; "the page holds still" was
+// never the benefit.
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 

@@ -7,7 +7,12 @@ import { getPhotos, getPhotosForOwners } from "@/lib/photos-data";
 import { getJournalEntries, journalAvailable } from "@/lib/journal-data";
 import { journalDays, journalingApplies } from "@/lib/journal";
 import { getTransportLegs, transportAvailable } from "@/lib/transport-data";
-import { getTripExpenseCount } from "@/lib/expenses-data";
+import {
+  getTripExpenseByGroup,
+  getTripExpenseCount,
+  getTripExpenseSummary,
+} from "@/lib/expenses-data";
+import { TripExpenseCard } from "@/components/trips/trip-expense-card";
 import { TripJournal } from "@/components/trips/trip-journal";
 import { TripOfflineToggle } from "@/components/offline/trip-offline-toggle";
 import { TransportLegRow } from "@/components/trips/transport-leg";
@@ -101,6 +106,8 @@ export default async function TripDetailPage({
     transportLegs,
     transportReady,
     expenseCount,
+    expenseSummary,
+    expenseGroups,
   ] = await Promise.all([
     getPhotosForOwners("destination", destIds),
     getPhotosForOwners("experience", experienceIds),
@@ -110,6 +117,8 @@ export default async function TripDetailPage({
     getTransportLegs(id),
     transportAvailable(),
     getTripExpenseCount(id),
+    getTripExpenseSummary(id),
+    getTripExpenseByGroup(id),
   ]);
 
   // Distance from home is the trip's furthest stop. With no home set, or no
@@ -531,6 +540,18 @@ export default async function TripDetailPage({
             );
           })}
         </ol>
+      )}
+
+      {/* A reading of the whole trip, like the journal below it, rather than
+          part of the route above it. Left out entirely when the expenses
+          migration has not run, so it never links to a route that cannot
+          read. */}
+      {expenseCount === null ? null : (
+        <TripExpenseCard
+          tripId={trip.id}
+          summary={expenseSummary}
+          groups={expenseGroups}
+        />
       )}
 
       {showJournal ? (

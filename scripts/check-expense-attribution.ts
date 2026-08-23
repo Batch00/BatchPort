@@ -458,6 +458,35 @@ async function checkGate(
     `precondition: service role sees ${adminSees?.length ?? 0}/${EXPENSES.length} fixture expenses`,
   );
 
+  // The reference taxonomy must be readable by anon, and this is asserted
+  // rather than assumed because it failed silently once. expense_groups and
+  // expense_categories were granted SELECT with no RLS policy, and RLS with no
+  // policy returns ZERO ROWS AND NO ERROR. Nothing threw, no service-role
+  // script noticed, and the surface rendered an empty category picker plus
+  // "Mostly Uncategorized 100%" over a ledger where every row has a category.
+  // A count comparison against the seed is the only thing that catches it.
+  const { data: anonGroups, error: groupError } = await anon
+    .from("expense_groups")
+    .select("slug");
+  const { data: anonCategories, error: categoryError } = await anon
+    .from("expense_categories")
+    .select("id");
+  check(
+    "PRECONDITION: anon can read the expense taxonomy (RLS policy present, not just a grant)",
+    !groupError &&
+      !categoryError &&
+      (anonGroups?.length ?? 0) > 0 &&
+      (anonCategories?.length ?? 0) > 0,
+    groupError?.message ??
+      categoryError?.message ??
+      `anon read ${anonGroups?.length ?? 0} groups and ${anonCategories?.length ?? 0} categories; ` +
+        "zero with no error means RLS is on with no policy",
+  );
+  note(
+    `precondition: anon reads ${anonGroups?.length ?? 0} expense group(s) and ` +
+      `${anonCategories?.length ?? 0} categor(ies) of taxonomy`,
+  );
+
   const { data: anonTrips, error: anonTripError } = await anon
     .from("trips")
     .select("id")

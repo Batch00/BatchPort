@@ -2,6 +2,28 @@
 --
 -- Run this in the Supabase dashboard SQL editor (or psql). Safe to re-run.
 --
+-- !! AMENDED 2026-08-22: THE REFERENCE TABLES WERE MISSING THEIR RLS POLICIES.
+-- !! RE-RUN THIS FILE IF YOU APPLIED AN EARLIER COPY.
+-- !!
+-- !! expense_groups and expense_categories were granted SELECT but given no
+-- !! policy, on the assumption that RLS was off for them the way it is for
+-- !! batchport.categories. Supabase enables RLS on new tables by default, so
+-- !! the grant was live and the policy was absent, and RLS with no policy
+-- !! RETURNS ZERO ROWS RATHER THAN AN ERROR.
+-- !!
+-- !! That silence is what made it hard to see, and it produced two symptoms
+-- !! that looked unrelated:
+-- !!
+-- !!   - getExpenseCategories read 0 rows, so the category picker was empty.
+-- !!   - v_expense_rows is security_invoker, so its LEFT JOIN to those tables
+-- !!     ran as the caller, matched nothing, and yielded a NULL group_slug on
+-- !!     every row. The trip card then read "Mostly Uncategorized 100%" on a
+-- !!     ledger where all 226 rows carry a category.
+-- !!
+-- !! Neither reproduced in the SQL editor or in any service-role script,
+-- !! because service role bypasses RLS. The anon key is the instrument that
+-- !! shows it, and npm run check-expense-attribution now asserts it.
+--
 -- Until it runs, the app degrades gracefully: the expenses summary card is
 -- left off the trip page entirely (rather than linking to a route that cannot
 -- read), /trips/[id]/expenses says the feature is not set up on this database
@@ -255,8 +277,52 @@ grant select on batchport.expenses to anon;
 grant select, insert, update, delete on batchport.expenses to authenticated;
 
 -- The taxonomy is reference data, world-readable like batchport.categories.
+--
+-- RLS IS ENABLED AND GIVEN AN EXPLICIT PERMISSIVE POLICY rather than left off.
+-- Three reasons, and the first one is the bug this file was amended for:
+--
+--   1. Supabase enables RLS on new tables by default, so "leave it off" is not
+--      a state this migration can assume. RLS with ZERO POLICIES DENIES
+--      EVERYTHING, and PostgREST reports that as zero rows and NO ERROR. A
+--      missing grant is the opposite and raises 42501, so the loud failure is
+--      the one you did not cause and the quiet one is.
+--   2. Writing it out means the intent is in the file. "Everyone may read the
+--      taxonomy, nobody may write it" is a decision; an absent policy is not.
+--   3. The shape was NOT inherited from batchport.categories, and must not be.
+--      Whether that table has RLS off or RLS on with a permissive policy is
+--      not observable through PostgREST (anon reads its 12 rows either way),
+--      and assuming it was off is what produced this bug. If you need to know:
+--
+--        select relrowsecurity from pg_class
+--        where oid = 'batchport.categories'::regclass;
+--        select * from pg_policies where schemaname = 'batchport';
+--
+--      Whatever it says, state the policy for a NEW table explicitly anyway.
+--
+-- There is deliberately no insert, update, or delete policy. The taxonomy is
+-- seeded by this migration and edited by nothing, so the service role is the
+-- only thing that can change it.
+
+alter table batchport.expense_groups enable row level security;
+alter table batchport.expense_categories enable row level security;
+
+drop policy if exists expense_groups_read on batchport.expense_groups;
+create policy expense_groups_read on batchport.expense_groups
+  for select
+  using (true);
+
+drop policy if exists expense_categories_read on batchport.expense_categories;
+create policy expense_categories_read on batchport.expense_categories
+  for select
+  using (true);
+
 grant select on batchport.expense_groups to anon, authenticated;
 grant select on batchport.expense_categories to anon, authenticated;
+
+-- Verify with the ANON key, not in the SQL editor. The editor runs as a role
+-- that bypasses RLS, so it cannot see this class of failure:
+--
+--   npm run check-expense-attribution
 
 create or replace function batchport.set_updated_at()
 returns trigger
@@ -492,7 +558,12 @@ grant select on batchport.v_trip_expense_summary to anon, authenticated;
 -- v_expense_vendors will offer "this vendor's usual category" as a prefill for
 -- fast entry. VENDOR IS NOT CATEGORY, and the real ledger says so twice: the
 -- Fram Museum is a museum admission (14) and a museum cafe lunch (4), and
--- Fauno, Belushi's and Bridge Tap each appear as both a bar and a restaurant.
+-- Fauno and Bridge Tap each appear as both a bar and a restaurant. (Verified
+-- against v_expense_vendors after the import: exactly three vendors carry more
+-- than one category, those two and the Fram Museum. Belushi's is NOT one of
+-- them, despite appearing in both sections, because the sheet spells it
+-- "Belushi's" in Alc and "Belushi" in Food, so it is two vendor keys rather
+-- than one vendor filed two ways.)
 -- So the prefill:
 --
 --   * applies on vendor SELECTION only, never as a background effect,

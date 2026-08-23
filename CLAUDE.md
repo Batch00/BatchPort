@@ -361,9 +361,16 @@ them together:
 - **A blank body is not stored.** Clearing the text deletes the row, so "has
   an entry" is a row check everywhere and never a length check.
 - **Only the flushing save revalidates.** `saveJournalEntryAction` takes
-  `{ final }`; the debounced autosaves pass false. An app-wide
-  `revalidateAppData()` mid-typing would re-render the trip page under the
-  caret. Blur, the Done button, and closing the row pass true.
+  `{ final }`; the debounced autosaves pass false. Blur, the Done button, and
+  closing the row pass true. Not calling `revalidateAppData()` on every
+  debounce does NOT keep the page still: **any Server Action makes the Next
+  router refetch the current route**, whatever the action does about
+  revalidation, so a debounced autosave already re-renders the trip page. That
+  is harmless, because the textarea holds its own value and React reconciles
+  rather than remounting. What `final` buys is that a paragraph does not fire
+  twenty whole-app `revalidatePath("/", "layout")` calls. The same correction
+  applies to the expense entry's debounced refresh; see
+  `components/expenses/expense-workspace.tsx`, where it was measured.
 - **Journaling applies to completed and ongoing trips only** (`journalingApplies`).
   A planned trip's day structure already belongs to the planner.
 - **The section is one disclosure per trip, closed by default**, and opens to
@@ -1297,6 +1304,12 @@ no timezone chip. Nothing in the app prompts the user to set one.
 - **is_shared() RLS requires the anon client:** Share data reads must use the anon server client, not the admin client. The anon key triggers RLS and the `is_shared()` helper. Switching to the admin client for share routes would bypass RLS and expose any user's private data.
 
 - **batchport schema must be exposed in Supabase:** Settings, API, Exposed schemas must include `batchport`. Without this, PostgREST rejects all anon-client queries to the schema.
+
+- **A grant is not a policy, and the difference is silent.** Supabase enables RLS on new tables by default, so a table created by a migration has RLS on whether or not the migration says so. RLS enabled with **zero policies denies everything**, and PostgREST reports that as **zero rows and no error**. A missing GRANT is the opposite: it raises `42501 permission denied`. So the loud failure is the one you did not cause, and the quiet one is.
+
+  Every new table needs its policies **stated explicitly**, including reference tables that "everyone can read". Do not infer the behaviour from how `batchport.categories` happens to work: whether that table has RLS off or RLS on with a permissive policy is not observable through PostgREST (both read 12 rows through anon), and inheriting an assumption from it is exactly what caused this. Settle it with `select relrowsecurity from pg_class where oid = 'batchport.categories'::regclass;` and `select * from pg_policies where schemaname = 'batchport';` before copying its shape.
+
+  **Service role bypasses RLS, so no service-role script and no SQL editor query can see this class of failure.** `expense_groups` and `expense_categories` shipped granted-but-policyless and every service-role check passed while the app rendered an empty category picker and "Mostly Uncategorized 100%" over 226 categorised rows, because `v_expense_rows` is `security_invoker` and its LEFT JOIN to the taxonomy matched nothing. The anon key is the only instrument that shows it; `npm run check-expense-attribution` asserts it by comparing anon's row counts against the seed.
 
 - **Redirect URL must be registered:** The Supabase dashboard under Authentication, URL Configuration, Redirect URLs must include `https://batchport.batch-apps.com/auth/setup-password` (and the localhost equivalent). Missing this causes the invite link to silently break by stripping the `redirectTo` parameter.
 
