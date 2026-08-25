@@ -288,16 +288,33 @@ grant select, insert, update, delete on batchport.expenses to authenticated;
 --      the one you did not cause and the quiet one is.
 --   2. Writing it out means the intent is in the file. "Everyone may read the
 --      taxonomy, nobody may write it" is a decision; an absent policy is not.
---   3. The shape was NOT inherited from batchport.categories, and must not be.
---      Whether that table has RLS off or RLS on with a permissive policy is
---      not observable through PostgREST (anon reads its 12 rows either way),
---      and assuming it was off is what produced this bug. If you need to know:
+--   3. IT MATCHES THE HOUSE CONVENTION, which was settled by looking rather
+--      than assumed. Checked 2026-08-24: batchport.categories has RLS ENABLED
+--      with a permissive read policy, `categories_read USING (true)`, and so
+--      do countries and cities.
+--
+--      So the original assumption behind this bug was wrong in a way neither
+--      obvious guess covered. RLS was never off on categories. It had a policy
+--      the whole time, and this migration copied the half it could see (the
+--      grant) while omitting the half it could not (the policy). Anon reads
+--      12 rows from categories either way, so PostgREST could not tell the two
+--      shapes apart; only pg_policies could.
+--
+--      The convention is now visible across five reference tables (countries,
+--      cities, categories, expense_groups, expense_categories) and is simply:
+--      RLS ON, plus a permissive read policy, plus a grant. All three. A new
+--      reference table states all three explicitly rather than inferring any
+--      of them from a sibling.
 --
 --        select relrowsecurity from pg_class
 --        where oid = 'batchport.categories'::regclass;
---        select * from pg_policies where schemaname = 'batchport';
+--        select policyname, cmd, roles, qual from pg_policies
+--        where schemaname = 'batchport';
 --
---      Whatever it says, state the policy for a NEW table explicitly anyway.
+--      SELECT THE `roles` COLUMN. A policy that exists and is scoped to the
+--      wrong role behaves exactly like a missing one, and reads as "no data"
+--      rather than "no access". That is what kept the share-profile bug in
+--      KNOWN_ISSUES.md hidden through two rounds of reading pg_policies.
 --
 -- There is deliberately no insert, update, or delete policy. The taxonomy is
 -- seeded by this migration and edited by nothing, so the service role is the
