@@ -1,0 +1,31 @@
+wikidata_qid,catalog_slug,name,lat,lng,city,state,tenants,leagues
+Q1067148,nfl,Acrisure Stadium,40.446666666,-80.015833333,Pittsburgh,Pennsylvania,Pittsburgh Steelers|Pittsburgh,nfl|ncaa_fb
+Q27768421,nfl,Allegiant Stadium,36.090777777,-115.183,Paradise,Nevada,Las Vegas Raiders|UNLV,nfl|ncaa_fb
+Q544553,nfl,Arrowhead Stadium,39.048888888,-94.483888888,Kansas City,Missouri,Kansas City Chiefs,nfl
+Q838284,nfl,AT&T Stadium,32.74769,-97.09288,Arlington,Texas,Dallas Cowboys,nfl
+Q806673,nfl,Bank of America Stadium,35.225833333,-80.852777777,Charlotte,North Carolina,Carolina Panthers,nfl
+Q756452,nfl,Caesars Superdome,29.950833333,-90.081111111,New Orleans,Louisiana,New Orleans Saints,nfl
+Q1046135,nfl,Empower Field at Mile High,39.743888888,-105.02,Denver,Colorado,Denver Broncos,nfl
+Q635117,nfl,EverBank Field,30.323889,-81.6375,,Florida,Jacksonville Jaguars,nfl
+Q1142586,nfl,Ford Field,42.34,-83.045555555,Detroit,Michigan,Detroit Lions,nfl
+Q373355,nfl,Gillette Stadium,42.090944444,-71.264344444,Foxborough,Massachusetts,New England Patriots,nfl
+Q864339,nfl,Hard Rock Stadium,25.958055555,-80.238888888,Miami Gardens,Florida,Miami Dolphins|Miami,nfl|ncaa_fb
+Q1100756,nfl,Huntington Bank Field,41.506111111,-81.699444444,Cleveland,Ohio,Cleveland Browns,nfl
+Q860790,nfl,Lambeau Field,44.501388888,-88.062222222,Green Bay,Wisconsin,Green Bay Packers,nfl
+Q7419343,nfl,Levi's Stadium,37.4034,-121.97,Santa Clara,California,San Francisco 49ers,nfl
+Q1052370,nfl,Lincoln Financial Field,39.90089,-75.16776,Philadelphia,Pennsylvania,Philadelphia Eagles|Temple,nfl|ncaa_fb
+Q867160,nfl,Lucas Oil Stadium,39.760056,-86.163806,Indianapolis,Indiana,Indianapolis Colts,nfl
+Q612736,nfl,Lumen Field,47.595277777,-122.331666666,Seattle,Washington,Seattle Seahawks,nfl
+Q1141336,nfl,M&T Bank Stadium,39.278055555,-76.622777777,Baltimore,Maryland,Baltimore Ravens,nfl
+Q7007552,nfl,Mercedes-Benz Stadium,33.755277777,-84.400833333,Atlanta,Georgia,Atlanta Falcons,nfl
+Q10862290,nfl,MetLife Stadium,40.813611111,-74.074444444,East Rutherford,New Jersey,New York Giants|New York Jets,nfl
+Q1142992,nfl,Nissan Stadium,36.166388888,-86.771388888,Nashville,Tennessee,Tennessee Titans,nfl
+Q583085,nfl,Northwest Stadium,38.907777777,-76.864444444,Prince George's County,Maryland,Washington Commanders,nfl
+Q1058864,nfl,NRG Stadium,29.684722222,-95.410833333,Houston,Texas,Houston Texans,nfl
+Q1632294,nfl,Paycor Stadium,39.095444444,-84.516038888,Cincinnati,Ohio,Cincinnati Bengals,nfl
+Q1475645,nfl,Ralph Wilson Stadium,42.773611111,-78.786944444,Orchard Park,New York,Buffalo Bills,nfl
+Q1141343,nfl,Raymond James Stadium,27.975833333,-82.503333333,Tampa,Florida,Tampa Bay Buccaneers|South Florida,nfl|ncaa_fb
+Q19520501,nfl,SoFi Stadium,33.9504,-118.338,Inglewood,California,Los Angeles Chargers|Los Angeles Rams,nfl
+Q1132413,nfl,Soldier Field,41.8625,-87.616666666,Chicago,Illinois,Chicago Bears,nfl
+Q756433,nfl,State Farm Stadium,33.5275,-112.2625,Glendale,Arizona,Arizona Cardinals,nfl
+Q7929512,nfl,U.S. Bank Stadium,44.973889,-93.258056,Minneapolis,Minnesota,Minnesota Vikings,nfl

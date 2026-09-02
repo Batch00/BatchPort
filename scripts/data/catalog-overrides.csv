@@ -1,0 +1,19 @@
+wikidata_qid,catalog_slug,field,value,reason
+Q1634492,mlb,wikidata_qid,Q24284037,"Wikidata still records the Texas Rangers at Choctaw Stadium (their pre-2020 ballpark) with no end qualifier on the P115 statement. They moved to Globe Life Field for the 2020 season."
+Q1634492,mlb,name,Globe Life Field,"Retarget the row from Choctaw Stadium (Q1634492) to Globe Life Field (Q24284037), whose P1619 official opening is 2020-01-01."
+Q1634492,mlb,lat,32.74736111,P625 of Q24284037.
+Q1634492,mlb,lng,-97.08416667,P625 of Q24284037.
+Q306193,national_parks,lat,34.003611111,"The park's own P625 (33.66, -119.64) is open ocean 33.97km from the nearest California polygon vertex, so it falls outside every state and is past a 10km nearest-state fallback. Retargeted to Santa Cruz Island, the park's largest island and main visitor destination. Source: Wikidata Q1398502 (Santa Cruz Island), P625, whose P131 is Santa Barbara County. The park QID is unchanged."
+Q306193,national_parks,lng,-119.726388888,"P625 of Q1398502 (Santa Cruz Island). Point-in-polygon against us-admin1.geojson returns California."
+Q186080,nba,tenants,Los Angeles Lakers|Los Angeles Kings,"The Clippers left Crypto.com Arena for Intuit Dome in 2024, but their P115 statement here carries start 1999 and no end, so the pull kept them as a tenant."
+Q186080,nhl,tenants,Los Angeles Lakers|Los Angeles Kings,"Same correction as the nba row above. Crypto.com Arena appears in both files and the two rows must stay identical."
+Q54958436,nba,name,Intuit Dome,"New row. Absent from the pull because no team's P115 points at it; the Clippers' statement was never closed out. Q54958436 has P571 inception 2024. Adding it takes the NBA catalog to 30 buildings."
+Q54958436,nba,lat,33.945127,P625 of Q54958436.
+Q54958436,nba,lng,-118.343102,P625 of Q54958436.
+Q54958436,nba,state,California,"Q54958436 has no P131 on Wikidata, so the state is the point-in-polygon result of its own P625 against us-admin1.geojson. City is left blank rather than guessed."
+Q54958436,nba,tenants,Los Angeles Clippers,Sole tenant.
+Q54958436,nba,leagues,nba,Sole league.
+Q1475645,nfl,wikidata_qid,Q16251517,"The Bills' P115 points at Ralph Wilson Stadium (Q1475645, P1619 opening 1973-08-17) with no end qualifier. The new Highmark Stadium (Q16251517) is a separate item roughly 435m west, P571 inception 2026, and both items carry P466 occupant Buffalo Bills. They are not duplicates; the newer one is the 2026 home."
+Q1475645,nfl,name,Highmark Stadium,"Retarget the row from the 1973 stadium to the 2026 stadium. City and state stay Orchard Park, New York: the new building is across the street from the old one."
+Q1475645,nfl,lat,42.772972222,P625 of Q16251517.
+Q1475645,nfl,lng,-78.792194444,P625 of Q16251517.

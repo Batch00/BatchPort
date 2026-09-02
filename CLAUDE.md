@@ -30,6 +30,35 @@ These apply to every change, no exceptions:
 - Mutations use server actions only. API routes handle external integrations (geocoding proxies, Wikimedia image proxy, auth approval flows, Resend email).
 - Never insert or update `latitude` or `longitude` on destinations, or any generated column. Write only to `geom` using EWKT: `SRID=4326;POINT(${lng} ${lat})`. The same applies to experiences, which have an optional `geom` column for POI coordinates.
 
+## Places feature
+
+**Places feature (in development, unshipped).** Additive only. Do not
+`CREATE OR REPLACE` any existing view, in particular
+`v_user_travel_summary`. Do not `ALTER TABLE` any existing table.
+Place-related summary metrics live in `v_places_summary` until the
+feature ships. Seed to Carson's user_id only; demo stays untouched.
+Catalog coordinates come from sourced CSVs, never generated from model
+knowledge.
+
+Two schema details that will produce confusing failures in phase 1:
+
+- **`place_visits.transport_mode` is `text` with a check constraint, not an
+  enum.** There is no batchport transport mode enum. `transport_legs.mode` is
+  also text with the same `check (... in ('flight', 'train', 'bus', 'car',
+  'ferry', 'bike', 'walk', 'other'))`, and `lib/transport.ts` holds the same
+  list app-side. Adding an enum for `place_visits` alone would be a second
+  definition of a vocabulary that already has one, and would leave the two
+  tables on different types. If an enum is ever wanted it is a single change
+  converting **both** columns together.
+
+- **`places.locality_key` is `generated always as ... stored`.** Inserts and
+  updates must OMIT it, exactly as they must for `destinations.latitude` and
+  `destinations.longitude`. It derives
+  `lower(locality_name)|admin_region|country_code` from three columns already
+  in the row, and is null when there is no locality (normal for a stadium or a
+  park, not a data problem); a missing region or country coalesces to empty
+  rather than voiding the key.
+
 ## Architecture
 
 ### Route Groups and URL Structure
