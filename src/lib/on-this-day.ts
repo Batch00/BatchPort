@@ -15,8 +15,17 @@ import type { PhotoSource } from "@/lib/types";
 // Two such queries run in parallel; the context lookups that follow run only
 // when something matched, and only for the ids that did.
 //
-// Like search and export, these read through requireUser()'s session-scoped
-// client and take no userId: RLS is the boundary.
+// EVERY QUERY HERE FILTERS ON user_id, and that is not belt and braces.
+//
+// RLS on photos and experiences is `auth.uid() = user_id OR is_shared(user_id)`,
+// and is_shared() is true for the demo account and for every account with
+// public sharing enabled. So an unfiltered read from a signed-in session
+// returns the union of that user's rows and every shared profile's rows. This
+// file shipped without the filter and put the demo account's "Giraffe Centre"
+// on a real user's dashboard.
+//
+// RLS is defence in depth here, not the owner filter. See the rule in
+// CLAUDE.md under "Search, Export, and Home Location".
 
 /** How far back to look. Beyond this a "memory" is not one the dashboard is
  * the right place for, and every extra year is another OR term. */
@@ -121,7 +130,7 @@ export async function getOnThisDay(): Promise<OnThisDay | null> {
   const dates = anniversaryDates(today);
   if (dates.length === 0) return null;
 
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
 
   // date_taken may carry a time, so each anniversary is a one-day range
   // rather than an equality. visited_date is a plain date, so `in` serves.
@@ -135,12 +144,14 @@ export async function getOnThisDay(): Promise<OnThisDay | null> {
       .select(
         "id, owner_type, owner_id, source, storage_path, external_url, thumb_path, attribution, date_taken",
       )
+      .eq("user_id", user.id)
       .or(photoFilter)
       .order("date_taken", { ascending: false })
       .limit(MAX_PHOTOS),
     supabase
       .from("experiences")
       .select("id, name, rating, visited_date, destination_id")
+      .eq("user_id", user.id)
       .in("visited_date", dates)
       .order("visited_date", { ascending: false })
       .limit(MAX_EXPERIENCES),
@@ -168,6 +179,7 @@ export async function getOnThisDay(): Promise<OnThisDay | null> {
     const { data } = await supabase
       .from("experiences")
       .select("id, destination_id")
+      .eq("user_id", user.id)
       .in("id", experiencePhotoIds);
     for (const row of (data ?? []) as { id: string; destination_id: string }[]) {
       destinationByExperience.set(row.id, row.destination_id);
@@ -180,6 +192,7 @@ export async function getOnThisDay(): Promise<OnThisDay | null> {
     const { data } = await supabase
       .from("destinations")
       .select("id, name, trip_id")
+      .eq("user_id", user.id)
       .in("id", Array.from(destinationIds));
     for (const row of (data ?? []) as DestinationRow[]) {
       destinationById.set(row.id, row);
@@ -192,6 +205,7 @@ export async function getOnThisDay(): Promise<OnThisDay | null> {
     const { data } = await supabase
       .from("trips")
       .select("id, name")
+      .eq("user_id", user.id)
       .in("id", Array.from(tripIds));
     for (const row of (data ?? []) as { id: string; name: string }[]) {
       tripNameById.set(row.id, row.name);

@@ -138,16 +138,27 @@ export async function computeFingerprint(buffer: ArrayBuffer): Promise<string> {
 }
 
 // Whether a photo with this content fingerprint already exists for the owner.
-// Runs on the browser client; RLS scopes the check to the current user.
+//
+// Runs on the browser client, and filters on user_id like every other read:
+// RLS here is `auth.uid() = user_id OR is_shared(user_id)`, so it is not an
+// owner filter (see CLAUDE.md). getSession() rather than getUser() because
+// this only needs the id to build a filter, and RLS remains the backstop if
+// the locally cached session is stale.
 export async function isDuplicatePhoto(
   ownerType: PhotoOwnerType,
   ownerId: string,
   fingerprint: string,
 ): Promise<boolean> {
   const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const userId = session?.user.id;
+  if (!userId) return false;
   const { data, error } = await supabase
     .from("photos")
     .select("id")
+    .eq("user_id", userId)
     .eq("owner_type", ownerType)
     .eq("owner_id", ownerId)
     .eq("fingerprint", fingerprint)
@@ -262,23 +273,34 @@ export function compareByDateTaken(a: Photo, b: Photo): number {
 // Client-side fetch of every photo attached to a trip at any level (the trip
 // itself, its destinations, and their experiences). Used by the dashboard
 // cover editor, which loads photos lazily on open instead of shipping every
-// trip's gallery with the dashboard payload. RLS scopes results to the user.
+// trip's gallery with the dashboard payload.
+//
+// Filters on user_id: the owner ids come from the caller, and RLS on photos
+// admits every shared profile's rows, so without it a stale or borrowed id
+// would pull somebody else's gallery into the cover editor.
 export async function fetchTripGalleryPhotos(
   tripId: string,
   destinationIds: string[],
   experienceIds: string[],
 ): Promise<Photo[]> {
   const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const userId = session?.user.id;
+  if (!userId) return [];
   const queries = [
     supabase
       .from("photos")
       .select(PHOTO_COLUMNS)
+      .eq("user_id", userId)
       .eq("owner_type", "trip")
       .eq("owner_id", tripId),
     destinationIds.length > 0
       ? supabase
           .from("photos")
           .select(PHOTO_COLUMNS)
+          .eq("user_id", userId)
           .eq("owner_type", "destination")
           .in("owner_id", destinationIds)
       : null,
@@ -286,6 +308,7 @@ export async function fetchTripGalleryPhotos(
       ? supabase
           .from("photos")
           .select(PHOTO_COLUMNS)
+          .eq("user_id", userId)
           .eq("owner_type", "experience")
           .in("owner_id", experienceIds)
       : null,

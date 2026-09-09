@@ -87,16 +87,32 @@ export async function GET() {
       categories,
       map,
     ] = await Promise.all([
-      supabase.from("trips").select("*"),
-      supabase.from("destinations").select(`${DESTINATION_COLUMNS}, experiences(*)`),
-      supabase.from("journal_entries").select("trip_id, entry_date, body"),
-      supabase.from("transport_legs").select("trip_id, destination_id, mode"),
-      supabase.from("photos").select(PHOTO_COLUMNS),
+      // Every read is filtered on user_id. This snapshot is the whole account
+      // written to the device, so an unfiltered read would put every shared
+      // profile's trips, photos, and journal into this user's offline copy.
+      // RLS permits those rows (`auth.uid() = user_id OR is_shared(user_id)`);
+      // the filter is what excludes them. getMapData resolves and filters by
+      // the same user itself.
+      supabase.from("trips").select("*").eq("user_id", user.id),
+      supabase
+        .from("destinations")
+        .select(`${DESTINATION_COLUMNS}, experiences(*)`)
+        .eq("user_id", user.id),
+      supabase
+        .from("journal_entries")
+        .select("trip_id, entry_date, body")
+        .eq("user_id", user.id),
+      supabase
+        .from("transport_legs")
+        .select("trip_id, destination_id, mode")
+        .eq("user_id", user.id),
+      supabase.from("photos").select(PHOTO_COLUMNS).eq("user_id", user.id),
       supabase
         .from("bucket_list")
-        .select("id, type, country_code, place_name, fulfilled_at, countries(name)"),
+        .select("id, type, country_code, place_name, fulfilled_at, countries(name)")
+        .eq("user_id", user.id),
       getCategories(),
-      getMapData(),
+      getMapData(user.id),
     ]);
 
     if (tripsResult.error) throw tripsResult.error;

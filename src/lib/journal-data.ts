@@ -21,10 +21,11 @@ const COLUMNS = "entry_date, body";
 export async function getJournalEntries(
   tripId: string,
 ): Promise<JournalEntry[]> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("journal_entries")
     .select(COLUMNS)
+    .eq("user_id", user.id)
     .eq("trip_id", tripId)
     .order("entry_date", { ascending: true });
   if (error) return [];
@@ -34,10 +35,11 @@ export async function getJournalEntries(
 /** Whether the journal table is reachable, so the UI can say "not available
  * yet" once instead of failing on the first save. */
 export async function journalAvailable(): Promise<boolean> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { error } = await supabase
     .from("journal_entries")
     .select("entry_date")
+    .eq("user_id", user.id)
     .limit(1);
   return !error;
 }

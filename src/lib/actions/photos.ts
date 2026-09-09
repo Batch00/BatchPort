@@ -35,7 +35,8 @@ import type { Photo, PhotoOwnerType } from "@/lib/types";
 // Storage uploads happen client-side; these actions own the database rows and
 // cover-photo pointers, plus server-side Storage cleanup on delete.
 
-export type InsertPhotoResult = { ok: true; photoId: string } | { error: string };
+export type InsertPhotoResult =
+  { ok: true; photoId: string } | { error: string };
 
 export async function insertPhotoRecord(
   input: InsertPhotoInput,
@@ -47,6 +48,7 @@ export async function insertPhotoRecord(
   const { data: last } = await supabase
     .from("photos")
     .select("order_index")
+    .eq("user_id", user.id)
     .eq("owner_type", input.ownerType)
     .eq("owner_id", input.ownerId)
     .order("order_index", { ascending: false })
@@ -143,12 +145,13 @@ export async function retagPhoto(
   ownerId: string,
 ): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
 
   // Append to the end of the new owner's photos.
   const { data: last } = await supabase
     .from("photos")
     .select("order_index")
+    .eq("user_id", user.id)
     .eq("owner_type", ownerType)
     .eq("owner_id", ownerId)
     .order("order_index", { ascending: false })
@@ -158,7 +161,11 @@ export async function retagPhoto(
 
   const { error } = await supabase
     .from("photos")
-    .update({ owner_type: ownerType, owner_id: ownerId, order_index: nextOrder })
+    .update({
+      owner_type: ownerType,
+      owner_id: ownerId,
+      order_index: nextOrder,
+    })
     .eq("id", photoId);
   if (error) return { error: "Could not tag the photo." };
 
@@ -179,7 +186,7 @@ export async function setPhotoLocation(
   target: PhotoLocationTarget,
 ): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
 
   let patch: { gps_lat: number | null; gps_lng: number | null };
   if (target === "clear") {
@@ -190,6 +197,7 @@ export async function setPhotoLocation(
     const { data: dest, error } = await supabase
       .from("destinations")
       .select("latitude, longitude")
+      .eq("user_id", user.id)
       .eq("id", target.destinationId)
       .maybeSingle();
     if (error || !dest || dest.latitude == null || dest.longitude == null) {
@@ -254,18 +262,24 @@ export async function deletePhotoRecord(id: string): Promise<ActionResult> {
 // existing ties. One action call per reorder; PostgREST cannot set distinct
 // values per row in a single request, so the per-id updates run in parallel
 // inside the action (same pattern as reorderDestinations).
-export async function reorderPhotos(orderedIds: string[]): Promise<ActionResult> {
+export async function reorderPhotos(
+  orderedIds: string[],
+): Promise<ActionResult> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   if (orderedIds.length === 0) return { ok: true };
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
 
   // All photos must belong to a single owner; a cross-owner reorder would
   // corrupt the galleries it touches.
   const { data: rows } = await supabase
     .from("photos")
     .select("id, owner_type, owner_id")
+    .eq("user_id", user.id)
     .in("id", orderedIds);
-  const photos = (rows ?? []) as Pick<Photo, "id" | "owner_type" | "owner_id">[];
+  const photos = (rows ?? []) as Pick<
+    Photo,
+    "id" | "owner_type" | "owner_id"
+  >[];
   if (photos.length !== orderedIds.length) {
     return { error: "Some photos could not be found." };
   }

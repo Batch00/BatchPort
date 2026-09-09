@@ -55,11 +55,12 @@ export async function getPhotos(
   ownerType: PhotoOwnerType,
   ownerId: string,
 ): Promise<Photo[]> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   return selectPhotos((columns) =>
     supabase
       .from("photos")
       .select(columns)
+      .eq("user_id", user.id)
       .eq("owner_type", ownerType)
       .eq("owner_id", ownerId)
       .order("order_index", { ascending: true })
@@ -74,11 +75,12 @@ export async function getPhotosForOwners(
   ownerIds: string[],
 ): Promise<Photo[]> {
   if (ownerIds.length === 0) return [];
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   return selectPhotos((columns) =>
     supabase
       .from("photos")
       .select(columns)
+      .eq("user_id", user.id)
       .eq("owner_type", ownerType)
       .in("owner_id", ownerIds)
       .order("order_index", { ascending: true })
@@ -90,9 +92,13 @@ export async function getPhotosForOwners(
 // the dashboard cards.
 export async function getPhotosByIds(ids: string[]): Promise<Photo[]> {
   if (ids.length === 0) return [];
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   return selectPhotos((columns) =>
-    supabase.from("photos").select(columns).in("id", ids),
+    supabase
+      .from("photos")
+      .select(columns)
+      .eq("user_id", user.id)
+      .in("id", ids),
   );
 }
 

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "postinstall": "patch-package",
-    "lint": "eslint",
+    "lint": "eslint && npx tsx scripts/check-user-scoping.ts",
     "seed": "npx tsx scripts/seed-trips.ts",
     "seed-demo": "npx tsx scripts/seed-demo.ts",
     "generate-mock-globe": "npx tsx scripts/generate-mock-globe.ts",
@@ -34,7 +34,8 @@
     "seed-occasions": "npx tsx scripts/seed-occasions.ts",
     "seed-place-catalogs": "npx tsx scripts/seed-place-catalogs.ts",
     "load-admin1": "npx tsx scripts/load-admin1.ts",
-    "check-places-schema": "npx tsx scripts/check-places-schema.ts"
+    "check-places-schema": "npx tsx scripts/check-places-schema.ts",
+    "check-user-scoping": "npx tsx scripts/check-user-scoping.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

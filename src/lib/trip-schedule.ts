@@ -1,8 +1,5 @@
 import { requireUser } from "@/lib/current-user";
-import {
-  chronologicalDestinations,
-  derivedTripWindow,
-} from "@/lib/trip-dates";
+import { chronologicalDestinations, derivedTripWindow } from "@/lib/trip-dates";
 
 // The write side of trip-dates.ts: after anything changes a trip's stops, put
 // the stored columns back in agreement with what those stops say.
@@ -41,10 +38,11 @@ interface ScheduleRow {
  */
 export async function syncTripSchedule(tripId: string): Promise<void> {
   try {
-    const { supabase } = await requireUser();
+    const { supabase, user } = await requireUser();
     const { data, error } = await supabase
       .from("destinations")
       .select("id, arrival_date, departure_date, order_index")
+      .eq("user_id", user.id)
       .eq("trip_id", tripId)
       .order("order_index", { ascending: true });
     if (error) throw error;
@@ -77,6 +75,7 @@ export async function syncTripSchedule(tripId: string): Promise<void> {
     const { data: tripRow } = await supabase
       .from("trips")
       .select("start_date, end_date")
+      .eq("user_id", user.id)
       .eq("id", tripId)
       .maybeSingle<{ start_date: string | null; end_date: string | null }>();
     if (

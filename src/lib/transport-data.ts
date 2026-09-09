@@ -12,10 +12,15 @@ import { chronologicalDestinations } from "@/lib/trip-dates";
 
 // Server reads for transport legs.
 //
-// getTransportLegs takes no userId, for the same reason the journal, search,
-// and export reads do not: it reads through requireUser()'s session-scoped
-// client, so RLS is the access boundary and no request can name another
-// account. The shared read is the deliberate exception and mirrors
+// getTransportLegs takes no userId, so no request can name another account,
+// and it FILTERS ON user_id, so no request sees one anyway. Those are two
+// different protections and the second is the one that matters: RLS on
+// transport_legs is `auth.uid() = user_id OR is_shared(user_id)`, so it is not
+// an owner filter. A read without the explicit filter returns the demo
+// account's legs and every publicly shared profile's legs alongside the
+// caller's. See CLAUDE.md under "Search, Export, and Home Location".
+//
+// The shared read is the deliberate exception and mirrors
 // getSharedJournalByTrip: an explicit userId through the anon client, gated by
 // is_shared().
 //
@@ -72,10 +77,11 @@ function toLegs(rows: LegRow[]): TransportLeg[] {
 export async function getTransportLegs(
   tripId: string,
 ): Promise<Map<string, TransportLeg>> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("transport_legs")
     .select(COLUMNS)
+    .eq("user_id", user.id)
     .eq("trip_id", tripId);
   if (error) return new Map();
   return new Map(
@@ -87,10 +93,11 @@ export async function getTransportLegs(
  * "How did you get here?" affordances out entirely rather than offering a
  * control that cannot save. */
 export async function transportAvailable(): Promise<boolean> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { error } = await supabase
     .from("transport_legs")
     .select("id")
+    .eq("user_id", user.id)
     .limit(1);
   return !error;
 }
@@ -204,7 +211,8 @@ export async function getTransportBreakdown(
   if (legs.size === 0) return null;
 
   const byTrip = new Map<string, BreakdownDestinationRow[]>();
-  for (const row of (destResult.data ?? []) as unknown as BreakdownDestinationRow[]) {
+  for (const row of (destResult.data ??
+    []) as unknown as BreakdownDestinationRow[]) {
     const list = byTrip.get(row.trip_id) ?? [];
     list.push(row);
     byTrip.set(row.trip_id, list);
@@ -232,7 +240,12 @@ export async function getTransportBreakdown(
       }
       hops.push({
         mode: leg?.mode ?? null,
-        km: haversineKm(from.latitude, from.longitude, to.latitude, to.longitude),
+        km: haversineKm(
+          from.latitude,
+          from.longitude,
+          to.latitude,
+          to.longitude,
+        ),
       });
     }
   }

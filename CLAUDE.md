@@ -1289,15 +1289,58 @@ fraction of the height instead is what left a title fighting a bright cover.
 
 ### Search, Export, and Home Location
 
-Three surfaces read the current user's own rows and must never take a userId
-argument. `searchUserData()`, the export builders in `export-data.ts`, and
-their API routes all read through `requireUser()`'s session-scoped client, so
-RLS is the access boundary and no request can name another account. Adding a
-userId parameter to any of them, or switching them to the admin client, would
-turn them into a data leak. `getHomeLocation(userId)` is the exception and
-takes one, because it uses the admin client for the same reason
-`getShareSettings` does (the user_settings row may not exist yet); its callers
-pass the id from `requireUser()`.
+**RLS IS NOT AN OWNER FILTER. Every session-client read must carry an explicit
+`.eq("user_id", user.id)`.**
+
+This is the most important rule in this file, because getting it wrong is
+silent and the failure looks like a rendering bug. Nearly every user table's
+SELECT policy is `auth.uid() = user_id OR batchport.is_shared(user_id)`, and
+`is_shared()` is true for the demo account **and for every account with
+`public_share_enabled`**. `expenses` is the same shape with
+`is_demo_account()`. So a query that names no owner returns **the union of the
+caller's rows and every shared profile's rows**, and PostgREST reports that as
+a perfectly ordinary result set.
+
+That is not hypothetical. `getOnThisDay()` shipped without the filter and put
+the demo account's Giraffe Centre, from a trip the user had never taken, on a
+real user's dashboard. The same omission was in `searchUserData()`, both
+export builders, the offline snapshot route, both trip pickers, the expense
+CSV, the vendor suggestions, and `getPlacesList()`. It spread because four
+files documented the wrong rule in a header comment and the next author copied
+it.
+
+The correct division:
+
+- **The explicit `user_id` filter is the access boundary.** It is what decides
+  which rows a surface may see.
+- **RLS is defence in depth.** It is what stops a bug in that filter becoming
+  a cross-account read of a *non-shared* account, and it is what makes the anon
+  surfaces (`/demo`, `/share/[slug]`) work at all.
+- **Taking no userId argument is a third, separate thing.** It stops a request
+  *naming* another account. It does not stop a query *seeing* one, and the two
+  were conflated in the comments that caused this.
+
+So: `searchUserData()`, the export builders, `getOnThisDay()`, and the rest
+still take no userId argument, and adding one (or switching them to the admin
+client) would still be wrong. But they now all filter on
+`requireUser()`'s `user.id` as well. `npm run check-user-scoping` asserts it
+across the codebase and fails the build if a read is added without one.
+
+The exceptions, all deliberate and all narrow:
+
+- **`share-data.ts`** reads another user's rows on purpose, through the anon
+  client, filtered by the userId that `getUserBySlug()` resolved. Every read in
+  it carries `.eq("user_id", userId)`; that is the same rule, with a different
+  id.
+- **The slug uniqueness check** in `actions/share-settings.ts` is cross-user by
+  design and uses the **admin** client, which bypasses RLS. A session-client
+  version of it would silently only see shared accounts' slugs.
+- **`getHomeLocation(userId)`** takes an id because it uses the admin client
+  for the same reason `getShareSettings` does (the `user_settings` row may not
+  exist yet); its callers pass the id from `requireUser()`.
+- **Reference tables** (`categories`, `countries`, `occasions`,
+  `place_catalogs`, `place_catalog_items`, `admin1_boundaries`) have no
+  `user_id` and are world-readable by design.
 
 Search builds a PostgREST `.or()` filter by hand. Values are double quoted so
 a typed comma or parenthesis cannot break out of the term, and every wildcard

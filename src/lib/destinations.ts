@@ -24,10 +24,11 @@ export const DESTINATION_COLUMNS =
 export async function getDestination(
   id: string,
 ): Promise<DestinationWithExperiences | null> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("destinations")
     .select(`${DESTINATION_COLUMNS}, experiences(*)`)
+    .eq("user_id", user.id)
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -52,6 +53,7 @@ export async function createDestination(
   const { data: last, error: maxError } = await supabase
     .from("destinations")
     .select("order_index")
+    .eq("user_id", user.id)
     .eq("trip_id", tripId)
     .order("order_index", { ascending: false })
     .limit(1)

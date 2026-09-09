@@ -9,9 +9,15 @@ import {
 import type { PhotoSource, TripStatus } from "@/lib/types";
 
 // Server-side export builders. Every read runs through requireUser's
-// session-scoped client, so RLS restricts the result to the caller's own rows.
-// Nothing here takes a userId argument on purpose: there is no way to ask this
-// module for somebody else's data.
+// session-scoped client AND filters on user_id. Nothing here takes a userId
+// argument on purpose: there is no way to ask this module for somebody else's
+// data.
+//
+// The filter is the boundary, not RLS. The SELECT policies on these tables are
+// `auth.uid() = user_id OR is_shared(user_id)`, so an unfiltered read hands
+// back every shared profile's rows as well: this file once put the demo
+// account's whole dataset inside a user's own export. See CLAUDE.md under
+// "Search, Export, and Home Location".
 
 // "expenses-csv" is the ledger as a spreadsheet, and it is the one format
 // that goes BACK IN as well as out: scripts/import-expenses.ts --csv reads
@@ -121,20 +127,26 @@ async function loadBundle(): Promise<ExportBundle> {
     supabase
       .from("trips")
       .select("id, name, status, start_date, end_date, notes, created_at")
+      .eq("user_id", user.id)
       .order("start_date", { ascending: true, nullsFirst: false }),
     supabase
       .from("destinations")
       .select(
         "id, trip_id, name, country_code, admin_region, latitude, longitude, arrival_date, departure_date, order_index, notes, created_at",
       )
+      .eq("user_id", user.id)
       .order("order_index", { ascending: true }),
-    supabase.from("experiences").select("*, categories(slug, label)"),
+    supabase
+      .from("experiences")
+      .select("*, categories(slug, label)")
+      .eq("user_id", user.id),
     supabase
       .from("photos")
       .select(
         "id, owner_type, owner_id, source, storage_path, external_url, attribution, date_taken, created_at",
-      ),
-    supabase.from("bucket_list").select("*"),
+      )
+      .eq("user_id", user.id),
+    supabase.from("bucket_list").select("*").eq("user_id", user.id),
   ]);
 
   // Both formats walk bundle.destinations in order, and the GeoJSON route

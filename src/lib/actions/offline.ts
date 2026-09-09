@@ -74,10 +74,11 @@ async function perform(op: QueuedOp): Promise<ReplayResult> {
 async function replayCheckoff(
   op: Extract<QueuedOp, { kind: "experience.checkoff" }>,
 ): Promise<ReplayResult> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data } = await supabase
     .from("experiences")
     .select("id")
+    .eq("user_id", user.id)
     .eq("id", op.experienceId)
     .maybeSingle();
   if (!data) {
@@ -154,11 +155,12 @@ function journalFailure(error: { code?: string }): ReplayResult {
 async function replayCreateExperience(
   op: Extract<QueuedOp, { kind: "experience.create" }>,
 ): Promise<ReplayResult> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
 
   let query = supabase
     .from("experiences")
     .select("id")
+    .eq("user_id", user.id)
     .eq("destination_id", op.destinationId)
     .ilike("name", op.name.trim());
   query = op.visitedDate
@@ -194,6 +196,7 @@ async function replayBucketFulfill(
       fulfilled_at: new Date().toISOString(),
     })
     .eq("id", op.itemId);
-  if (error) return { error: "Could not mark the item as completed.", retryable: true };
+  if (error)
+    return { error: "Could not mark the item as completed.", retryable: true };
   return { ok: true };
 }

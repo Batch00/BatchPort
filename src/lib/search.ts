@@ -8,8 +8,14 @@ import {
 // Search across the user's OWN data: trips, destinations, experiences, and the
 // bucket list, matching names and notes. This is deliberately not the globe's
 // geocode search, which finds places in the world; this finds things you have
-// already written down. Nothing here takes a userId: every read runs through
-// the session-scoped client, so RLS decides what is visible.
+// already written down.
+//
+// EVERY QUERY FILTERS ON user_id. RLS is not the owner filter here: the SELECT
+// policies on these tables are `auth.uid() = user_id OR is_shared(user_id)`,
+// and is_shared() grants the demo account and every publicly shared profile.
+// Without the filter this palette returned other accounts' trips and notes to
+// any signed-in user. RLS is defence in depth; see CLAUDE.md under "Search,
+// Export, and Home Location".
 //
 // Matching is unanchored ILIKE. pg_trgm GIN indexes that serve that pattern are
 // documented in scripts/sql/2026-07-29-search-indexes.sql; without them the
@@ -62,7 +68,7 @@ export async function searchUserData(
   const query = rawQuery.trim();
   if (query.length < SEARCH_MIN_CHARS) return EMPTY_SEARCH_RESULTS;
 
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
 
   // Narrow selects: only what the result row renders plus the ids needed to
   // build its href. bucket_list uses * because its notes column is optional
@@ -71,11 +77,13 @@ export async function searchUserData(
     supabase
       .from("trips")
       .select("id, name, notes, status, start_date, end_date")
+      .eq("user_id", user.id)
       .or(orTerm(["name", "notes"], query))
       .limit(GROUP_LIMIT),
     supabase
       .from("destinations")
       .select("id, name, notes, country_code, trip_id, trips(name)")
+      .eq("user_id", user.id)
       .or(orTerm(["name", "notes"], query))
       .limit(GROUP_LIMIT),
     supabase
@@ -83,9 +91,14 @@ export async function searchUserData(
       .select(
         "id, name, notes, rating, destinations!inner(id, name, trip_id, trips!inner(name))",
       )
+      .eq("user_id", user.id)
       .or(orTerm(["name", "notes"], query))
       .limit(GROUP_LIMIT),
-    supabase.from("bucket_list").select("*, countries(name)").limit(200),
+    supabase
+      .from("bucket_list")
+      .select("*, countries(name)")
+      .eq("user_id", user.id)
+      .limit(200),
   ]);
 
   const tripRows = (trips.data ?? []) as {

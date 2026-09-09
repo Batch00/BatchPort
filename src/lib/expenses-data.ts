@@ -56,8 +56,12 @@ function str(value: unknown): string | null {
  * and so the route itself can explain rather than fail.
  */
 export async function expensesAvailable(): Promise<boolean> {
-  const { supabase } = await requireUser();
-  const { error } = await supabase.from("expenses").select("id").limit(1);
+  const { supabase, user } = await requireUser();
+  const { error } = await supabase
+    .from("expenses")
+    .select("id")
+    .eq("user_id", user.id)
+    .limit(1);
   return !error;
 }
 
@@ -72,10 +76,11 @@ export async function expensesAvailable(): Promise<boolean> {
 export async function getTripExpenseCount(
   tripId: string,
 ): Promise<number | null> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { count, error } = await supabase
     .from("expenses")
     .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
     .eq("trip_id", tripId);
   if (error) return null;
   return count ?? 0;
@@ -89,10 +94,11 @@ const ROW_COLUMNS =
 
 /** Every transaction on one trip, with its stop resolved by the view. */
 export async function getTripExpenses(tripId: string): Promise<ExpenseRow[]> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("v_expense_rows")
     .select(ROW_COLUMNS)
+    .eq("user_id", user.id)
     .eq("trip_id", tripId)
     .order("spent_on", { ascending: false, nullsFirst: false });
   if (error || !data) return [];
@@ -123,12 +129,13 @@ export async function getTripExpenses(tripId: string): Promise<ExpenseRow[]> {
 export async function getTripExpenseSummary(
   tripId: string,
 ): Promise<TripExpenseSummary | null> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("v_trip_expense_summary")
     .select(
       "trip_days, total_usd, txn_count, usd_per_day, alcohol_usd, undated_usd, unattributed_usd, uncategorized_count, refund_count",
     )
+    .eq("user_id", user.id)
     .eq("trip_id", tripId)
     .maybeSingle();
   if (error || !data) return null;
@@ -158,10 +165,13 @@ export async function getTripExpenseSummary(
 export async function getTripExpenseByGroup(
   tripId: string,
 ): Promise<GroupSpend[] | null> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("v_trip_expense_by_group")
-    .select("group_slug, group_label, group_color, total_usd, txn_count, pct_of_trip")
+    .select(
+      "group_slug, group_label, group_color, total_usd, txn_count, pct_of_trip",
+    )
+    .eq("user_id", user.id)
     .eq("trip_id", tripId)
     .order("total_usd", { ascending: false });
   if (error || !data) return null;
@@ -179,12 +189,13 @@ export async function getTripExpenseByGroup(
 export async function getTripExpenseByCategory(
   tripId: string,
 ): Promise<CategorySpend[] | null> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("v_trip_expense_by_category")
     .select(
       "group_slug, group_label, group_color, category_slug, category_label, category_icon, total_usd, txn_count, pct_of_trip",
     )
+    .eq("user_id", user.id)
     .eq("trip_id", tripId)
     .order("total_usd", { ascending: false });
   if (error || !data) return null;
@@ -202,10 +213,13 @@ export async function getTripExpenseByCategory(
 }
 
 export async function getTripExpenseByDay(tripId: string): Promise<DaySpend[]> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("v_trip_expense_by_day")
-    .select("spend_date, total_usd, spend_usd, refund_usd, txn_count, alcohol_usd")
+    .select(
+      "spend_date, total_usd, spend_usd, refund_usd, txn_count, alcohol_usd",
+    )
+    .eq("user_id", user.id)
     .eq("trip_id", tripId)
     .order("spend_date", { ascending: true });
   if (error || !data) return [];
@@ -229,12 +243,13 @@ export async function getTripExpenseByDay(tripId: string): Promise<DaySpend[]> {
 export async function getDestinationExpense(
   tripId: string,
 ): Promise<DestinationSpend[]> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("v_destination_expense")
     .select(
       "destination_id, destination_name, country_code, order_index, arrival_date, departure_date, days_owned, total_usd, on_ground_usd, alcohol_usd, txn_count, usd_per_day, on_ground_usd_per_day",
     )
+    .eq("user_id", user.id)
     .eq("trip_id", tripId)
     .order("order_index", { ascending: true });
   if (error || !data) return [];
@@ -264,10 +279,13 @@ export async function getDestinationExpense(
  * most.
  */
 export async function getVendorSuggestions(): Promise<VendorSuggestion[]> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("v_expense_vendors")
-    .select("vendor_key, vendor_label, uses, last_category_id, distinct_categories")
+    .select(
+      "vendor_key, vendor_label, uses, last_category_id, distinct_categories",
+    )
+    .eq("user_id", user.id)
     .order("uses", { ascending: false })
     .limit(500);
   if (error || !data) return [];
@@ -290,7 +308,9 @@ export async function getVendorSuggestions(): Promise<VendorSuggestion[]> {
  * the picker is unavailable; a caller seeing [] would be saying the taxonomy
  * has nothing in it, which is a different and much stranger claim.
  */
-export async function getExpenseCategories(): Promise<ExpenseCategory[] | null> {
+export async function getExpenseCategories(): Promise<
+  ExpenseCategory[] | null
+> {
   const { supabase } = await requireUser();
   const { data, error } = await supabase
     .from("expense_categories")
@@ -312,29 +332,33 @@ export async function getExpenseCategories(): Promise<ExpenseCategory[] | null> 
       sort_order: number;
     } | null;
   }[];
-  return rows
-    .filter((row) => row.expense_groups !== null)
-    .map((row) => ({
-      id: row.id,
-      slug: row.slug,
-      label: row.label,
-      icon: row.icon,
-      groupSlug: row.expense_groups!.slug,
-      groupLabel: row.expense_groups!.label,
-      groupColor: row.expense_groups!.color,
-      sortOrder: row.sort_order,
-    }))
-    // Group order first, then position within the group, so the picker reads
-    // in the order the taxonomy was designed rather than by category sort_order
-    // alone (which restarts at 1 inside every group).
-    .sort((a, b) => {
-      const groupA = rows.find((r) => r.expense_groups?.slug === a.groupSlug)
-        ?.expense_groups?.sort_order ?? 0;
-      const groupB = rows.find((r) => r.expense_groups?.slug === b.groupSlug)
-        ?.expense_groups?.sort_order ?? 0;
-      if (groupA !== groupB) return groupA - groupB;
-      return a.sortOrder - b.sortOrder;
-    });
+  return (
+    rows
+      .filter((row) => row.expense_groups !== null)
+      .map((row) => ({
+        id: row.id,
+        slug: row.slug,
+        label: row.label,
+        icon: row.icon,
+        groupSlug: row.expense_groups!.slug,
+        groupLabel: row.expense_groups!.label,
+        groupColor: row.expense_groups!.color,
+        sortOrder: row.sort_order,
+      }))
+      // Group order first, then position within the group, so the picker reads
+      // in the order the taxonomy was designed rather than by category sort_order
+      // alone (which restarts at 1 inside every group).
+      .sort((a, b) => {
+        const groupA =
+          rows.find((r) => r.expense_groups?.slug === a.groupSlug)
+            ?.expense_groups?.sort_order ?? 0;
+        const groupB =
+          rows.find((r) => r.expense_groups?.slug === b.groupSlug)
+            ?.expense_groups?.sort_order ?? 0;
+        if (groupA !== groupB) return groupA - groupB;
+        return a.sortOrder - b.sortOrder;
+      })
+  );
 }
 
 /**
@@ -348,12 +372,13 @@ export async function getExpenseCategories(): Promise<ExpenseCategory[] | null> 
  * the boundary and no request can name another account.
  */
 export async function getExpenseCsvRows(): Promise<ExpenseCsvRow[]> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("expenses")
     .select(
       "id, amount_usd, vendor, spent_on, is_alcohol, note, trips(name), expense_categories(slug)",
     )
+    .eq("user_id", user.id)
     .order("spent_on", { ascending: true, nullsFirst: true })
     .order("id", { ascending: true });
   if (error || !data) return [];
@@ -397,14 +422,20 @@ export async function getExpenseCsvRows(): Promise<ExpenseCsvRow[]> {
 export async function getTripSpendByTrip(): Promise<
   Map<string, SharedTripExpenses>
 > {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const [summaryResult, groupResult] = await Promise.all([
     supabase
       .from("v_trip_expense_summary")
-      .select("trip_id, total_usd, usd_per_day, trip_days, txn_count, alcohol_usd"),
+      .select(
+        "trip_id, total_usd, usd_per_day, trip_days, txn_count, alcohol_usd",
+      )
+      .eq("user_id", user.id),
     supabase
       .from("v_trip_expense_by_group")
-      .select("trip_id, group_slug, group_label, group_color, total_usd, pct_of_trip")
+      .select(
+        "trip_id, group_slug, group_label, group_color, total_usd, pct_of_trip",
+      )
+      .eq("user_id", user.id)
       .order("total_usd", { ascending: false }),
   ]);
   const byTrip = new Map<string, SharedTripExpenses>();

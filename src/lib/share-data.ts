@@ -138,6 +138,9 @@ export interface SharedTripExpenses {
 export async function getUserBySlug(slug: string): Promise<string | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
+    // user-scoping-exempt: this read RESOLVES the owner. There is no user_id
+    // to filter by yet; the slug is the input and the user_id is the answer.
+    // RLS plus the public_share_enabled/is_demo predicate below is the gate.
     .from("user_settings")
     .select("user_id")
     .eq("public_slug", slug)
@@ -154,6 +157,8 @@ export async function getUserBySlug(slug: string): Promise<string | null> {
 export async function getDemoUserId(client?: MapDataClient): Promise<string> {
   const supabase = client ?? (await createClient());
   const { data } = await supabase
+    // user-scoping-exempt: resolves the demo account's id. Same reason as
+    // getUserBySlug above; is_demo is the filter and the id is the answer.
     .from("user_settings")
     .select("user_id")
     .eq("is_demo", true)

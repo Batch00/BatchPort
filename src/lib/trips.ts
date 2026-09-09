@@ -34,10 +34,11 @@ export interface TripOption {
 }
 
 export async function getTripOptions(): Promise<TripOption[]> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("trips")
     .select("id, name, start_date, end_date")
+    .eq("user_id", user.id)
     .order("start_date", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -69,12 +70,13 @@ export interface TripDestinationOption {
 export async function getTripDestinationOptions(): Promise<
   TripDestinationOption[]
 > {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("trips")
     .select(
       "id, name, status, start_date, destinations(id, name, country_code, arrival_date, order_index)",
     )
+    .eq("user_id", user.id)
     .order("start_date", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -110,10 +112,11 @@ export async function getTripDestinationOptions(): Promise<
 // The one column the destination page needs from the owning trip: its status
 // decides whether new experiences default to planned ideas or done logs.
 export async function getTripStatus(id: string): Promise<TripStatus | null> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const { data, error } = await supabase
     .from("trips")
     .select("status")
+    .eq("user_id", user.id)
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -128,15 +131,20 @@ export async function getTripStatus(id: string): Promise<TripStatus | null> {
 // or a stored range that predates the last edit both read correctly here
 // without waiting for the next write to re-sync (see lib/trip-dates.ts).
 export async function getTrip(id: string): Promise<TripWithDestinations | null> {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
 
   // Both queries filter by the id from the URL, so they run in parallel
   // instead of waiting on the trip row before fetching its destinations.
+  //
+  // The user_id filter is what makes an id from the URL safe: RLS alone would
+  // hand back any SHARED account's trip to a signed-in visitor who knows its
+  // uuid, because the policy is `auth.uid() = user_id OR is_shared(user_id)`.
   const [tripResult, destResult] = await Promise.all([
-    supabase.from("trips").select("*").eq("id", id).maybeSingle(),
+    supabase.from("trips").select("*").eq("user_id", user.id).eq("id", id).maybeSingle(),
     supabase
       .from("destinations")
       .select(`${DESTINATION_COLUMNS}, experiences(*)`)
+      .eq("user_id", user.id)
       .eq("trip_id", id)
       .order("order_index", { ascending: true }),
   ]);

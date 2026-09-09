@@ -22,8 +22,7 @@ export interface PhotoOwnerRef {
 }
 
 export type PhotoDeleteOutcome =
-  | { ok: true; failedIds: string[] }
-  | { error: string };
+  { ok: true; failedIds: string[] } | { error: string };
 
 // PostgREST puts `in` lists in the query string, so very long lists are
 // chunked to keep URLs within server limits.
@@ -57,11 +56,13 @@ export async function deletePhotosByIds(
 ): Promise<PhotoDeleteOutcome> {
   if (ids.length === 0) return { ok: true, failedIds: [] };
 
+  const { user } = await requireUser();
   const photos: Pick<Photo, "id" | "source" | "storage_path">[] = [];
   for (const batch of chunk(ids, ID_CHUNK)) {
     const { data, error } = await supabase
       .from("photos")
       .select("id,source,storage_path")
+      .eq("user_id", user.id)
       .in("id", batch);
     if (error) return { error: "Could not load the photos to delete." };
     photos.push(
@@ -139,6 +140,7 @@ async function collectPhotoIds(
   supabase: ServerClient,
   owners: PhotoOwnerRef[],
 ): Promise<string[]> {
+  const { user } = await requireUser();
   const ids: string[] = [];
   for (const owner of owners) {
     for (const batch of chunk(owner.ids, ID_CHUNK)) {
@@ -146,6 +148,7 @@ async function collectPhotoIds(
       const { data, error } = await supabase
         .from("photos")
         .select("id")
+        .eq("user_id", user.id)
         .eq("owner_type", owner.type)
         .in("owner_id", batch);
       if (error) throw error;
@@ -185,10 +188,11 @@ export async function cleanupPhotosForOwners(
 export async function ownersForTrip(tripId: string): Promise<PhotoOwnerRef[]> {
   const owners: PhotoOwnerRef[] = [{ type: "trip", ids: [tripId] }];
   try {
-    const { supabase } = await requireUser();
+    const { supabase, user } = await requireUser();
     const { data, error } = await supabase
       .from("destinations")
       .select("id")
+      .eq("user_id", user.id)
       .eq("trip_id", tripId);
     if (error) throw error;
     const destinationIds = ((data ?? []) as { id: string }[]).map(
@@ -235,11 +239,13 @@ async function experienceIds(
   destinationIds: string[],
 ): Promise<string[]> {
   if (destinationIds.length === 0) return [];
+  const { user } = await requireUser();
   const ids: string[] = [];
   for (const batch of chunk(destinationIds, ID_CHUNK)) {
     const { data, error } = await supabase
       .from("experiences")
       .select("id")
+      .eq("user_id", user.id)
       .in("destination_id", batch);
     if (error) throw error;
     ids.push(...((data ?? []) as { id: string }[]).map((row) => row.id));

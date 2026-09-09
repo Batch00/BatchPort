@@ -51,6 +51,7 @@ async function tripPhotoIds(
   supabase: ServerClient,
   tripId: string,
 ): Promise<string[]> {
+  const { user } = await requireUser();
   const owners = await ownersForTrip(tripId);
   const ids: string[] = [];
   for (const owner of owners) {
@@ -58,6 +59,7 @@ async function tripPhotoIds(
     const { data, error } = await supabase
       .from("photos")
       .select("id")
+      .eq("user_id", user.id)
       .eq("owner_type", owner.type)
       .in("owner_id", owner.ids);
     if (error) continue;
@@ -71,15 +73,20 @@ async function tripExperienceIds(
   supabase: ServerClient,
   tripId: string,
 ): Promise<string[]> {
+  const { user } = await requireUser();
   const { data: dests } = await supabase
     .from("destinations")
     .select("id")
+    .eq("user_id", user.id)
     .eq("trip_id", tripId);
-  const destinationIds = ((dests ?? []) as { id: string }[]).map((row) => row.id);
+  const destinationIds = ((dests ?? []) as { id: string }[]).map(
+    (row) => row.id,
+  );
   if (destinationIds.length === 0) return [];
   const { data, error } = await supabase
     .from("experiences")
     .select("id")
+    .eq("user_id", user.id)
     .in("destination_id", destinationIds);
   if (error) return [];
   return ((data ?? []) as { id: string }[]).map((row) => row.id);
@@ -113,7 +120,7 @@ export async function setTripHeroPhotoAction(
   const { supabase } = await requireUser();
 
   const candidates = await tripPhotoIds(supabase, tripId);
-  const chosen = photoId ? within(candidates, [photoId])[0] ?? null : null;
+  const chosen = photoId ? (within(candidates, [photoId])[0] ?? null) : null;
   if (photoId && !chosen) return { error: "That photo is not on this trip." };
 
   // Clear the old hero first, and only the hero: a photo holding a stop slot
