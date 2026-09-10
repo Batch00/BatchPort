@@ -1,4 +1,4 @@
-import { TransportModeIcon } from "@/components/trips/transport-leg";
+import { TransportModeIcon } from "@/components/transport-mode-icon";
 import { formatKm } from "@/lib/stats-format";
 import {
   GROUND_ARC_COLOR,

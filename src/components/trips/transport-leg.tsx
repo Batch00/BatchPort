@@ -3,17 +3,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { useConnectionGuard } from "@/lib/offline/use-offline";
-import {
-  BikeIcon,
-  BusIcon,
-  CarIcon,
-  FootprintsIcon,
-  PlaneIcon,
-  RouteIcon,
-  ShipIcon,
-  TrainFrontIcon,
-  type LucideIcon,
-} from "lucide-react";
 
 import {
   Dialog,
@@ -23,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { TransportModeIcon } from "@/components/transport-mode-icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,17 +48,6 @@ import { cn } from "@/lib/utils";
 // overlay corners are spoken for, and a legend explaining three line styles
 // would cost more attention than it returns.
 
-const MODE_ICONS: Record<TransportMode, LucideIcon> = {
-  flight: PlaneIcon,
-  train: TrainFrontIcon,
-  bus: BusIcon,
-  car: CarIcon,
-  ferry: ShipIcon,
-  bike: BikeIcon,
-  walk: FootprintsIcon,
-  other: RouteIcon,
-};
-
 /** The arc colour a mode reads as, for the small dot on the row. Air uses the
  * brand token rather than a hex, so it tracks the theme like every other
  * brand-coloured thing on the page. */
@@ -77,17 +56,6 @@ function modeDotStyle(mode: TransportMode): { className: string; color?: string 
   if (family === "ground") return { className: "", color: GROUND_ARC_COLOR };
   if (family === "sea") return { className: "", color: SEA_ARC_COLOR };
   return { className: "bg-brand" };
-}
-
-export function TransportModeIcon({
-  mode,
-  className,
-}: {
-  mode: TransportMode;
-  className?: string;
-}) {
-  const Icon = MODE_ICONS[mode];
-  return <Icon className={className} />;
 }
 
 /** The shared row body, so the editable and read-only versions cannot drift. */

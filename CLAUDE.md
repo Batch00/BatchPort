@@ -1387,6 +1387,28 @@ no timezone chip. Nothing in the app prompts the user to set one.
 
   A related symptom worth knowing: a hung dev server (listening on the port, answering nothing, connections piling up in `CLOSE_WAIT`) makes Claude in Chrome look broken. Navigations appear not to stick and `Runtime.evaluate` times out, because the page never finishes loading. Check the server before blaming the extension. A restart after a hang may also come up on **3001**, because the stale lock makes it think 3000 is still taken.
 
+  **There is a third layer, and it survives everything above: the SERVICE WORKER's Cache Storage.** `public/sw.js` serves `/_next/static/**` cache-first, which its own comment justifies with "those filenames contain a content hash". That holds for a production build and is **false in dev**: Turbopack reuses a chunk URL across rebuilds with different contents. Measured, on a clean dev server, `/_next/static/chunks/src_components_*.js` served two different md5s either side of a one-line source edit, with the page still referencing the same URL.
+
+  The symptom looks nothing like caching, and it names an innocent file:
+
+  ```
+  Module [project]/src/lib/actions/data:1802f9 [app-client] was instantiated
+  because it was required from module .../globe.tsx, but the module factory
+  is not available.
+  ```
+
+  A cached client chunk is asking for a server-action module id that the current build renumbered. **Adding any server action anywhere renumbers them**, so this fires on work unrelated to the file in the message (it was traced once to adding `lib/actions/places.ts`, pointing at `globe.tsx`, whose import graph had not changed at all).
+
+  Why the usual remedies do not touch it:
+
+  - **Deleting `.next` does not touch browser Cache Storage.** The stale copy is client-side.
+  - **Unregistering the worker does not delete its caches.** They are origin-scoped and outlive the registration, and `sw.js` keeps `batchport-static-*` in its `activate` keep-set, so nothing evicts it while `SHELL_VERSION` is unchanged.
+  - A hard reload bypasses the HTTP cache, not Cache Storage.
+
+  `ServiceWorkerRegister` therefore **does not register in development**, and actively unregisters any worker and deletes the `batchport-*` caches when it loads in dev, so a machine poisoned by an earlier session heals itself on the next load. If you ever see this error anyway, the one action that works is DevTools, Application, Storage, **Clear site data**; and do not "fix" the dev guard by deleting it.
+
+  Diagnosis note: before concluding anything from `curl localhost:3000`, check **which** server is answering. `npm run dev` silently falls back to 3001 when 3000 is taken, so a probe can be hitting a different (possibly stale) instance than the one you just started. This wasted a real investigation.
+
 - **`.next/static` is not evidence about dev.** Grepping the built CSS proves what `npm run build` produced and says nothing about what the dev server is serving; the two diverge exactly when a stale dev chunk is the problem, which is the case you are usually trying to diagnose. This mistake was made twice in one session, both times concluding "the CSS generated, so the markup must be wrong".
 
   The check that actually works, and the only one worth trusting:
