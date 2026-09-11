@@ -1,33 +1,33 @@
-wikidata_qid,catalog_slug,name,lat,lng,city,state,tenants,leagues
-Q795526,nhl,Amerant Bank Arena,26.158333333,-80.325555555,Sunrise,Florida,Florida Panthers,nhl
-Q463345,nhl,American Airlines Center,32.790555555,-96.810277777,Victory Park,Texas,Dallas Mavericks|Dallas Stars,nba|nhl
-Q795470,nhl,Ball Arena,39.748611111,-105.0075,Denver,Colorado,Denver Nuggets|Colorado Avalanche,nba|nhl
-Q522282,nhl,Bell Centre,45.496111111,-73.569444444,Montreal,Quebec,Montreal Canadiens,nhl
-Q940199,nhl,Benchmark International Arena,27.942777777,-82.451944444,,Florida,Tampa Bay Lightning,nhl
-Q302869,nhl,Bridgestone Arena,36.159166666,-86.778611111,Nashville,Tennessee,Nashville Predators,nhl
-Q656928,nhl,Canada Life Centre,49.892777777,-97.143611111,Winnipeg,Manitoba,Winnipeg Jets,nhl
-Q1327290,nhl,Canadian Tire Centre,45.296944444,-75.927222222,Kanata,Ontario,Ottawa Senators,nhl
-Q223240,nhl,Capital One Arena,38.898055555,-77.020833333,Washington,District of Columbia,Washington Wizards|Washington Capitals|Georgetown men,nba|nhl|ncaa_mbb
-Q977529,nhl,Climate Pledge Arena,47.622222222,-122.354166666,Seattle,Washington,Seattle Kraken,nhl
-Q186080,nhl,Crypto.com Arena,34.043055555,-118.267222222,Los Angeles,California,Los Angeles Lakers|Los Angeles Clippers|Los Angeles Kings,nba|nhl
-Q82294,nhl,Delta Center,40.768333,-111.901111,Salt Lake City,Utah,Utah Jazz|Utah Mammoth,nba|nhl
-Q1067700,nhl,Enterprise Center,38.626667,-90.2025,St. Louis,Missouri,St. Louis Blues,nhl
-Q1421388,nhl,Grand Casino Arena,44.944722222,-93.101111111,Saint Paul,Minnesota,Minnesota Wild,nhl
-Q774138,nhl,Honda Center,33.807777777,-117.876666666,Anaheim,California,Anaheim Ducks,nhl
-Q1110789,nhl,KeyBank Center,42.875,-78.876388888,Buffalo,New York,Buffalo Sabres,nhl
-Q39177,nhl,Lenovo Center,35.803333333,-78.721944444,Raleigh,North Carolina,Carolina Hurricanes|NC State men,nhl|ncaa_mbb
-Q18154984,nhl,Little Caesars Arena,42.3412,-83.0549,Detroit,Michigan,Detroit Pistons|Detroit Red Wings,nba|nhl
-Q186125,nhl,Madison Square Garden,40.750501,-73.993453,New York,New York,New York Knicks|New York Rangers|St. John's men,nba|nhl|ncaa_mbb
-Q166503,nhl,Nationwide Arena,39.969283333,-83.006111111,Columbus,Ohio,Columbus Blue Jackets,nhl
-Q595460,nhl,PPG Paints Arena,40.4394,-79.9892,Pittsburgh,Pennsylvania,Pittsburgh Penguins,nhl
-Q849027,nhl,Prudential Center,40.733611,-74.171111,Newark,New Jersey,New Jersey Devils|Seton Hall men,nhl|ncaa_mbb
-Q517318,nhl,Rogers Arena,49.277777777,-123.108888888,Vancouver,British Columbia,Vancouver Canucks,nhl
-Q5339036,nhl,Rogers Place,53.546944444,-113.497777777,Edmonton,Alberta,Edmonton Oilers,nhl
-Q261863,nhl,SAP Center,37.332777777,-121.901111111,San Jose,California,San Jose Sharks,nhl
-Q406972,nhl,Scotiabank Arena,43.643333333,-79.379166666,Old Toronto,Ontario,Toronto Raptors|Toronto Maple Leafs,nba|nhl
-Q1140083,nhl,Scotiabank Saddledome,51.0375,-114.051944444,Calgary,Alberta,Calgary Flames,nhl
-Q3338973,nhl,T-Mobile Arena,36.102916666,-115.178361111,Clark County,Nevada,Vegas Golden Knights,nhl
-Q432105,nhl,TD Garden,42.366388888,-71.062222222,Boston,Massachusetts,Boston Celtics|Boston Bruins,nba|nhl
-Q48742753,nhl,UBS Arena,40.712094,-73.727157,,New York,New York Islanders,nhl
-Q639975,nhl,United Center,41.880555555,-87.674166666,Illinois,Illinois,Chicago Bulls|Chicago Blackhawks,nba|nhl
-Q818735,nhl,Xfinity Mobile Arena,39.90115,-75.17197,Philadelphia,Pennsylvania,Philadelphia 76ers|Philadelphia Flyers,nba|nhl
+wikidata_qid,catalog_slug,name,lat,lng,city,state,country_code,tenants,leagues
+Q795526,nhl,Amerant Bank Arena,26.158333333,-80.325555555,Sunrise,Florida,US,Florida Panthers,nhl
+Q463345,nhl,American Airlines Center,32.790555555,-96.810277777,Victory Park,Texas,US,Dallas Mavericks|Dallas Stars,nba|nhl
+Q795470,nhl,Ball Arena,39.748611111,-105.0075,Denver,Colorado,US,Denver Nuggets|Colorado Avalanche,nba|nhl
+Q522282,nhl,Bell Centre,45.496111111,-73.569444444,Montreal,Quebec,CA,Montreal Canadiens,nhl
+Q940199,nhl,Benchmark International Arena,27.942777777,-82.451944444,,Florida,US,Tampa Bay Lightning,nhl
+Q302869,nhl,Bridgestone Arena,36.159166666,-86.778611111,Nashville,Tennessee,US,Nashville Predators,nhl
+Q656928,nhl,Canada Life Centre,49.892777777,-97.143611111,Winnipeg,Manitoba,CA,Winnipeg Jets,nhl
+Q1327290,nhl,Canadian Tire Centre,45.296944444,-75.927222222,Kanata,Ontario,CA,Ottawa Senators,nhl
+Q223240,nhl,Capital One Arena,38.898055555,-77.020833333,Washington,District of Columbia,US,Washington Wizards|Washington Capitals|Georgetown men,nba|nhl|ncaa_mbb
+Q977529,nhl,Climate Pledge Arena,47.622222222,-122.354166666,Seattle,Washington,US,Seattle Kraken,nhl
+Q186080,nhl,Crypto.com Arena,34.043055555,-118.267222222,Los Angeles,California,US,Los Angeles Lakers|Los Angeles Clippers|Los Angeles Kings,nba|nhl
+Q82294,nhl,Delta Center,40.768333,-111.901111,Salt Lake City,Utah,US,Utah Jazz|Utah Mammoth,nba|nhl
+Q1067700,nhl,Enterprise Center,38.626667,-90.2025,St. Louis,Missouri,US,St. Louis Blues,nhl
+Q1421388,nhl,Grand Casino Arena,44.944722222,-93.101111111,Saint Paul,Minnesota,US,Minnesota Wild,nhl
+Q774138,nhl,Honda Center,33.807777777,-117.876666666,Anaheim,California,US,Anaheim Ducks,nhl
+Q1110789,nhl,KeyBank Center,42.875,-78.876388888,Buffalo,New York,US,Buffalo Sabres,nhl
+Q39177,nhl,Lenovo Center,35.803333333,-78.721944444,Raleigh,North Carolina,US,Carolina Hurricanes|NC State men,nhl|ncaa_mbb
+Q18154984,nhl,Little Caesars Arena,42.3412,-83.0549,Detroit,Michigan,US,Detroit Pistons|Detroit Red Wings,nba|nhl
+Q186125,nhl,Madison Square Garden,40.750501,-73.993453,New York,New York,US,New York Knicks|New York Rangers|St. John's men,nba|nhl|ncaa_mbb
+Q166503,nhl,Nationwide Arena,39.969283333,-83.006111111,Columbus,Ohio,US,Columbus Blue Jackets,nhl
+Q595460,nhl,PPG Paints Arena,40.4394,-79.9892,Pittsburgh,Pennsylvania,US,Pittsburgh Penguins,nhl
+Q849027,nhl,Prudential Center,40.733611,-74.171111,Newark,New Jersey,US,New Jersey Devils|Seton Hall men,nhl|ncaa_mbb
+Q517318,nhl,Rogers Arena,49.277777777,-123.108888888,Vancouver,British Columbia,CA,Vancouver Canucks,nhl
+Q5339036,nhl,Rogers Place,53.546944444,-113.497777777,Edmonton,Alberta,CA,Edmonton Oilers,nhl
+Q261863,nhl,SAP Center,37.332777777,-121.901111111,San Jose,California,US,San Jose Sharks,nhl
+Q406972,nhl,Scotiabank Arena,43.643333333,-79.379166666,Old Toronto,Ontario,CA,Toronto Raptors|Toronto Maple Leafs,nba|nhl
+Q1140083,nhl,Scotiabank Saddledome,51.0375,-114.051944444,Calgary,Alberta,CA,Calgary Flames,nhl
+Q3338973,nhl,T-Mobile Arena,36.102916666,-115.178361111,Clark County,Nevada,US,Vegas Golden Knights,nhl
+Q432105,nhl,TD Garden,42.366388888,-71.062222222,Boston,Massachusetts,US,Boston Celtics|Boston Bruins,nba|nhl
+Q48742753,nhl,UBS Arena,40.712094,-73.727157,,New York,US,New York Islanders,nhl
+Q639975,nhl,United Center,41.880555555,-87.674166666,Illinois,Illinois,US,Chicago Bulls|Chicago Blackhawks,nba|nhl
+Q818735,nhl,Xfinity Mobile Arena,39.90115,-75.17197,Philadelphia,Pennsylvania,US,Philadelphia 76ers|Philadelphia Flyers,nba|nhl

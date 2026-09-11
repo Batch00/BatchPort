@@ -51,6 +51,16 @@ Two schema details that will produce confusing failures in phase 1:
   tables on different types. If an enum is ever wanted it is a single change
   converting **both** columns together.
 
+- **`place_type` `'stadium'` means "sports venue", not "stadium as opposed to
+  arena".** Every catalog venue that is not a national park resolves to it,
+  including all 374 basketball arenas, and that is the accepted semantics
+  rather than an omission. Do not add an `'arena'` enum value to split them:
+  the distinction is not one any surface asks about, and adding it would mean
+  re-typing every existing row and teaching `catalogPlaceType()` in
+  `lib/place-search.ts` a difference nothing downstream reads. The mapping
+  lives in that one function: `national_parks` to `park`, everything else to
+  `stadium`.
+
 - **`places.locality_key` is `generated always as ... stored`.** Inserts and
   updates must OMIT it, exactly as they must for `destinations.latitude` and
   `destinations.longitude`. It derives

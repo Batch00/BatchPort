@@ -13,7 +13,9 @@ Q54958436,nba,lng,-118.343102,P625 of Q54958436.
 Q54958436,nba,state,California,"Q54958436 has no P131 on Wikidata, so the state is the point-in-polygon result of its own P625 against us-admin1.geojson. City is left blank rather than guessed."
 Q54958436,nba,tenants,Los Angeles Clippers,Sole tenant.
 Q54958436,nba,leagues,nba,Sole league.
+Q54958436,nba,country_code,US,"This row is ADDED by the override layer, so it never passed through the CSV country pass and has no country_code cell to inherit. Sourced the same way as every other row: Wikidata P17 on Q54958436 is United States, P297 US."
 Q1475645,nfl,wikidata_qid,Q16251517,"The Bills' P115 points at Ralph Wilson Stadium (Q1475645, P1619 opening 1973-08-17) with no end qualifier. The new Highmark Stadium (Q16251517) is a separate item roughly 435m west, P571 inception 2026, and both items carry P466 occupant Buffalo Bills. They are not duplicates; the newer one is the 2026 home."
 Q1475645,nfl,name,Highmark Stadium,"Retarget the row from the 1973 stadium to the 2026 stadium. City and state stay Orchard Park, New York: the new building is across the street from the old one."
 Q1475645,nfl,lat,42.772972222,P625 of Q16251517.
 Q1475645,nfl,lng,-78.792194444,P625 of Q16251517.
+Q131056709,ncaa_basketball_arenas,country_code,US,"The Wikidata item has no P17 (country), so the pull left this cell empty and the NOT NULL column would reject it. Derived from repo data, not from model knowledge: the row''s sourced state is Pennsylvania, and Pennsylvania is present in scripts/data/us-admin1.geojson (US Census cb_2023_us_state_500k, postal PA, geoid 42), which covers the United States only. A venue in a US state is in the US."

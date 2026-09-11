@@ -1,11 +1,11 @@
-wikidata_qid,catalog_slug,name,lat,lng,city,state,tenants,leagues,reason
-,ncaa_basketball_arenas,EECU Center,,,Stephenville,Texas,Tarleton State,ncaa_mbb|ncaa_wbb,no Wikidata match
-,ncaa_basketball_arenas,Hamilton Gymnasium,,,Denver,Colorado,Denver,ncaa_mbb|ncaa_wbb,no Wikidata match
-,ncaa_basketball_arenas,James T. Morris Arena,,,Indianapolis,Indiana,IU Indy,ncaa_mbb|ncaa_wbb,no Wikidata match
-,ncaa_basketball_arenas,Jeffery P. Hazell Athletics Center,,,West Haven,Connecticut,New Haven,ncaa_mbb|ncaa_wbb,no Wikidata match
-Q124217287,ncaa_basketball_arenas,Le Moyne Events Center,,,DeWitt,New York,Le Moyne,ncaa_mbb|ncaa_wbb,Wikidata item has no P625 coordinate
-Q124289341,ncaa_basketball_arenas,Leo D. Mahoney Arena,,,Fairfield,Connecticut,Fairfield,ncaa_mbb|ncaa_wbb,Wikidata item has no P625 coordinate
-Q5416041,ncaa_basketball_arenas,Meeks Family Fieldhouse at Carson Center,,,Evansville,Indiana,Evansville women,ncaa_wbb,Wikidata item has no P625 coordinate
-,ncaa_basketball_arenas,UWF Field House,,,Pensacola,Florida,West Florida,ncaa_mbb|ncaa_wbb,no Wikidata match
-,ncaa_fbs_football,"Johnny ""Red"" Floyd Stadium",,,Murfreesboro,Tennessee,Middle Tennessee,ncaa_fb,no Wikidata match
-,ncaa_fbs_football,Kramer/Deromedi Field at Kelly/Shorts Stadium,,,Mount Pleasant,Michigan,Central Michigan,ncaa_fb,no Wikidata match
+wikidata_qid,catalog_slug,name,lat,lng,city,state,country_code,tenants,leagues,reason
+,ncaa_basketball_arenas,EECU Center,,,Stephenville,Texas,,Tarleton State,ncaa_mbb|ncaa_wbb,no Wikidata match
+,ncaa_basketball_arenas,Hamilton Gymnasium,,,Denver,Colorado,,Denver,ncaa_mbb|ncaa_wbb,no Wikidata match
+,ncaa_basketball_arenas,James T. Morris Arena,,,Indianapolis,Indiana,,IU Indy,ncaa_mbb|ncaa_wbb,no Wikidata match
+,ncaa_basketball_arenas,Jeffery P. Hazell Athletics Center,,,West Haven,Connecticut,,New Haven,ncaa_mbb|ncaa_wbb,no Wikidata match
+Q124217287,ncaa_basketball_arenas,Le Moyne Events Center,,,DeWitt,New York,US,Le Moyne,ncaa_mbb|ncaa_wbb,Wikidata item has no P625 coordinate
+Q124289341,ncaa_basketball_arenas,Leo D. Mahoney Arena,,,Fairfield,Connecticut,,Fairfield,ncaa_mbb|ncaa_wbb,Wikidata item has no P625 coordinate
+Q5416041,ncaa_basketball_arenas,Meeks Family Fieldhouse at Carson Center,,,Evansville,Indiana,US,Evansville women,ncaa_wbb,Wikidata item has no P625 coordinate
+,ncaa_basketball_arenas,UWF Field House,,,Pensacola,Florida,,West Florida,ncaa_mbb|ncaa_wbb,no Wikidata match
+,ncaa_fbs_football,"Johnny ""Red"" Floyd Stadium",,,Murfreesboro,Tennessee,,Middle Tennessee,ncaa_fb,no Wikidata match
+,ncaa_fbs_football,Kramer/Deromedi Field at Kelly/Shorts Stadium,,,Mount Pleasant,Michigan,,Central Michigan,ncaa_fb,no Wikidata match

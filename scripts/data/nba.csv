@@ -1,30 +1,30 @@
-wikidata_qid,catalog_slug,name,lat,lng,city,state,tenants,leagues
-Q463345,nba,American Airlines Center,32.790555555,-96.810277777,Victory Park,Texas,Dallas Mavericks|Dallas Stars,nba|nhl
-Q795470,nba,Ball Arena,39.748611111,-105.0075,Denver,Colorado,Denver Nuggets|Colorado Avalanche,nba|nhl
-Q807966,nba,Barclays Center,40.68265,-73.974689,Brooklyn,New York,Brooklyn Nets,nba
-Q223240,nba,Capital One Arena,38.898055555,-77.020833333,Washington,District of Columbia,Washington Wizards|Washington Capitals|Georgetown men,nba|nhl|ncaa_mbb
-Q15262098,nba,Chase Center,37.767833333,-122.387388888,San Francisco,California,Golden State Warriors,nba
-Q186080,nba,Crypto.com Arena,34.043055555,-118.267222222,Los Angeles,California,Los Angeles Lakers|Los Angeles Clippers|Los Angeles Kings,nba|nhl
-Q82294,nba,Delta Center,40.768333,-111.901111,Salt Lake City,Utah,Utah Jazz|Utah Mammoth,nba|nhl
-Q641212,nba,FedExForum,35.138333333,-90.050555555,Memphis,Tennessee,Memphis Grizzlies|Memphis,nba|ncaa_mbb|ncaa_wbb
-Q20372160,nba,Fiserv Forum,43.0451,-87.9182,Milwaukee,Wisconsin,Milwaukee Bucks|Marquette men,nba|ncaa_mbb
-Q298573,nba,Frost Bank Center,29.426944444,-98.4375,Texas,Texas,San Antonio Spurs,nba
-Q545007,nba,Gainbridge Fieldhouse,39.763888888,-86.155555555,Indianapolis,Indiana,Indiana Pacers,nba
-Q7011384,nba,Golden 1 Center,38.58,-121.5,Sacramento,California,Sacramento Kings,nba
-Q420129,nba,Kaseya Center,25.781388888,-80.188055555,Miami,Florida,Miami Heat,nba
-Q481795,nba,Kia Center,28.539167,-81.383611,Orlando,Florida,Orlando Magic,nba
-Q18154984,nba,Little Caesars Arena,42.3412,-83.0549,Detroit,Michigan,Detroit Pistons|Detroit Red Wings,nba|nhl
-Q186125,nba,Madison Square Garden,40.750501,-73.993453,New York,New York,New York Knicks|New York Rangers|St. John's men,nba|nhl|ncaa_mbb
-Q1347442,nba,Moda Center,45.531666666,-122.666666666,Portland,Oregon,Portland Trail Blazers,nba
-Q1538690,nba,Mortgage Matchup Center,33.445833333,-112.071388888,Phoenix,Arizona,Phoenix Suns,nba
-Q665434,nba,Paycom Center,35.463333,-97.515,Oklahoma City,Oklahoma,Oklahoma City Thunder,nba
-Q387157,nba,Rocket Arena,41.496388888,-81.688055555,Cleveland,Ohio,Cleveland Cavaliers,nba
-Q406972,nba,Scotiabank Arena,43.643333333,-79.379166666,Old Toronto,Ontario,Toronto Raptors|Toronto Maple Leafs,nba|nhl
-Q1515840,nba,Smoothie King Center,29.948888888,-90.081944444,New Orleans,Louisiana,New Orleans Pelicans,nba
-Q983870,nba,Spectrum Center,35.225,-80.839166666,Charlotte,North Carolina,Charlotte Hornets,nba
-Q1123297,nba,State Farm Arena,33.757222222,-84.396388888,Fulton County,Georgia,Atlanta Hawks,nba
-Q282675,nba,Target Center,44.979444444,-93.276111111,Minneapolis,Minnesota,Minnesota Timberwolves,nba
-Q432105,nba,TD Garden,42.366388888,-71.062222222,Boston,Massachusetts,Boston Celtics|Boston Bruins,nba|nhl
-Q1166157,nba,Toyota Center,29.750833333,-95.362222222,Houston,Texas,Houston Rockets,nba
-Q639975,nba,United Center,41.880555555,-87.674166666,Illinois,Illinois,Chicago Bulls|Chicago Blackhawks,nba|nhl
-Q818735,nba,Xfinity Mobile Arena,39.90115,-75.17197,Philadelphia,Pennsylvania,Philadelphia 76ers|Philadelphia Flyers,nba|nhl
+wikidata_qid,catalog_slug,name,lat,lng,city,state,country_code,tenants,leagues
+Q463345,nba,American Airlines Center,32.790555555,-96.810277777,Victory Park,Texas,US,Dallas Mavericks|Dallas Stars,nba|nhl
+Q795470,nba,Ball Arena,39.748611111,-105.0075,Denver,Colorado,US,Denver Nuggets|Colorado Avalanche,nba|nhl
+Q807966,nba,Barclays Center,40.68265,-73.974689,Brooklyn,New York,US,Brooklyn Nets,nba
+Q223240,nba,Capital One Arena,38.898055555,-77.020833333,Washington,District of Columbia,US,Washington Wizards|Washington Capitals|Georgetown men,nba|nhl|ncaa_mbb
+Q15262098,nba,Chase Center,37.767833333,-122.387388888,San Francisco,California,US,Golden State Warriors,nba
+Q186080,nba,Crypto.com Arena,34.043055555,-118.267222222,Los Angeles,California,US,Los Angeles Lakers|Los Angeles Clippers|Los Angeles Kings,nba|nhl
+Q82294,nba,Delta Center,40.768333,-111.901111,Salt Lake City,Utah,US,Utah Jazz|Utah Mammoth,nba|nhl
+Q641212,nba,FedExForum,35.138333333,-90.050555555,Memphis,Tennessee,US,Memphis Grizzlies|Memphis,nba|ncaa_mbb|ncaa_wbb
+Q20372160,nba,Fiserv Forum,43.0451,-87.9182,Milwaukee,Wisconsin,US,Milwaukee Bucks|Marquette men,nba|ncaa_mbb
+Q298573,nba,Frost Bank Center,29.426944444,-98.4375,Texas,Texas,US,San Antonio Spurs,nba
+Q545007,nba,Gainbridge Fieldhouse,39.763888888,-86.155555555,Indianapolis,Indiana,US,Indiana Pacers,nba
+Q7011384,nba,Golden 1 Center,38.58,-121.5,Sacramento,California,US,Sacramento Kings,nba
+Q420129,nba,Kaseya Center,25.781388888,-80.188055555,Miami,Florida,US,Miami Heat,nba
+Q481795,nba,Kia Center,28.539167,-81.383611,Orlando,Florida,US,Orlando Magic,nba
+Q18154984,nba,Little Caesars Arena,42.3412,-83.0549,Detroit,Michigan,US,Detroit Pistons|Detroit Red Wings,nba|nhl
+Q186125,nba,Madison Square Garden,40.750501,-73.993453,New York,New York,US,New York Knicks|New York Rangers|St. John's men,nba|nhl|ncaa_mbb
+Q1347442,nba,Moda Center,45.531666666,-122.666666666,Portland,Oregon,US,Portland Trail Blazers,nba
+Q1538690,nba,Mortgage Matchup Center,33.445833333,-112.071388888,Phoenix,Arizona,US,Phoenix Suns,nba
+Q665434,nba,Paycom Center,35.463333,-97.515,Oklahoma City,Oklahoma,US,Oklahoma City Thunder,nba
+Q387157,nba,Rocket Arena,41.496388888,-81.688055555,Cleveland,Ohio,US,Cleveland Cavaliers,nba
+Q406972,nba,Scotiabank Arena,43.643333333,-79.379166666,Old Toronto,Ontario,CA,Toronto Raptors|Toronto Maple Leafs,nba|nhl
+Q1515840,nba,Smoothie King Center,29.948888888,-90.081944444,New Orleans,Louisiana,US,New Orleans Pelicans,nba
+Q983870,nba,Spectrum Center,35.225,-80.839166666,Charlotte,North Carolina,US,Charlotte Hornets,nba
+Q1123297,nba,State Farm Arena,33.757222222,-84.396388888,Fulton County,Georgia,US,Atlanta Hawks,nba
+Q282675,nba,Target Center,44.979444444,-93.276111111,Minneapolis,Minnesota,US,Minnesota Timberwolves,nba
+Q432105,nba,TD Garden,42.366388888,-71.062222222,Boston,Massachusetts,US,Boston Celtics|Boston Bruins,nba|nhl
+Q1166157,nba,Toyota Center,29.750833333,-95.362222222,Houston,Texas,US,Houston Rockets,nba
+Q639975,nba,United Center,41.880555555,-87.674166666,Illinois,Illinois,US,Chicago Bulls|Chicago Blackhawks,nba|nhl
+Q818735,nba,Xfinity Mobile Arena,39.90115,-75.17197,Philadelphia,Pennsylvania,US,Philadelphia 76ers|Philadelphia Flyers,nba|nhl

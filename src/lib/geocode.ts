@@ -6,7 +6,16 @@ import type { GeoLocation, PoiResult } from "@/lib/types";
 // the admin client and must name the schema explicitly: the admin client is not
 // scoped to "batchport" by default.
 
-export type GeocodeProvider = "photon" | "photon_poi" | "nominatim";
+// "photon_place" is the places search: Photon unfiltered by osm_tag, so a
+// query can return a city or a venue. Its own key so it cannot collide with
+// the destination typeahead ("photon") or the POI search ("photon_poi"), which
+// ask the same provider narrower questions and would otherwise share a cache
+// entry for the same string. See lib/place-search-data.ts.
+export type GeocodeProvider =
+  | "photon"
+  | "photon_poi"
+  | "photon_place"
+  | "nominatim";
 
 // Cached entries older than this are treated as a miss and refetched.
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;

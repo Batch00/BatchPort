@@ -1,31 +1,31 @@
-wikidata_qid,catalog_slug,name,lat,lng,city,state,tenants,leagues
-Q1339293,mlb,American Family Field,43.028333333,-87.971111111,Milwaukee,Wisconsin,Milwaukee Brewers,mlb
-Q531897,mlb,Angel Stadium of Anaheim,33.800277777,-117.882777777,Anaheim,California,Los Angeles Angels,mlb
-Q253546,mlb,Busch Stadium,38.6225,-90.193056,St. Louis,Missouri,St. Louis Cardinals,mlb
-Q1068011,mlb,Chase Field,33.445277777,-112.066944444,Phoenix,Arizona,Arizona Diamondbacks,mlb
-Q1634492,mlb,Choctaw Stadium,32.751388888,-97.082777777,Arlington,Texas,Texas Rangers,mlb
-Q1072882,mlb,Citi Field,40.756986,-73.845783,Flushing,New York,New York Mets,mlb
-Q912770,mlb,Citizens Bank Park,39.905833333,-75.166666666,Philadelphia,Pennsylvania,Philadelphia Phillies,mlb
-Q868482,mlb,Comerica Park,42.339166666,-83.048611111,Detroit,Michigan,Detroit Tigers,mlb
-Q1129916,mlb,Coors Field,39.756111111,-104.994166666,Denver,Colorado,Colorado Rockies,mlb
-Q1193671,mlb,Daikin Park,29.756944444,-95.355555555,Houston,Texas,Houston Astros,mlb
-Q247420,mlb,Dodger Stadium,34.073611111,-118.24,Los Angeles,California,Los Angeles Dodgers,mlb
-Q49136,mlb,Fenway Park,42.346388888,-71.0975,Boston,Massachusetts,Boston Red Sox,mlb
-Q979975,mlb,Great American Ball Park,39.097222222,-84.506944444,Cincinnati,Ohio,Cincinnati Reds,mlb
-Q1737017,mlb,Kauffman Stadium,39.051388888,-94.480555555,Kansas City,Missouri,Kansas City Royals,mlb
-Q1368138,mlb,LoanDepot Park,25.778056,-80.219722,Miami,Florida,Miami Marlins,mlb
-Q517545,mlb,Nationals Park,38.8725,-77.007777777,"Washington, D.C.",District of Columbia,Washington Nationals,mlb
-Q298585,mlb,Oracle Park,37.778333333,-122.389444444,San Francisco,California,San Francisco Giants,mlb
-Q1141174,mlb,Oriole Park at Camden Yards,39.283888888,-76.621666666,Baltimore,Maryland,Baltimore Orioles,mlb
-Q1194586,mlb,Petco Park,32.707333,-117.156944,Downtown San Diego,California,San Diego Padres,mlb
-Q1151177,mlb,PNC Park,40.446944444,-80.005833333,Pittsburgh,Pennsylvania,Pittsburgh Pirates,mlb
-Q1154053,mlb,Progressive Field,41.495833333,-81.685277777,Cleveland,Ohio,Cleveland Guardians,mlb
-Q633613,mlb,Rate Field,41.83,-87.633888888,Chicago,Illinois,Chicago White Sox,mlb
-Q76318,mlb,Rogers Centre,43.641388888,-79.389166666,Toronto,Ontario,Toronto Blue Jays,mlb
-Q3418115,mlb,Sutter Health Park,38.580372222,-121.5138,West Sacramento,California,Athletics,mlb
-Q1193117,mlb,T-Mobile Park,47.591388888,-122.3325,Seattle,Washington,Seattle Mariners,mlb
-Q1156635,mlb,Target Field,44.981667,-93.278333,Minneapolis,Minnesota,Minnesota Twins,mlb
-Q1810119,mlb,Tropicana Field,27.768333333,-82.653333333,St. Petersburg,Florida,Tampa Bay Rays,mlb
-Q17003430,mlb,Truist Park,33.8912,-84.4683,Cobb County,Georgia,Atlanta Braves,mlb
-Q1052807,mlb,Wrigley Field,41.948055555,-87.655555555,Chicago,Illinois,Chicago Cubs,mlb
-Q753529,mlb,Yankee Stadium,40.829569,-73.926392,The Bronx,New York,New York Yankees,mlb
+wikidata_qid,catalog_slug,name,lat,lng,city,state,country_code,tenants,leagues
+Q1339293,mlb,American Family Field,43.028333333,-87.971111111,Milwaukee,Wisconsin,US,Milwaukee Brewers,mlb
+Q531897,mlb,Angel Stadium of Anaheim,33.800277777,-117.882777777,Anaheim,California,US,Los Angeles Angels,mlb
+Q253546,mlb,Busch Stadium,38.6225,-90.193056,St. Louis,Missouri,US,St. Louis Cardinals,mlb
+Q1068011,mlb,Chase Field,33.445277777,-112.066944444,Phoenix,Arizona,US,Arizona Diamondbacks,mlb
+Q1634492,mlb,Choctaw Stadium,32.751388888,-97.082777777,Arlington,Texas,US,Texas Rangers,mlb
+Q1072882,mlb,Citi Field,40.756986,-73.845783,Flushing,New York,US,New York Mets,mlb
+Q912770,mlb,Citizens Bank Park,39.905833333,-75.166666666,Philadelphia,Pennsylvania,US,Philadelphia Phillies,mlb
+Q868482,mlb,Comerica Park,42.339166666,-83.048611111,Detroit,Michigan,US,Detroit Tigers,mlb
+Q1129916,mlb,Coors Field,39.756111111,-104.994166666,Denver,Colorado,US,Colorado Rockies,mlb
+Q1193671,mlb,Daikin Park,29.756944444,-95.355555555,Houston,Texas,US,Houston Astros,mlb
+Q247420,mlb,Dodger Stadium,34.073611111,-118.24,Los Angeles,California,US,Los Angeles Dodgers,mlb
+Q49136,mlb,Fenway Park,42.346388888,-71.0975,Boston,Massachusetts,US,Boston Red Sox,mlb
+Q979975,mlb,Great American Ball Park,39.097222222,-84.506944444,Cincinnati,Ohio,US,Cincinnati Reds,mlb
+Q1737017,mlb,Kauffman Stadium,39.051388888,-94.480555555,Kansas City,Missouri,US,Kansas City Royals,mlb
+Q1368138,mlb,LoanDepot Park,25.778056,-80.219722,Miami,Florida,US,Miami Marlins,mlb
+Q517545,mlb,Nationals Park,38.8725,-77.007777777,"Washington, D.C.",District of Columbia,US,Washington Nationals,mlb
+Q298585,mlb,Oracle Park,37.778333333,-122.389444444,San Francisco,California,US,San Francisco Giants,mlb
+Q1141174,mlb,Oriole Park at Camden Yards,39.283888888,-76.621666666,Baltimore,Maryland,US,Baltimore Orioles,mlb
+Q1194586,mlb,Petco Park,32.707333,-117.156944,Downtown San Diego,California,US,San Diego Padres,mlb
+Q1151177,mlb,PNC Park,40.446944444,-80.005833333,Pittsburgh,Pennsylvania,US,Pittsburgh Pirates,mlb
+Q1154053,mlb,Progressive Field,41.495833333,-81.685277777,Cleveland,Ohio,US,Cleveland Guardians,mlb
+Q633613,mlb,Rate Field,41.83,-87.633888888,Chicago,Illinois,US,Chicago White Sox,mlb
+Q76318,mlb,Rogers Centre,43.641388888,-79.389166666,Toronto,Ontario,CA,Toronto Blue Jays,mlb
+Q3418115,mlb,Sutter Health Park,38.580372222,-121.5138,West Sacramento,California,US,Athletics,mlb
+Q1193117,mlb,T-Mobile Park,47.591388888,-122.3325,Seattle,Washington,US,Seattle Mariners,mlb
+Q1156635,mlb,Target Field,44.981667,-93.278333,Minneapolis,Minnesota,US,Minnesota Twins,mlb
+Q1810119,mlb,Tropicana Field,27.768333333,-82.653333333,St. Petersburg,Florida,US,Tampa Bay Rays,mlb
+Q17003430,mlb,Truist Park,33.8912,-84.4683,Cobb County,Georgia,US,Atlanta Braves,mlb
+Q1052807,mlb,Wrigley Field,41.948055555,-87.655555555,Chicago,Illinois,US,Chicago Cubs,mlb
+Q753529,mlb,Yankee Stadium,40.829569,-73.926392,The Bronx,New York,US,New York Yankees,mlb

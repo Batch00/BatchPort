@@ -13,9 +13,18 @@ this directory is loaded by the app yet.
 | `catalog-overrides.csv` | Hand-maintained corrections applied after the pull |
 | `us-admin1.geojson` | US Census `cb_2023_us_state_500k`, 50 states + DC, for point-in-polygon state coverage |
 
-Catalog columns: `wikidata_qid, catalog_slug, name, lat, lng, city, state, tenants, leagues`.
-`tenants` and `leagues` are pipe delimited. `missing-coords.csv` has the same
-columns plus a trailing `reason`, with `lat` and `lng` blank.
+Catalog columns: `wikidata_qid, catalog_slug, name, lat, lng, city, state,
+country_code, tenants, leagues`. `tenants` and `leagues` are pipe delimited.
+`missing-coords.csv` has the same columns plus a trailing `reason`, with `lat`
+and `lng` blank.
+
+`country_code` is ISO 3166-1 alpha-2, sourced from Wikidata `P17` -> `P297`
+(664 US, 8 CA). It is NOT NULL in `place_catalog_items` and the loader refuses a
+blank one, because it is the last segment of the generated
+`places.locality_key`: a venue with no country keys as `green bay|wisconsin|`
+and will not group with the same city picked from Photon, which always returns
+one. Exactly one item has no `P17` and is filled through
+`catalog-overrides.csv`.
 
 `wikidata_qid` is the identity key. A venue that belongs to more than one
 catalog appears in each file with the same QID and identical values in every

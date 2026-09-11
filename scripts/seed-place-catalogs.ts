@@ -32,7 +32,8 @@ import { join } from "node:path";
 import { DATA_DIR, adminClient, chunked, ewktPoint, readCsvObjects } from "./places-db";
 
 const CATALOG_HEADER = [
-  "wikidata_qid", "catalog_slug", "name", "lat", "lng", "city", "state", "tenants", "leagues",
+  "wikidata_qid", "catalog_slug", "name", "lat", "lng", "city", "state",
+  "country_code", "tenants", "leagues",
 ] as const;
 const OVERRIDE_HEADER = [
   "wikidata_qid", "catalog_slug", "field", "value", "reason",
@@ -174,6 +175,7 @@ interface VenueItem {
   lat: number;
   city: string | null;
   state: string | null;
+  country_code: string;
   tenants: string[];
   catalogs: string[];
 }
@@ -197,6 +199,17 @@ function collapseToVenues(byCatalog: Map<string, Map<string, Row>>): VenueItem[]
         );
       }
 
+      // NOT NULL in the database, and load-bearing: it is the last segment of
+      // places.locality_key, so a venue with no country would not group with the
+      // same place picked from Photon. A gap is filled through
+      // catalog-overrides.csv, never guessed here.
+      if (!row.country_code) {
+        throw new Error(
+          `${label} (${qid}): no country_code. Wikidata P17 did not answer for it; ` +
+            "add a country_code override to scripts/data/catalog-overrides.csv with the derivation in its reason.",
+        );
+      }
+
       const tenants = row.tenants ? row.tenants.split("|").filter(Boolean) : [];
       const existing = venues.get(qid);
       if (!existing) {
@@ -207,6 +220,7 @@ function collapseToVenues(byCatalog: Map<string, Map<string, Row>>): VenueItem[]
           lat,
           city: row.city || null,
           state: row.state || null,
+          country_code: row.country_code,
           tenants,
           catalogs: [slug],
         });
@@ -224,6 +238,7 @@ function collapseToVenues(byCatalog: Map<string, Map<string, Row>>): VenueItem[]
           ["lng", String(existing.lng), String(lng)],
           ["city", existing.city ?? "", row.city],
           ["state", existing.state ?? "", row.state],
+          ["country_code", existing.country_code, row.country_code],
         ] as const
       ).filter(([, a, b]) => a !== b);
       if (disagreements.length) {
@@ -317,6 +332,7 @@ async function main(): Promise<void> {
         geom: ewktPoint(v.lng, v.lat),
         city: v.city,
         state: v.state,
+        country_code: v.country_code,
         tenants: v.tenants,
         updated_at: now,
       })),

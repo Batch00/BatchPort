@@ -2,6 +2,7 @@
 // matches the columns returned by PostgREST so query results map directly.
 
 import type { PhotoSlot } from "@/lib/curation";
+import type { TransportMode } from "@/lib/transport";
 
 export type TripStatus = "completed" | "ongoing" | "planned";
 
@@ -141,6 +142,105 @@ export interface GeoLocation {
   // Set when the result is a whole country rather than a place within one.
   // Optional: cached responses parsed before this field existed omit it.
   kind?: "country" | "place";
+}
+
+// --- Places -----------------------------------------------------------------
+//
+// A place is somewhere you were, and a visit is one time you were there. The
+// entry sheet never shows that split: creating a place always writes both.
+
+// Mirrors the batchport.place_type enum.
+export type PlaceType = "city" | "campus" | "stadium" | "park" | "landmark" | "other";
+
+export interface Occasion {
+  id: string;
+  slug: string;
+  label: string;
+  // A lucide-react export name, e.g. "Ticket". Nullable in the schema.
+  icon: string | null;
+  color: string | null;
+  sort_order: number;
+}
+
+export interface Place {
+  id: string;
+  user_id: string;
+  name: string;
+  place_type: PlaceType;
+  // Decoded from the geom geography column, which unlike destinations has no
+  // generated latitude/longitude beside it. Null when geom is null.
+  lat: number | null;
+  lng: number | null;
+  country_code: string | null;
+  admin_region: string | null;
+  locality_name: string | null;
+  // GENERATED ALWAYS AS STORED. Read only: never send it in an insert or
+  // update, exactly as with destinations.latitude/longitude.
+  locality_key: string | null;
+  catalog_item_id: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlaceVisit {
+  id: string;
+  place_id: string;
+  user_id: string;
+  visit_date: string;
+  end_date: string | null;
+  occasion_id: string | null;
+  occasion_label: string | null;
+  // Populated only for game visits.
+  event_org: string | null;
+  event_detail: string | null;
+  // Text with a check constraint matching transport_legs.mode, not an enum.
+  transport_mode: TransportMode | null;
+  trip_id: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One catalog a venue belongs to. A venue can be in several. */
+export interface PlaceCatalogRef {
+  slug: string;
+  label: string;
+}
+
+/** A row of the tracked venue catalog, as the search route returns it. */
+export interface PlaceCatalogItem {
+  id: string;
+  wikidata_qid: string;
+  name: string;
+  lat: number | null;
+  lng: number | null;
+  city: string | null;
+  state: string | null;
+  /**
+   * ISO 3166-1 alpha-2, sourced from Wikidata P17. Not optional in the
+   * database: it feeds places.country_code on a catalog pick, and without it
+   * the generated locality_key ends in an empty segment and will not group
+   * with the same place picked from Photon.
+   */
+  country_code: string | null;
+  tenants: string[];
+  catalogs: PlaceCatalogRef[];
+}
+
+/** A place plus its visit rollup, from batchport.v_places. */
+export interface PlaceListRow extends Place {
+  visit_count: number;
+  first_visit_date: string | null;
+  latest_visit_date: string | null;
+  first_occasion_slug: string | null;
+  first_occasion_label: string | null;
+  first_occasion_icon: string | null;
+  first_occasion_color: string | null;
+}
+
+export interface PlaceWithVisits extends Place {
+  visits: PlaceVisit[];
 }
 
 // A point of interest from the POI geocoder, used to prefill an experience.
