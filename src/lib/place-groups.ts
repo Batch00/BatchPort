@@ -1,4 +1,5 @@
 import type { PlaceListRow, PlaceType } from "@/lib/types";
+import { US_STATE_POSTAL } from "@/lib/us-state-postal";
 
 // How the /places list is shaped. Pure and client-safe, so the filter controls
 // and the server render agree by construction rather than by both being careful.
@@ -53,9 +54,38 @@ export interface PlaceRowEntry {
 
 export type PlaceListEntry = PlaceGroupEntry | PlaceRowEntry;
 
-/** "Green Bay, Wisconsin", or as much of it as the row has. */
+/** "Green Bay, Wisconsin", or as much of it as the row has. Used by the group
+ * HEADER, where there is a whole line to spend. */
 export function localityLabel(place: PlaceListRow): string {
   return [place.locality_name, place.admin_region].filter(Boolean).join(", ");
+}
+
+/**
+ * "Milwaukee, WI", for a BARE ROW's metadata line, which also carries a date
+ * and an occasion and cannot afford "Milwaukee, Wisconsin".
+ *
+ * Only a bare row needs this: a place inside a group already has the header
+ * saying where it is, and repeating it on every row would be noise. Bare rows
+ * have no header, which is exactly why they were reading as members of the
+ * group above them.
+ *
+ * Returns "" when there is no locality, which is the normal case for a park or
+ * a stadium with no city, and correctly adds nothing to the line.
+ *
+ * A CITY DOES NOT REPEAT ITS OWN NAME. For a city place the locality and the
+ * name are the same string, so the full form gave "Minneapolis" titled above
+ * "Minneapolis, MN" beneath. The region still earns its place (it says WHICH
+ * Minneapolis), so only the echoed half is dropped.
+ */
+export function shortLocalityLabel(place: PlaceListRow): string {
+  if (!place.locality_name) return "";
+  const region = place.admin_region
+    ? (US_STATE_POSTAL[place.admin_region] ?? place.admin_region)
+    : null;
+  const sameAsName =
+    place.locality_name.trim().toLowerCase() === place.name.trim().toLowerCase();
+  if (sameAsName) return region ?? "";
+  return [place.locality_name, region].filter(Boolean).join(", ");
 }
 
 function matchesFilters(place: PlaceListRow, filters: PlaceFilters): boolean {

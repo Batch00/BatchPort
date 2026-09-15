@@ -123,7 +123,7 @@ export function PlaceSearchInput({
   }
 
   return (
-    <div ref={containerRef} className={cn("relative", className)}>
+    <div ref={containerRef} className={className}>
       <div className="relative">
         <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -142,8 +142,18 @@ export function PlaceSearchInput({
         ) : null}
       </div>
 
+      {/* IN NORMAL FLOW, not an absolutely positioned dropdown.
+          As an overlay it contributed no layout height, so the dialog had no
+          idea it was there: DialogContent scrolls its own content, and an
+          absolutely positioned descendant of a scroll container is clipped by
+          it, which is why the lower results were unreachable without scrolling
+          the whole sheet. Growing the sheet until the overlay fitted was
+          treating the symptom.
+          In flow, the sheet measures the results and sizes itself to them,
+          which is also why this needs no z-index, no portal, and no
+          repositioning on scroll or resize. */}
       {open ? (
-        <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10">
+        <div className="mt-1 w-full overflow-hidden rounded-lg border border-white/10 bg-popover text-popover-foreground">
           {loading ? (
             <div className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
               <Loader2Icon className="size-4 animate-spin" />
@@ -156,7 +166,10 @@ export function PlaceSearchInput({
               </div>
             ) : null
           ) : (
-            <ul className="max-h-72 overflow-y-auto py-1">
+            // A safety net, not the mechanism: the search route returns at
+            // most 12 rows, so this only engages on a very short viewport.
+            // Normally the list is drawn whole and the sheet grows to it.
+            <ul className="max-h-[50dvh] overflow-y-auto py-1">
               {results.map((result) => (
                 <li key={result.key}>
                   <button

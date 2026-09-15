@@ -8,6 +8,7 @@ import { PlaceTypeIcon } from "@/components/places/place-type-icon";
 import {
   buildPlaceList,
   DEFAULT_PLACE_FILTERS,
+  shortLocalityLabel,
   type PlaceFilters,
   type PlaceSort,
 } from "@/lib/place-groups";
@@ -36,15 +37,25 @@ function formatDate(iso: string | null): string | null {
   });
 }
 
+// A BARE ROW CARRIES ITS OWN LOCALITY; a group member does not.
+//
+// Without this, a bare row sitting under a group read as a member of it: the
+// only thing distinguishing "American Family Field, Milwaukee" from the two
+// places under a "GREEN BAY, WISCONSIN, 2 places" header was a small indent,
+// so the eye counted three rows under a header that said two.
+//
+// The fix is to make the row self-describing rather than to give every lone
+// locality a header. Twenty places would mean roughly eleven headers reading
+// "1 place", and a park with no locality could not have one at all, so the
+// header route makes the common case worse and still does not cover it.
 function PlaceRow({ place, inGroup }: { place: PlaceListRow; inGroup: boolean }) {
   const first = formatDate(place.first_visit_date);
+  // Empty for a park or a venue with no city, which correctly adds nothing.
+  const locality = inGroup ? "" : shortLocalityLabel(place);
   return (
     <Link
       href={`/places/${place.id}`}
-      className={cn(
-        "flex items-center gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 transition-colors hover:bg-white/[0.07]",
-        inGroup && "ml-4",
-      )}
+      className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 transition-colors hover:bg-white/[0.07]"
     >
       <PlaceTypeIcon
         type={place.place_type}
@@ -57,9 +68,11 @@ function PlaceRow({ place, inGroup }: { place: PlaceListRow; inGroup: boolean })
               and this state is reachable: deleting the last visit of a place is
               a choice the detail view offers rather than a cascade. */}
           {place.visit_count === 0 ? (
-            <span className="text-foreground/40">No visits logged</span>
+            [locality, "No visits logged"].filter(Boolean).join(" · ")
           ) : (
-            [first ?? "No date", place.first_occasion_label].filter(Boolean).join(" · ")
+            [locality, first ?? "No date", place.first_occasion_label]
+              .filter(Boolean)
+              .join(" · ")
           )}
         </span>
       </span>
@@ -152,18 +165,29 @@ export function PlacesList({ places, occasions }: PlacesListProps) {
             : "Nothing matches those filters."}
         </p>
       ) : (
-        <div className="flex flex-col gap-2">
+        // gap-5 between entries, not gap-2. A group and the bare row after it
+        // were separated by the same distance as two rows INSIDE the group,
+        // which is what let the eye read the next row as a third member.
+        <div className="flex flex-col gap-5">
           {entries.map((entry) =>
             entry.kind === "group" ? (
-              <div key={entry.key} className="flex flex-col gap-2">
-                <h2 className="px-1 pt-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              // The rail is the second half of the fix. A group's rows are
+              // visibly bracketed as belonging to their header, so where the
+              // bracket stops is where the group stops. An indent alone was too
+              // subtle to carry that meaning.
+              <section
+                key={entry.key}
+                aria-label={entry.label}
+                className="flex flex-col gap-2 border-l-2 border-brand/30 pl-3"
+              >
+                <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
                   {entry.label}
                   <span className="ml-2 normal-case opacity-60">{entry.places.length} places</span>
                 </h2>
                 {entry.places.map((place) => (
                   <PlaceRow key={place.id} place={place} inGroup />
                 ))}
-              </div>
+              </section>
             ) : (
               <PlaceRow key={entry.key} place={entry.place} inGroup={false} />
             ),

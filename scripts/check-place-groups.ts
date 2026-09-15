@@ -12,6 +12,7 @@ import {
   countPlaces,
   DEFAULT_PLACE_FILTERS,
   localityLabel,
+  shortLocalityLabel,
   type PlaceListEntry,
 } from "../src/lib/place-groups";
 import type { PlaceListRow } from "../src/lib/types";
@@ -147,6 +148,60 @@ console.log("\nlabels");
   check("locality label joins city and region", localityLabel(lambeau) === "Green Bay, Wisconsin");
   const noRegion = place({ id: "x", name: "X", locality_name: "Solo", admin_region: null, locality_key: "solo||US" });
   check("a missing region does not leave a trailing comma", localityLabel(noRegion) === "Solo");
+}
+
+// The SHORT label is what a BARE ROW puts on its metadata line, beside a date
+// and an occasion. It exists because a bare row sitting under a group was
+// reading as a member of that group, with only an indent to say otherwise.
+console.log("\nshort locality label, for bare rows");
+{
+  check(
+    "abbreviates the state, from the sourced Census postal codes",
+    shortLocalityLabel(amFam) === "Milwaukee, WI",
+    shortLocalityLabel(amFam),
+  );
+  check(
+    "a city does not repeat its own name, but keeps the region",
+    shortLocalityLabel(greenBay) === "WI",
+    shortLocalityLabel(greenBay),
+  );
+  const park = place({
+    id: "p",
+    name: "Rocky Mountain National Park",
+    place_type: "park",
+    locality_name: null,
+    admin_region: "Colorado",
+    locality_key: null,
+  });
+  check(
+    "no locality adds nothing at all, which is right for a park",
+    shortLocalityLabel(park) === "",
+    JSON.stringify(shortLocalityLabel(park)),
+  );
+  const canadian = place({
+    id: "c",
+    name: "Rogers Centre",
+    locality_name: "Toronto",
+    admin_region: "Ontario",
+    locality_key: "toronto|ontario|CA",
+  });
+  check(
+    "a province with no postal code falls back to its full name",
+    shortLocalityLabel(canadian) === "Toronto, Ontario",
+    shortLocalityLabel(canadian),
+  );
+  const noShortRegion = place({
+    id: "n",
+    name: "Somewhere",
+    locality_name: "Tiny Town",
+    admin_region: null,
+    locality_key: "tiny town||US",
+  });
+  check(
+    "a missing region does not leave a trailing comma",
+    shortLocalityLabel(noShortRegion) === "Tiny Town",
+    shortLocalityLabel(noShortRegion),
+  );
 }
 
 // --- the dedup rule ---------------------------------------------------------

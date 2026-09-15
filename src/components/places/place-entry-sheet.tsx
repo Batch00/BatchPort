@@ -273,7 +273,18 @@ export function PlaceEntrySheet({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+{/* CONTENT SIZED. Small at rest (a search field and a sentence), growing as
+          results appear and as the form unlocks after a pick, scrolling only
+          once it genuinely exceeds the cap.
+
+          A fixed height was tried and was worse than the original: the dialog
+          is a grid, and a grid with a fixed height stretches its rows, so an
+          85vh sheet put ~400px of dead space between the description and the
+          search field and pushed the input toward the bottom of the screen.
+          Capping with max-h keeps the rows auto-sized and the content at the
+          top. The real problem was never the height anyway; see
+          place-search-input.tsx. */}
+      <DialogContent className="max-h-[85dvh] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             {editingOneVisit ? "Edit visit" : editingExisting ? "Add another visit" : "Log a place"}
