@@ -8,14 +8,21 @@ import { MenuIcon, SettingsIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GlobalSearch } from "@/components/search/global-search";
 import { OfflineStatus } from "@/components/offline/offline-status";
+import { PLACES_ENABLED } from "@/lib/features";
 import { forgetOfflineData } from "@/lib/offline/forget";
 import { cn } from "@/lib/utils";
 
 // Links shown in the full mobile menu. The desktop bar shows the first three
 // plus a settings gear; the mobile sheet lists all of them.
+//
+// Places sits behind NEXT_PUBLIC_PLACES_ENABLED and is spliced in rather than
+// rendered-then-hidden, so with the flag off the nav is byte-identical to what
+// it was before the feature existed. The flag is a build-time constant, so this
+// is not a runtime branch in the shipped bundle either.
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/dashboard/bucket-list", label: "Bucket List" },
+  ...(PLACES_ENABLED ? [{ href: "/places", label: "Places" }] : []),
   { href: "/dashboard/stats", label: "Stats" },
   { href: "/dashboard/settings", label: "Settings" },
 ];
@@ -32,7 +39,10 @@ export function AppNav({ email, signOut }: AppNavProps) {
   const pathname = usePathname();
 
   // Exact match only: /dashboard/stats should highlight Stats, not Dashboard.
+  // Places is the exception: /places/<id> is still Places, and a detail page
+  // with nothing highlighted reads as having navigated out of the section.
   function isActive(href: string): boolean {
+    if (href === "/places") return pathname === "/places" || pathname.startsWith("/places/");
     return pathname === href;
   }
 

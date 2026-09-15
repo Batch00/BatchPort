@@ -32,12 +32,16 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { addPlaceVisitAction, createPlaceAction } from "@/lib/actions/places";
+import {
+  addPlaceVisitAction,
+  createPlaceAction,
+  updatePlaceVisitAction,
+} from "@/lib/actions/places";
 import { useConnectionGuard } from "@/lib/offline/use-offline";
 import type { PlaceSearchResult } from "@/lib/place-search";
 import { PLACE_TYPES } from "@/lib/place-types";
 import { TRANSPORT_MODES, type TransportMode } from "@/lib/transport";
-import type { Occasion, Place, PlaceType } from "@/lib/types";
+import type { Occasion, Place, PlaceType, PlaceVisit } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // The log-a-place sheet. One screen, mobile first, because this is a PWA and a
@@ -86,6 +90,12 @@ interface PlaceEntrySheetProps {
    * visit fields are asked for. Absent for a new place.
    */
   place?: Place;
+  /**
+   * Present WITH `place` to edit an existing visit rather than add one. Three
+   * modes in one component on purpose: they ask for the same fields, and a
+   * second form for editing is how the two drift.
+   */
+  visit?: PlaceVisit;
   /** Tenants of the fixed place, when it is a tracked venue. */
   tenants?: string[];
   onSaved?: (placeId: string) => void;
@@ -96,23 +106,27 @@ export function PlaceEntrySheet({
   onOpenChange,
   occasions,
   place,
+  visit: editingVisit,
   tenants,
   onSaved,
 }: PlaceEntrySheetProps) {
   const editingExisting = Boolean(place);
+  const editingOneVisit = Boolean(place && editingVisit);
   const guard = useConnectionGuard();
 
   const [picked, setPicked] = useState<PlaceSearchResult | null>(null);
   const [name, setName] = useState(place?.name ?? "");
   const [placeType, setPlaceType] = useState<PlaceType>(place?.place_type ?? "city");
 
-  const [visitDate, setVisitDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [occasionId, setOccasionId] = useState<string | null>(null);
-  const [eventOrg, setEventOrg] = useState("");
-  const [eventDetail, setEventDetail] = useState("");
-  const [transportMode, setTransportMode] = useState<TransportMode | null>(null);
-  const [notes, setNotes] = useState("");
+  const [visitDate, setVisitDate] = useState(editingVisit?.visit_date ?? "");
+  const [endDate, setEndDate] = useState(editingVisit?.end_date ?? "");
+  const [occasionId, setOccasionId] = useState<string | null>(editingVisit?.occasion_id ?? null);
+  const [eventOrg, setEventOrg] = useState(editingVisit?.event_org ?? "");
+  const [eventDetail, setEventDetail] = useState(editingVisit?.event_detail ?? "");
+  const [transportMode, setTransportMode] = useState<TransportMode | null>(
+    editingVisit?.transport_mode ?? null,
+  );
+  const [notes, setNotes] = useState(editingVisit?.notes ?? "");
   const [busy, setBusy] = useState(false);
 
   // A catalog pick answers "what kind of thing is this" itself, so the type row
@@ -139,13 +153,13 @@ export function PlaceEntrySheet({
     setPicked(null);
     setName(place?.name ?? "");
     setPlaceType(place?.place_type ?? "city");
-    setVisitDate("");
-    setEndDate("");
-    setOccasionId(null);
-    setEventOrg("");
-    setEventDetail("");
-    setTransportMode(null);
-    setNotes("");
+    setVisitDate(editingVisit?.visit_date ?? "");
+    setEndDate(editingVisit?.end_date ?? "");
+    setOccasionId(editingVisit?.occasion_id ?? null);
+    setEventOrg(editingVisit?.event_org ?? "");
+    setEventDetail(editingVisit?.event_detail ?? "");
+    setTransportMode(editingVisit?.transport_mode ?? null);
+    setNotes(editingVisit?.notes ?? "");
   }
 
   function handleOpenChange(next: boolean) {
@@ -196,7 +210,15 @@ export function PlaceEntrySheet({
       // return different shapes ({ visitId } and { placeId, visitId }), and a
       // union of the two narrows to the smaller one.
       let savedPlaceId: string;
-      if (editingExisting) {
+      let addedToExisting = false;
+      if (editingOneVisit) {
+        const result = await updatePlaceVisitAction(editingVisit!.id, visit);
+        if ("error" in result) {
+          toast.error(result.error);
+          return;
+        }
+        savedPlaceId = place!.id;
+      } else if (editingExisting) {
         const result = await addPlaceVisitAction(place!.id, visit);
         if ("error" in result) {
           toast.error(result.error);
@@ -223,9 +245,21 @@ export function PlaceEntrySheet({
           return;
         }
         savedPlaceId = result.placeId;
+        // The action folds a duplicate into the place that already exists, so
+        // say which of the two things happened rather than claiming a new
+        // place was logged when a visit was added to an old one.
+        addedToExisting = result.addedToExisting;
       }
 
-      toast.success(editingExisting ? "Visit added." : `${name.trim()} logged.`);
+      toast.success(
+        editingOneVisit
+          ? "Visit updated."
+          : editingExisting
+            ? "Visit added."
+            : addedToExisting
+              ? `Added a visit to ${name.trim()}, which you already had.`
+              : `${name.trim()} logged.`,
+      );
       onSaved?.(savedPlaceId);
       handleOpenChange(false);
     } catch {
@@ -241,11 +275,15 @@ export function PlaceEntrySheet({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{editingExisting ? "Add another visit" : "Log a place"}</DialogTitle>
+          <DialogTitle>
+            {editingOneVisit ? "Edit visit" : editingExisting ? "Add another visit" : "Log a place"}
+          </DialogTitle>
           <DialogDescription>
-            {editingExisting
-              ? `Another time you were at ${place?.name}.`
-              : "Somewhere you stayed overnight or spent a real day. Not layovers or drive-throughs."}
+            {editingOneVisit
+              ? `A visit to ${place?.name}.`
+              : editingExisting
+                ? `Another time you were at ${place?.name}.`
+                : "Somewhere you stayed overnight or spent a real day. Not layovers or drive-throughs."}
           </DialogDescription>
         </DialogHeader>
 
@@ -497,7 +535,7 @@ export function PlaceEntrySheet({
                   Cancel
                 </Button>
                 <Button type="button" className="flex-1" disabled={busy} onClick={handleSave}>
-                  {busy ? "Saving" : editingExisting ? "Add visit" : "Log it"}
+                  {busy ? "Saving" : editingOneVisit ? "Save" : editingExisting ? "Add visit" : "Log it"}
                 </Button>
               </div>
             </>

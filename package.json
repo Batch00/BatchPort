@@ -35,7 +35,8 @@
     "seed-place-catalogs": "npx tsx scripts/seed-place-catalogs.ts",
     "load-admin1": "npx tsx scripts/load-admin1.ts",
     "check-places-schema": "npx tsx scripts/check-places-schema.ts",
-    "check-user-scoping": "npx tsx scripts/check-user-scoping.ts"
+    "check-user-scoping": "npx tsx scripts/check-user-scoping.ts",
+    "check-place-groups": "npx tsx scripts/check-place-groups.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

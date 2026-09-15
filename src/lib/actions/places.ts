@@ -8,6 +8,7 @@ import {
   countPlaceVisits,
   createPlaceVisit,
   createPlaceWithVisit,
+  findDuplicatePlace,
   deletePlace,
   deletePlaceVisit,
   getVisitPlaceId,
@@ -60,19 +61,38 @@ function validateVisitInput(input: PlaceVisitInput): string | null {
   return null;
 }
 
+/**
+ * Log a place.
+ *
+ * If the user already has this place, this ADDS A VISIT to it rather than
+ * creating a second one, and says so in the result. The guard lives here rather
+ * than in the sheet because every entry point reaches this action, and one
+ * venue is one pin: a duplicate double-counts a catalog's denominator, puts two
+ * pins on one spot, and splits a visit history that only makes sense whole.
+ * American Family Field was logged twice before this existed.
+ */
 export async function createPlaceAction(
   place: PlaceInput,
   visit: PlaceVisitInput,
-): Promise<{ error: string } | { placeId: string; visitId: string }> {
+): Promise<
+  { error: string } | { placeId: string; visitId: string; addedToExisting: boolean }
+> {
   if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
   const invalidPlace = validatePlaceInput(place);
   if (invalidPlace) return { error: invalidPlace };
   const invalidVisit = validateVisitInput(visit);
   if (invalidVisit) return { error: invalidVisit };
 
+  const existingId = await findDuplicatePlace(place);
+  if (existingId) {
+    const created = await createPlaceVisit(existingId, visit);
+    revalidateAppData();
+    return { placeId: existingId, visitId: created.id, addedToExisting: true };
+  }
+
   const created = await createPlaceWithVisit(place, visit);
   revalidateAppData();
-  return created;
+  return { ...created, addedToExisting: false };
 }
 
 export async function updatePlaceAction(

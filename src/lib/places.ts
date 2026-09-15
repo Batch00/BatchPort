@@ -252,6 +252,54 @@ function visitPayload(input: PlaceVisitInput) {
 }
 
 /**
+ * The place this input would duplicate, if the user already has one.
+ *
+ * ONE VENUE IS ONE PIN. Logging a catalog venue that is already logged must add
+ * a visit to it, not clone it: two rows for one building double-count a
+ * catalog's denominator, put two pins on one spot, and split a visit history
+ * that only makes sense whole. Nothing in the UI can be trusted to prevent
+ * that, because the create path is reachable from the list's "Log a place"
+ * button regardless of what the user already has.
+ *
+ * Matching is by catalog_item_id when there is one, because that is a real
+ * identity. Otherwise it falls back to the same name in the same locality,
+ * which is the best available answer for a Photon pick: "Green Bay" logged
+ * twice in Green Bay, Wisconsin is one place. A place with no locality at all
+ * never matches, because "no locality" is not a locality two things can share.
+ */
+export async function findDuplicatePlace(input: PlaceInput): Promise<string | null> {
+  const { supabase, user } = await requireUser();
+
+  if (input.catalog_item_id) {
+    const { data, error } = await supabase
+      .from("places")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("catalog_item_id", input.catalog_item_id)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return (data?.id as string | undefined) ?? null;
+  }
+
+  if (!input.locality_name?.trim()) return null;
+
+  // locality_key is generated, so it cannot be filtered on before the row
+  // exists. Match its inputs instead, case-insensitively on the name.
+  const { data, error } = await supabase
+    .from("places")
+    .select("id")
+    .eq("user_id", user.id)
+    .is("catalog_item_id", null)
+    .ilike("name", input.name.trim())
+    .eq("locality_name", input.locality_name)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.id as string | undefined) ?? null;
+}
+
+/**
  * Create a place and its first visit together, in one transaction.
  *
  * The UI never exposes the two-table split, so neither does this: there is no

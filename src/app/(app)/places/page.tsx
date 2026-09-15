@@ -1,13 +1,12 @@
 import { notFound } from "next/navigation";
 
 import { PlaceEntryLauncher } from "@/components/places/place-entry-launcher";
+import { PlacesList } from "@/components/places/places-list";
 import { PLACES_ENABLED } from "@/lib/features";
-import { getOccasions } from "@/lib/places";
+import { getOccasions, getPlacesList } from "@/lib/places";
 
-// STAGE 3 HARNESS. This is deliberately not the /places route yet: the grouped
-// list, the filters, the sort, and the detail view are stage 4. It exists so
-// the entry sheet can be opened and reviewed on a real device rather than only
-// read as a diff.
+// The places list. Server component: one v_places read and one occasions read,
+// handed to a client component that does the filtering and sorting in memory.
 //
 // notFound() rather than a redirect when the flag is off, so an unflagged
 // deployment behaves as though the route does not exist, which is what "nothing
@@ -16,11 +15,11 @@ import { getOccasions } from "@/lib/places";
 export default async function PlacesPage() {
   if (!PLACES_ENABLED) notFound();
 
-  const occasions = await getOccasions();
+  const [places, occasions] = await Promise.all([getPlacesList(), getOccasions()]);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Places</h1>
           <p className="text-sm text-muted-foreground">
@@ -30,9 +29,7 @@ export default async function PlacesPage() {
         <PlaceEntryLauncher occasions={occasions} />
       </div>
 
-      <p className="rounded-lg border border-dashed border-white/10 px-4 py-8 text-center text-sm text-muted-foreground">
-        The grouped list lands in stage 4.
-      </p>
+      <PlacesList places={places} occasions={occasions} />
     </div>
   );
 }
