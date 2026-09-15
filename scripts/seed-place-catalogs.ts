@@ -255,6 +255,51 @@ function collapseToVenues(byCatalog: Map<string, Map<string, Row>>): VenueItem[]
   return [...venues.values()].sort((a, b) => a.wikidata_qid.localeCompare(b.wikidata_qid));
 }
 
+// --- The city smell test ----------------------------------------------------
+//
+// `city` comes from Wikidata's P131, which answers "the administrative entity
+// this is in" rather than "the town this is in". For most venues those agree.
+// For some the immediate parent is a COUNTY (Truist Park read "Cobb County"),
+// or the STATE itself (United Center read "Illinois", Frost Bank Center read
+// "Texas"). Either way the venue keys as `cobb county|georgia|US` and silently
+// fails to group with anything, which is invisible until somebody notices a
+// group that did not form.
+//
+// This WARNS and never fails, because every pattern here has legitimate
+// matches. Washington, D.C. genuinely is both a city and its own state-level
+// entity; a venue really can sit in a township that is the actual municipality
+// (Beaver Stadium's P131 is College Township and its P276 is a university, so
+// the township IS the best sourced answer). Failing the load on those would
+// train whoever runs it to ignore the check.
+//
+// A flagged row is a prompt to go and look at P131 and P276, not a verdict.
+// What is NOT acceptable is guessing: a correction goes in
+// catalog-overrides.csv with its source stated, or the field stays as it is.
+
+const COUNTY_SUFFIX = /\s(County|Parish|Township|Borough|Municipality)$/i;
+
+function reportSuspectCities(venues: VenueItem[]): void {
+  const suspects = venues.filter(
+    (v) => v.city && (v.city === v.state || COUNTY_SUFFIX.test(v.city)),
+  );
+  if (suspects.length === 0) {
+    console.log("  city smell test: nothing flagged");
+    return;
+  }
+  console.warn(
+    `\n  WARNING: ${suspects.length} venue(s) have a city that looks like an administrative`,
+  );
+  console.warn("  parent rather than a town. Each keys as its own locality and will not group.");
+  console.warn("  Check P131 and P276 on the item; correct through catalog-overrides.csv or");
+  console.warn("  leave it. Do not guess.\n");
+  for (const v of suspects) {
+    console.warn(
+      `    ${v.wikidata_qid.padEnd(12)}${v.name.padEnd(36)}city=${JSON.stringify(v.city)} state=${JSON.stringify(v.state)}`,
+    );
+  }
+  console.warn("");
+}
+
 // --- Write ------------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -288,6 +333,7 @@ async function main(): Promise<void> {
   );
 
   const venues = collapseToVenues(byCatalog);
+  reportSuspectCities(venues);
   const membershipCount = venues.reduce((n, v) => n + v.catalogs.length, 0);
   console.log(`  collapsed to ${venues.length} venues, ${membershipCount} memberships`);
 
