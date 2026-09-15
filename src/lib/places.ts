@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/current-user";
 import { parseEwkbPoint, pointEwkt } from "@/lib/geo";
+import { findDuplicate, type DuplicateCandidate } from "@/lib/place-dedup";
 import { toTransportMode, type TransportMode } from "@/lib/transport";
 import type {
   Occasion,
@@ -254,49 +255,32 @@ function visitPayload(input: PlaceVisitInput) {
 /**
  * The place this input would duplicate, if the user already has one.
  *
- * ONE VENUE IS ONE PIN. Logging a catalog venue that is already logged must add
- * a visit to it, not clone it: two rows for one building double-count a
- * catalog's denominator, put two pins on one spot, and split a visit history
- * that only makes sense whole. Nothing in the UI can be trusted to prevent
- * that, because the create path is reachable from the list's "Log a place"
- * button regardless of what the user already has.
+ * The RULE lives in lib/place-dedup.ts, pure, because the seed script reaches
+ * it through the service-role client and cannot share a query with this one.
+ * This function is only the read: it fetches the caller's candidate rows and
+ * hands them to the shared decision.
  *
- * Matching is by catalog_item_id when there is one, because that is a real
- * identity. Otherwise it falls back to the same name in the same locality,
- * which is the best available answer for a Photon pick: "Green Bay" logged
- * twice in Green Bay, Wisconsin is one place. A place with no locality at all
- * never matches, because "no locality" is not a locality two things can share.
+ * Fetching all of the user's places rather than filtering in SQL is deliberate
+ * and cheap: it is four narrow columns, it is one query instead of a branch per
+ * rule, and it is what lets the seed apply the identical decision to rows it
+ * fetched its own way.
  */
 export async function findDuplicatePlace(input: PlaceInput): Promise<string | null> {
   const { supabase, user } = await requireUser();
-
-  if (input.catalog_item_id) {
-    const { data, error } = await supabase
-      .from("places")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("catalog_item_id", input.catalog_item_id)
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    return (data?.id as string | undefined) ?? null;
-  }
-
-  if (!input.locality_name?.trim()) return null;
-
-  // locality_key is generated, so it cannot be filtered on before the row
-  // exists. Match its inputs instead, case-insensitively on the name.
   const { data, error } = await supabase
     .from("places")
-    .select("id")
+    .select("id,name,locality_name,catalog_item_id")
     .eq("user_id", user.id)
-    .is("catalog_item_id", null)
-    .ilike("name", input.name.trim())
-    .eq("locality_name", input.locality_name)
-    .limit(1)
-    .maybeSingle();
+    // Oldest first, so a match is deterministic and agrees with the merge
+    // repair's survivor rule. It matters only while duplicates still exist,
+    // which is exactly when picking arbitrarily would be worst.
+    .order("created_at", { ascending: true });
   if (error) throw error;
-  return (data?.id as string | undefined) ?? null;
+  return findDuplicate((data ?? []) as DuplicateCandidate[], {
+    name: input.name,
+    locality_name: input.locality_name,
+    catalog_item_id: input.catalog_item_id,
+  });
 }
 
 /**

@@ -1,125 +1,145 @@
--- One-off repair: merge the two American Family Field places into one.
+-- One-off repair: merge duplicate places that share a catalog venue into one.
 --
--- NOT a migration. This is a data fix for rows created by a bug (the log flow
+-- Run this in the Supabase dashboard SQL editor. Safe to re-run: once merged
+-- there are no duplicates left to find and it does nothing.
+--
+-- NOT a migration. This is a data fix for rows created by a bug: the log flow
 -- had no duplicate guard, so logging a catalog venue that was already logged
--- created a second place instead of adding a visit). The guard now lives in
--- createPlaceAction, so this situation cannot recur; this file only cleans up
--- what already happened.
+-- created a second place instead of adding a visit. The guard now lives in
+-- createPlaceAction, sharing lib/place-dedup.ts with scripts/seed-places.ts, so
+-- this cannot recur; this file only cleans up what already happened.
 --
--- Read this before running it. It touches exactly two tables and only rows
--- belonging to one user.
+-- DIALECT, third attempt, and the reason it took three. The editor is not psql
+-- and it is not one psql session:
+--
+--   1. \set and :'owner' are psql CLIENT meta-commands. psql expands them
+--      before sending anything, so the server never sees valid SQL.
+--   2. A TEMPORARY table is session-scoped, and the editor does not hold one
+--      session across statements, so a later statement cannot see it:
+--      42P01 relation "_merge_owner" does not exist.
+--   3. begin; / commit; are unnecessary: the editor wraps statements itself.
+--
+-- What the sibling files in this directory actually use, all of which have run
+-- here successfully: no transaction control, no temp tables, no backslash
+-- commands, plain top-level statements, and DO blocks. This file uses exactly
+-- that and nothing else.
+--
+-- WHY A DO BLOCK RATHER THAN ONE CTE CHAIN. A data-modifying CTE runs all of
+-- its sub-statements against ONE SNAPSHOT with no guaranteed ordering between
+-- them. place_visits.place_id is ON DELETE CASCADE, so a chain that moved the
+-- visits and deleted the old places in a single statement could have the
+-- cascade take away the very rows the update had just re-pointed. Inside a DO
+-- block the two statements run in order, so the move provably completes before
+-- the delete. Correctness first; it is one statement either way.
 --
 -- WHAT IT DOES
---   1. Picks the SURVIVOR: the oldest of the duplicate places, so the place's
---      created_at keeps meaning "when I first logged this".
---   2. Re-points every visit of the younger duplicates at the survivor.
---      Visit rows are moved, never recreated, so visit_date, end_date,
+--   1. Picks the SURVIVOR: the oldest place per catalog item, so created_at
+--      keeps meaning "when I first logged this". Same rule the app's dedup uses
+--      (lib/place-dedup.ts matches oldest-first), so the two cannot disagree.
+--   2. MOVES every visit off the younger duplicates onto the survivor. Visit
+--      rows are re-pointed, never recreated, so visit_date, end_date,
 --      occasion_id, event_org, event_detail, transport_mode, notes, and their
 --      own ids and created_at all survive untouched.
---   3. Deletes the now-visitless duplicate place rows.
+--   3. Deletes the now-visitless duplicates, behind a not-exists guard so a
+--      visit that somehow did not move cannot be cascaded away.
 --
--- WHAT IT DOES NOT DO
---   - It does not touch the survivor's own columns. locality_key is generated
---     and nothing here changes its inputs.
---   - It does not touch any place whose catalog_item_id is null, so a Photon
---     place that happens to share a name is out of scope.
---   - It does not touch another user's rows: every statement is scoped to the
---     owner below.
+-- WHAT IT DOES NOT TOUCH
+--   - The survivor's own columns. locality_key is generated and nothing here
+--     changes its inputs.
+--   - Any place with a null catalog_item_id, so a geocoded place that happens
+--     to share a name is out of scope.
+--   - Any other account. The owner id below is the only account referenced.
+
+do $$
+declare
+  -- The account to repair. The only place this id appears.
+  v_owner constant uuid := '1ca08f60-c0eb-4fae-8297-1a2c73fb9cfc';
+  v_moved integer;
+  v_deleted integer;
+begin
+  -- 1 and 2. Move the visits onto the survivor.
+  with ranked as (
+    select
+      p.id,
+      p.catalog_item_id,
+      row_number() over (
+        partition by p.catalog_item_id order by p.created_at, p.id
+      ) as rn
+    from batchport.places p
+    where p.user_id = v_owner
+      and p.catalog_item_id is not null
+  ),
+  survivor as (
+    select catalog_item_id, id from ranked where rn = 1
+  ),
+  doomed as (
+    select d.id, s.id as survivor_id
+    from ranked d
+    join survivor s on s.catalog_item_id = d.catalog_item_id
+    where d.rn > 1
+  )
+  update batchport.place_visits v
+  set place_id = d.survivor_id,
+      updated_at = now()
+  from doomed d
+  where v.place_id = d.id
+    and v.user_id = v_owner;
+  get diagnostics v_moved = row_count;
+
+  -- 3. Remove the duplicates, which now have no visits.
+  --
+  -- `ranked` is recomputed here rather than carried over, and that is safe:
+  -- it reads only created_at and catalog_item_id, neither of which the update
+  -- above touched, so it ranks the same rows the same way.
+  with ranked as (
+    select
+      p.id,
+      row_number() over (
+        partition by p.catalog_item_id order by p.created_at, p.id
+      ) as rn
+    from batchport.places p
+    where p.user_id = v_owner
+      and p.catalog_item_id is not null
+  )
+  delete from batchport.places p
+  using ranked r
+  where p.id = r.id
+    and r.rn > 1
+    and p.user_id = v_owner
+    and not exists (
+      select 1 from batchport.place_visits v where v.place_id = p.id
+    );
+  get diagnostics v_deleted = row_count;
+
+  raise notice 'visits moved: %, duplicate places deleted: %', v_moved, v_deleted;
+end
+$$;
+
+
+-- ---------------------------------------------------------------------------
+-- VERIFICATION. Run this separately, after the block above.
 --
--- Expected result for the current data: American Family Field becomes one place
--- with TWO visits, 2026-05-12 and 2026-08-29, both keeping event_org
--- "Milwaukee Brewers". Lambeau Field and every other place are untouched.
---
--- SAFE TO RE-RUN: once merged there are no duplicates left to find, so a second
--- run does nothing.
+-- The raise notice may not surface in the editor, so this select is the actual
+-- evidence rather than a convenience. Expect American Family Field once, with
+-- 3 visits (2026-05-12, 2026-08-29, 2026-09-10), and dupes = 0 on every row.
+-- ---------------------------------------------------------------------------
 
--- The account to repair. Change this if you run it for somebody else.
-\set owner '1ca08f60-c0eb-4fae-8297-1a2c73fb9cfc'
-
-begin;
-
--- What is about to be merged. Read this output before committing.
-with dupes as (
-  select
-    catalog_item_id,
-    count(*) as place_rows,
-    min(created_at) as oldest,
-    string_agg(id::text, ', ' order by created_at) as ids
-  from batchport.places
-  where user_id = :'owner'
-    and catalog_item_id is not null
-  group by catalog_item_id
-  having count(*) > 1
-)
-select
-  c.name,
-  d.place_rows,
-  d.ids
-from dupes d
-join batchport.place_catalog_items c on c.id = d.catalog_item_id;
-
--- 1 and 2. Move the visits onto the survivor.
-with ranked as (
-  select
-    id,
-    catalog_item_id,
-    row_number() over (partition by catalog_item_id order by created_at, id) as rn
-  from batchport.places
-  where user_id = :'owner'
-    and catalog_item_id is not null
-    and catalog_item_id in (
-      select catalog_item_id
-      from batchport.places
-      where user_id = :'owner' and catalog_item_id is not null
-      group by catalog_item_id
-      having count(*) > 1
-    )
-),
-survivor as (select catalog_item_id, id from ranked where rn = 1),
-doomed as (select catalog_item_id, id from ranked where rn > 1)
-update batchport.place_visits v
-set place_id = s.id,
-    updated_at = now()
-from doomed d
-join survivor s on s.catalog_item_id = d.catalog_item_id
-where v.place_id = d.id
-  and v.user_id = :'owner';
-
--- 3. Remove the duplicates, which now have no visits.
---
--- The visitless check is a belt: if step 2 somehow missed a visit, the delete
--- would cascade it away, and a cascade is not what this repair is for.
-with ranked as (
-  select
-    id,
-    catalog_item_id,
-    row_number() over (partition by catalog_item_id order by created_at, id) as rn
-  from batchport.places
-  where user_id = :'owner'
-    and catalog_item_id is not null
-)
-delete from batchport.places p
-using ranked r
-where p.id = r.id
-  and r.rn > 1
-  and p.user_id = :'owner'
-  and not exists (select 1 from batchport.place_visits v where v.place_id = p.id);
-
--- What the result looks like. Expect American Family Field, 2 visits.
 select
   p.name,
   p.locality_key,
   count(v.id) as visits,
   min(v.visit_date) as first_visit,
   max(v.visit_date) as latest_visit,
-  string_agg(distinct v.event_org, ', ') as event_orgs
+  -- PARTITION BY groups NULLs TOGETHER (unlike `=`, which yields NULL for
+  -- them), so partitioning on catalog_item_id alone put every non-catalog
+  -- place in one partition and had each report the other ten as "sharing its
+  -- venue". A place with no catalog item shares a venue with nothing.
+  case
+    when p.catalog_item_id is null then 0
+    else count(*) over (partition by p.catalog_item_id) - 1
+  end as other_rows_sharing_this_venue
 from batchport.places p
 left join batchport.place_visits v on v.place_id = p.id
-where p.user_id = :'owner'
-group by p.id, p.name, p.locality_key
-order by min(v.visit_date) nulls last;
-
--- Inspect the two result sets above, then:
-commit;
--- or, if anything looks wrong:
--- rollback;
+where p.user_id = '1ca08f60-c0eb-4fae-8297-1a2c73fb9cfc'
+group by p.id, p.name, p.locality_key, p.catalog_item_id
+order by p.name;

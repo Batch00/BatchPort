@@ -6,6 +6,7 @@
 // places actually logged during phase 1, because those are what the rule was
 // written against and what the first review looked at.
 
+import { findDuplicate, type DuplicateCandidate } from "../src/lib/place-dedup";
 import {
   buildPlaceList,
   countPlaces,
@@ -146,6 +147,106 @@ console.log("\nlabels");
   check("locality label joins city and region", localityLabel(lambeau) === "Green Bay, Wisconsin");
   const noRegion = place({ id: "x", name: "X", locality_name: "Solo", admin_region: null, locality_key: "solo||US" });
   check("a missing region does not leave a trailing comma", localityLabel(noRegion) === "Solo");
+}
+
+// --- the dedup rule ---------------------------------------------------------
+//
+// ONE VENUE IS ONE PIN, and the null cases are the ones that bite. Two places
+// that each have NO catalog item are not thereby the same building. That is the
+// SQL `partition by catalog_item_id` mistake transplanted into TypeScript
+// (PARTITION BY groups NULLs together, unlike `=`), and it would make every
+// geocoded place a duplicate of every other one, with only the name check
+// standing in the way.
+
+console.log("\ndedup: null catalog items");
+{
+  const candidates: DuplicateCandidate[] = [
+    { id: "a", name: "Green Bay", locality_name: "Green Bay", catalog_item_id: null },
+    { id: "b", name: "Madison", locality_name: "Madison", catalog_item_id: null },
+    { id: "c", name: "Lambeau Field", locality_name: "Green Bay", catalog_item_id: "cat-1" },
+  ];
+  check(
+    "two null catalog items with different names do not match",
+    findDuplicate(candidates, {
+      name: "Appleton",
+      locality_name: "Appleton",
+      catalog_item_id: null,
+    }) === null,
+  );
+  check(
+    "a null catalog item matches on name plus locality, case-insensitively",
+    findDuplicate(candidates, {
+      name: "green bay",
+      locality_name: "GREEN BAY",
+      catalog_item_id: null,
+    }) === "a",
+  );
+  check(
+    "the same name in a different locality does not match",
+    findDuplicate(candidates, {
+      name: "Madison",
+      locality_name: "Madison, Indiana",
+      catalog_item_id: null,
+    }) === null,
+  );
+  check(
+    "no locality never matches, even with an identical name",
+    findDuplicate([{ id: "z", name: "Home", locality_name: null, catalog_item_id: null }], {
+      name: "Home",
+      locality_name: null,
+      catalog_item_id: null,
+    }) === null,
+  );
+  check(
+    "a null-catalog input never absorbs into a catalog row",
+    findDuplicate(candidates, {
+      name: "Lambeau Field",
+      locality_name: "Green Bay",
+      catalog_item_id: null,
+    }) === null,
+  );
+}
+
+console.log("\ndedup: catalog items");
+{
+  const candidates: DuplicateCandidate[] = [
+    { id: "a", name: "American Family Field", locality_name: "Milwaukee", catalog_item_id: "cat-1" },
+    { id: "b", name: "Green Bay", locality_name: "Green Bay", catalog_item_id: null },
+  ];
+  check(
+    "the same catalog item matches whatever the name says",
+    findDuplicate(candidates, {
+      name: "Miller Park",
+      locality_name: "Milwaukee",
+      catalog_item_id: "cat-1",
+    }) === "a",
+  );
+  check(
+    "a different catalog item does not match",
+    findDuplicate(candidates, {
+      name: "American Family Field",
+      locality_name: "Milwaukee",
+      catalog_item_id: "cat-2",
+    }) === null,
+  );
+  check(
+    "a catalog input never falls back to the name rule",
+    findDuplicate(candidates, {
+      name: "Green Bay",
+      locality_name: "Green Bay",
+      catalog_item_id: "cat-9",
+    }) === null,
+  );
+  check(
+    "candidate order decides which duplicate wins, so callers order oldest first",
+    findDuplicate(
+      [
+        { id: "older", name: "X", locality_name: "Y", catalog_item_id: "cat-1" },
+        { id: "newer", name: "X", locality_name: "Y", catalog_item_id: "cat-1" },
+      ],
+      { name: "X", locality_name: "Y", catalog_item_id: "cat-1" },
+    ) === "older",
+  );
 }
 
 console.log(`\n${failures === 0 ? "check-place-groups: all passed" : `check-place-groups: ${failures} FAILED`}`);
