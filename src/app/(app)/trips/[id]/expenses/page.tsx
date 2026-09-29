@@ -154,8 +154,11 @@ function Shell({
   tripName: string;
   children: React.ReactNode;
 }) {
+  // The bottom padding carries the home indicator's inset. The root viewport
+  // is viewport-fit=cover, so without it the last row of the page scrolls to
+  // a stop underneath the indicator.
   return (
-    <div className="mx-auto w-full max-w-3xl p-6 sm:p-8">
+    <div className="mx-auto w-full max-w-3xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:p-8 sm:pb-[calc(2rem+env(safe-area-inset-bottom))]">
       <Link
         href={`/trips/${tripId}`}
         className="mb-6 inline-flex items-center gap-1.5 text-sm text-foreground/60 transition-colors hover:text-foreground"

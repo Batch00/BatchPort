@@ -41,9 +41,15 @@ export function ExpenseHighlights({
   const shownIds = new Set(movements.map((row) => row.id));
   const unshownRefunds = allRefunds.filter((row) => !shownIds.has(row.id));
 
+  // grid-cols-1 and min-w-0 are load bearing. Without an explicit column the
+  // grid's one implicit track is `auto`, which never shrinks below its
+  // content's min-content width, and a `truncate` vendor name is nowrap, so
+  // its min-content is the whole name. On a phone that track grew past the
+  // screen and pushed every amount off the right edge. grid-cols-1 is
+  // minmax(0, 1fr), and min-w-0 lets each section give the width back.
   return (
-    <div className="grid gap-6 sm:grid-cols-2">
-      <section>
+    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+      <section className="min-w-0">
         <h2 className="mb-1 text-sm font-medium text-foreground/80">
           Biggest movements
         </h2>
@@ -72,7 +78,7 @@ export function ExpenseHighlights({
       </section>
 
       {alcohol ? (
-        <section>
+        <section className="min-w-0">
           <h2 className="mb-1 text-sm font-medium text-foreground/80">
             Of which alcohol
           </h2>
