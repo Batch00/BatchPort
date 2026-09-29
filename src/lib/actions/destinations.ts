@@ -22,6 +22,15 @@ import {
 
 // Server actions for destination mutations.
 
+// Bucket auto-fulfillment never blocks the write that triggered it.
+async function fulfillBucketItemsQuietly(): Promise<void> {
+  try {
+    await autoFulfillBucketItems();
+  } catch (error) {
+    console.warn("Bucket auto-fulfill skipped:", error);
+  }
+}
+
 // The form validates too, but the action is the boundary that actually holds.
 function validateDestinationInput(input: DestinationInput): string | null {
   if (!input.name || !input.name.trim()) return "A location is required.";
@@ -60,13 +69,9 @@ export async function createDestinationAction(
     id: destination.id,
     name: destination.name,
   });
-  // Auto-fulfill any country bucket item this stop completes. Silent and
-  // best-effort: a failure here never blocks destination creation.
-  try {
-    await autoFulfillBucketItems(destination.user_id);
-  } catch (error) {
-    console.warn("Bucket auto-fulfill skipped:", error);
-  }
+  // Auto-fulfill any bucket item this stop completes. Silent and best-effort:
+  // a failure here never blocks destination creation.
+  await fulfillBucketItemsQuietly();
   revalidateAppData();
   redirect(`/trips/${tripId}`);
 }
@@ -82,6 +87,8 @@ export async function updateDestinationAction(
   await updateDestination(id, input);
   // Editing a stop's dates can reorder the route and move the trip's range.
   await syncTripSchedule(tripId);
+  // A moved stop can now sit within reach of a bucket place.
+  await fulfillBucketItemsQuietly();
   revalidateAppData();
   redirect(`/trips/${tripId}/destinations/${id}`);
 }

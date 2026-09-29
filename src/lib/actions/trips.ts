@@ -11,6 +11,7 @@ import { createDestination } from "@/lib/destinations";
 import { autoPopulateDestinationCover } from "@/lib/photos-data";
 import { cleanupPhotosForOwners, ownersForTrip } from "@/lib/photo-cleanup";
 import { syncTripSchedule } from "@/lib/trip-schedule";
+import { autoFulfillBucketItems } from "@/lib/bucket-list";
 
 // Server actions for trip mutations. Each checks the demo guard first, performs
 // the operation, revalidates affected paths, then redirects. They return an
@@ -52,6 +53,14 @@ export async function updateTripAction(
   // the derived range read-only, so this only ever fires on a payload that
   // reached the action some other way, but it is the boundary that holds.
   await syncTripSchedule(id);
+  // Marking a planned trip completed (or ongoing) is the usual way its stops
+  // start counting as visits, so bucket items are re-matched here. Planned
+  // trips never match; the rule lives in v_bucket_fulfillment_matches.
+  try {
+    await autoFulfillBucketItems();
+  } catch (error) {
+    console.warn("Bucket auto-fulfill skipped:", error);
+  }
   revalidateAppData();
   redirect(`/trips/${id}`);
 }

@@ -384,6 +384,26 @@ Everything degrades to absent. No dates, no coordinates, a planned trip, a
 window inside the lag, or an upstream failure all mean no line, never an empty
 state.
 
+### Bucket List Auto-Fulfillment
+
+The match rule is one SQL view, `v_bucket_fulfillment_matches`
+(`scripts/sql/2026-09-28-bucket-fulfillment.sql`), read by
+`autoFulfillBucketItems()` after a stop create or edit and after a trip edit,
+and by the one-off backfill. Do not reimplement it in TypeScript: place items
+match on `ST_DWithin` over geography, which the app cannot evaluate.
+
+- Country items match on `country_code`; place items within 25km, ignoring
+  their country code. Earliest visit wins.
+- Only `completed` and `ongoing` trips count, and **a stop dated after today
+  does not count**, even on an ongoing trip. Permanent decision.
+- `fulfilled_at` is the visit's date (arrival, departure, trip start, trip
+  end, and only for a wholly undated trip the day it was created), never
+  `now()`.
+- **Nothing ever auto-unfulfills.** A trip set back to planned or a deleted
+  stop leaves the item fulfilled. A silent revocation is worse than a stale
+  fulfillment because the owner cannot notice it. Permanent decision; do not
+  add a reverse sync.
+
 ### Journal, Story, and On This Day
 
 Three surfaces that read the trip rather than edit it. The rules that hold

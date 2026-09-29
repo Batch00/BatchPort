@@ -203,59 +203,52 @@ export async function getBucketCountryCodes(userId?: string): Promise<string[]> 
   );
 }
 
-// Best-effort: fulfill any unfulfilled country-type bucket item whose country
-// the user has now visited, crediting the earliest trip that reached it. Safe to
-// call after destination creation; the caller swallows errors.
-export async function autoFulfillBucketItems(userId: string): Promise<void> {
-  const { supabase } = await requireUser();
+// Best-effort: fulfill every unfulfilled bucket item the signed-in user's
+// completed or ongoing trips now reach. The match rule (country code for
+// country items, 25km ST_DWithin for place items, earliest visit wins, the
+// visit's own date as fulfilled_at) lives in ONE place, the SQL view
+// v_bucket_fulfillment_matches, which the one-off backfill reads too. See
+// scripts/sql/2026-09-28-bucket-fulfillment.sql.
+//
+// Called after a destination create or edit and after a trip edit (a planned
+// trip flipped to completed is the common way a match appears). The callers
+// swallow errors; this logs rather than throwing where it can, so a database
+// without the view degrades to no auto-fulfillment rather than a failed save.
+export async function autoFulfillBucketItems(): Promise<void> {
+  const { supabase, user } = await requireUser();
 
-  const { data: pending } = await supabase
-    .from("bucket_list")
-    .select("id, country_code")
-    .eq("user_id", userId)
-    .eq("type", "country")
-    .is("fulfilled_at", null);
-  const items = (pending ?? []) as { id: string; country_code: string | null }[];
-  if (items.length === 0) return;
-
-  // Earliest trip per visited country, from the user's destinations.
-  const { data: dests } = await supabase
-    .from("destinations")
-    .select("country_code, trip_id, trips(start_date)")
-    .eq("user_id", userId);
-  const rows = (dests ?? []) as unknown as {
-    country_code: string | null;
+  const { data, error } = await supabase
+    .from("v_bucket_fulfillment_matches")
+    .select("bucket_id, trip_id, fulfilled_on")
+    .eq("user_id", user.id);
+  if (error) {
+    console.warn("Bucket auto-fulfill: match read failed:", error.message);
+    return;
+  }
+  const matches = (data ?? []) as {
+    bucket_id: string;
     trip_id: string;
-    trips: { start_date: string | null } | null;
+    fulfilled_on: string;
   }[];
 
-  const earliestTripByCountry = new Map<
-    string,
-    { tripId: string; start: string }
-  >();
-  for (const row of rows) {
-    if (!row.country_code) continue;
-    const start = row.trips?.start_date ?? "9999-12-31";
-    const current = earliestTripByCountry.get(row.country_code);
-    if (!current || start < current.start) {
-      earliestTripByCountry.set(row.country_code, {
-        tripId: row.trip_id,
-        start,
-      });
-    }
-  }
-
-  const nowIso = new Date().toISOString();
-  const updates = items.flatMap((item) => {
-    if (!item.country_code) return [];
-    const match = earliestTripByCountry.get(item.country_code);
-    if (!match) return [];
-    return [
+  const results = await Promise.all(
+    matches.map((match) =>
       supabase
         .from("bucket_list")
-        .update({ fulfilled_trip_id: match.tripId, fulfilled_at: nowIso })
-        .eq("id", item.id),
-    ];
-  });
-  await Promise.all(updates);
+        .update({
+          fulfilled_trip_id: match.trip_id,
+          // A YYYY-MM-DD: the visit day, never the moment this ran.
+          fulfilled_at: match.fulfilled_on,
+        })
+        .eq("id", match.bucket_id)
+        .eq("user_id", user.id)
+        // A manual fulfillment between the read and this write wins.
+        .is("fulfilled_at", null),
+    ),
+  );
+  for (const result of results) {
+    if (result.error) {
+      console.warn("Bucket auto-fulfill: update failed:", result.error.message);
+    }
+  }
 }
