@@ -484,7 +484,7 @@ function EditRow({
             inputMode="decimal"
             aria-label="Amount in US dollars"
             autoFocus
-            className="h-9 pl-6 text-sm tabular-nums"
+            className="h-9 pl-6 text-base tabular-nums md:text-sm"
           />
         </div>
         <Input
@@ -493,7 +493,7 @@ function EditRow({
           onKeyDown={onKeyDown}
           placeholder="Vendor"
           aria-label="Vendor"
-          className="h-9 min-w-40 flex-1 text-sm"
+          className="h-9 min-w-40 flex-1 text-base md:text-sm"
         />
         <div className="min-w-40 flex-1">
           {categories === null ? (
@@ -515,7 +515,7 @@ function EditRow({
           onChange={(event) => setDate(event.target.value)}
           onKeyDown={onKeyDown}
           aria-label="Date"
-          className="h-9 w-36 shrink-0 text-sm"
+          className="h-9 w-36 shrink-0 text-base md:text-sm"
         />
         <button
           type="button"
@@ -541,13 +541,13 @@ function EditRow({
           onKeyDown={onKeyDown}
           placeholder="Note"
           aria-label="Note"
-          className="h-9 min-w-40 flex-1 text-sm"
+          className="h-9 min-w-40 flex-1 text-base md:text-sm"
         />
         <select
           value={destinationId ?? ""}
           onChange={(event) => setDestinationId(event.target.value || null)}
           aria-label="Pin to a stop"
-          className="h-9 shrink-0 rounded-lg border border-input bg-transparent px-2 text-sm text-foreground"
+          className="h-9 shrink-0 rounded-lg border border-input bg-transparent px-2 text-base text-foreground md:text-sm"
         >
           <option value="">Stop from the date</option>
           {destinations.map((destination) => (

@@ -111,9 +111,21 @@ export function CategoryPicker({
         </button>
       </PopoverTrigger>
 
+      {/* ALWAYS BELOW THE TRIGGER. Radix flips a popover upward whenever the
+          space underneath is shorter than the content, and this list asked
+          for up to 26rem, so on a phone it opened upward nearly every time,
+          over the ledger it is filing into. avoidCollisions={false} turns the
+          flip off; the height is then capped at the space actually available
+          below (Radix still measures it: its size middleware runs either
+          way) and the list scrolls inside that. Turning collisions off also
+          turns off the horizontal shift, so the width follows the trigger,
+          which spans the row on a phone, rather than a fixed 20rem that
+          could run past the right edge. */}
       <PopoverContent
+        side="bottom"
         align="start"
-        className="max-h-[min(60vh,26rem)] w-[min(20rem,calc(100vw-2rem))] overflow-y-auto p-2"
+        avoidCollisions={false}
+        className="max-h-[min(26rem,var(--radix-popover-content-available-height))] w-[max(var(--radix-popover-trigger-width),16rem)] max-w-[calc(100vw-2rem)] overflow-y-auto p-2"
       >
         <div className="relative mb-2">
           <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -121,7 +133,9 @@ export function CategoryPicker({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search categories"
-            className="h-8 pl-7 text-sm"
+            // 16px on a phone: this field autofocuses, and iOS zooms onto a
+            // focused field under 16px.
+            className="h-8 pl-7 text-base md:text-sm"
             autoFocus
           />
         </div>

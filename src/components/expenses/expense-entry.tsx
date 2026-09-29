@@ -155,6 +155,11 @@ export function ExpenseEntry({
     );
   }
 
+  // Every text control below is 16px on a phone (text-base, md:text-sm). iOS
+  // Safari zooms the page onto any focused field under 16px, and the fast
+  // entry loop refocuses the amount after every save, so a 14px field zoomed
+  // on every single transaction. The fix belongs on the fields, never in the
+  // viewport meta: disabling zoom there breaks pinch-zoom everywhere.
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -171,7 +176,7 @@ export function ExpenseEntry({
             placeholder="0"
             aria-label="Amount in US dollars"
             autoFocus
-            className="h-9 pl-6 text-sm tabular-nums"
+            className="h-9 pl-6 text-base tabular-nums md:text-sm"
           />
         </div>
 
@@ -186,7 +191,7 @@ export function ExpenseEntry({
             onBlur={() => window.setTimeout(() => setVendorOpen(false), 120)}
             placeholder="Vendor"
             aria-label="Vendor"
-            className="h-9 text-sm"
+            className="h-9 text-base md:text-sm"
           />
           {vendorOpen && suggestions.length > 0 ? (
             <ul className="absolute left-0 top-full z-30 mt-1 w-full overflow-hidden rounded-lg bg-popover p-1 shadow-md ring-1 ring-foreground/10">
@@ -233,7 +238,7 @@ export function ExpenseEntry({
           onChange={(event) => setDate(event.target.value)}
           onKeyDown={onKeyDown}
           aria-label="Date"
-          className="h-9 w-36 shrink-0 text-sm"
+          className="h-9 w-36 shrink-0 text-base md:text-sm"
         />
 
         <button
@@ -298,13 +303,13 @@ export function ExpenseEntry({
             onKeyDown={onKeyDown}
             placeholder="Note"
             aria-label="Note"
-            className="h-9 min-w-40 flex-1 text-sm"
+            className="h-9 min-w-40 flex-1 text-base md:text-sm"
           />
           <select
             value={destinationId ?? ""}
             onChange={(event) => setDestinationId(event.target.value || null)}
             aria-label="Pin to a stop"
-            className="h-9 shrink-0 rounded-lg border border-input bg-transparent px-2 text-sm text-foreground"
+            className="h-9 shrink-0 rounded-lg border border-input bg-transparent px-2 text-base text-foreground md:text-sm"
           >
             {/* The default is not "no stop", it is "let the date decide", which
                 is what the boundary rule already does for every other row. */}
