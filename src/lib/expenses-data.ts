@@ -133,7 +133,7 @@ export async function getTripExpenseSummary(
   const { data, error } = await supabase
     .from("v_trip_expense_summary")
     .select(
-      "trip_days, total_usd, txn_count, usd_per_day, alcohol_usd, undated_usd, unattributed_usd, uncategorized_count, refund_count",
+      "trip_days, start_date, end_date, total_usd, txn_count, usd_per_day, alcohol_usd, undated_usd, unattributed_usd, uncategorized_count, refund_count",
     )
     .eq("user_id", user.id)
     .eq("trip_id", tripId)
@@ -150,6 +150,8 @@ export async function getTripExpenseSummary(
     unattributedUsd: num(row.unattributed_usd),
     uncategorizedCount: num(row.uncategorized_count),
     refundCount: num(row.refund_count),
+    windowStart: row.start_date ? String(row.start_date).slice(0, 10) : null,
+    windowEnd: row.end_date ? String(row.end_date).slice(0, 10) : null,
   };
 }
 

@@ -42,6 +42,13 @@ export interface TripExpenseSummary {
   unattributedUsd: number;
   uncategorizedCount: number;
   refundCount: number;
+  /**
+   * The trip's window from v_trip_days: derived from the stops, falling back
+   * to the stored trip columns only when no stop is dated. Null on a trip with
+   * no dates anywhere. What splitDaysByWindow classifies against.
+   */
+  windowStart: string | null;
+  windowEnd: string | null;
 }
 
 export interface GroupSpend {
@@ -357,6 +364,125 @@ export function alcoholCrossCut(
         totalUsd: round2(total),
       }))
       .sort((a, b) => b.totalUsd - a.totalUsd),
+  };
+}
+
+// --- Before, during, and after the trip ------------------------------------
+
+/** Spend dated outside the trip's window, folded into one figure. */
+export interface OutsideSpend {
+  /** Positive rows only. */
+  spendUsd: number;
+  /** Negative rows only, so this is <= 0. */
+  refundUsd: number;
+  /** The net. */
+  totalUsd: number;
+  txnCount: number;
+  /** First and last day that actually carries a transaction. */
+  firstDate: string;
+  lastDate: string;
+}
+
+export interface DaySplit {
+  before: OutsideSpend | null;
+  during: DaySpend[];
+  after: OutsideSpend | null;
+}
+
+/**
+ * Split the by-day series into what fell before the trip, the trip itself,
+ * and what fell after it.
+ *
+ * DERIVED, NOT FLAGGED. Nothing on an expense says "pre-trip"; a flight bought
+ * two months out is pre-trip because its date is before the window, and it
+ * stops being pre-trip the moment a stop is re-dated to cover it. So the
+ * classification is a comparison against the window, made on read, with no
+ * column to drift.
+ *
+ * The window is v_trip_days (see TripExpenseSummary.windowStart), the same
+ * derived window the expense summary and the by-day view already use, never
+ * trips.start_date directly: a trip whose stops are dated but whose own
+ * columns are null still has a window.
+ *
+ * THE WINDOW INCLUDES THE JOURNEY. A flight out of home on the 27th that
+ * lands on the 28th is travel spend, not pre-trip spend, so the chart's
+ * window is the trip's window widened by one day at each end: the day before
+ * the first arrival for the journey out, and the day after the last departure
+ * for the journey home.
+ *
+ * One day, because nothing better is recorded. The natural source for the
+ * journey out is the transport leg into the first stop, which is exactly what
+ * that leg models, but transport_legs carries no date or time at all (mode,
+ * carrier, duration, distance, notes), so it cannot say when the journey
+ * began. If legs ever gain a departure date, the start should become the
+ * earlier of that and the first arrival, and this padding is what it
+ * replaces. The journey home is not modelled as a leg in the first place, so
+ * the end has only the padding, which keeps the two ends symmetric.
+ *
+ * The widening is the chart's alone. v_trip_days stays the trip's length
+ * everywhere else (days, per-day figures, the stats views); a travel day is
+ * not a day at a destination.
+ *
+ * With no window at all there is nothing to compare against, so every day
+ * stays in the chart, which is exactly what the chart drew before. A window
+ * with only one end is open on the other.
+ */
+export function splitDaysByWindow(
+  days: DaySpend[],
+  windowStart: string | null,
+  windowEnd: string | null,
+): DaySplit {
+  const from = windowStart ? shiftIsoDate(windowStart, -JOURNEY_DAYS) : null;
+  const to = windowEnd ? shiftIsoDate(windowEnd, JOURNEY_DAYS) : null;
+  const beforeDays: DaySpend[] = [];
+  const during: DaySpend[] = [];
+  const afterDays: DaySpend[] = [];
+  for (const day of days) {
+    if (from && day.spendDate < from) beforeDays.push(day);
+    else if (to && day.spendDate > to) afterDays.push(day);
+    else during.push(day);
+  }
+  // A journey day earns its place on the axis by carrying spend. The view's
+  // series is dense up to any outlying spend, so without this a trip with a
+  // booking two months out would always open on an empty travel day.
+  const isEmptyJourneyDay = (day: DaySpend) =>
+    day.txnCount === 0 &&
+    ((windowStart !== null && day.spendDate < windowStart) ||
+      (windowEnd !== null && day.spendDate > windowEnd));
+  while (during.length > 0 && isEmptyJourneyDay(during[0])) during.shift();
+  while (during.length > 0 && isEmptyJourneyDay(during[during.length - 1])) {
+    during.pop();
+  }
+  return {
+    before: foldOutside(beforeDays),
+    during,
+    after: foldOutside(afterDays),
+  };
+}
+
+/** Days of travel allowed either side of the trip's window. See above. */
+export const JOURNEY_DAYS = 1;
+
+// UTC-anchored: a local Date on a YYYY-MM-DD lands on the previous day west
+// of Greenwich.
+function shiftIsoDate(iso: string, days: number): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+// The view's series is dense, so the days outside the window include zero
+// rows padding the gap up to it. Those carry nothing and do not set the range.
+function foldOutside(days: DaySpend[]): OutsideSpend | null {
+  const spent = days.filter((day) => day.txnCount > 0);
+  if (spent.length === 0) return null;
+  return {
+    spendUsd: round2(spent.reduce((sum, day) => sum + day.spendUsd, 0)),
+    refundUsd: round2(spent.reduce((sum, day) => sum + day.refundUsd, 0)),
+    totalUsd: round2(spent.reduce((sum, day) => sum + day.totalUsd, 0)),
+    txnCount: spent.reduce((sum, day) => sum + day.txnCount, 0),
+    firstDate: spent[0].spendDate,
+    lastDate: spent[spent.length - 1].spendDate,
   };
 }
 

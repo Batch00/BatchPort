@@ -126,7 +126,11 @@ export default async function TripExpensesPage({
         />
 
         {summary && summary.txnCount > 0 ? (
-          <ExpenseDayChart days={days} />
+          <ExpenseDayChart
+            days={days}
+            windowStart={summary.windowStart}
+            windowEnd={summary.windowEnd}
+          />
         ) : null}
 
         {stops.length > 0 && summary && summary.txnCount > 0 ? (
