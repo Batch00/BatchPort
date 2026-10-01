@@ -11,6 +11,7 @@
     "seed": "npx tsx scripts/seed-trips.ts",
     "seed-demo": "npx tsx scripts/seed-demo.ts",
     "generate-mock-globe": "npx tsx scripts/generate-mock-globe.ts",
+    "generate-us-states": "npx tsx scripts/generate-us-states.ts",
     "backfill-photos": "npx tsx scripts/backfill-photos.ts",
     "backfill-exif": "npx tsx scripts/backfill-exif.ts",
     "backfill-thumbnails": "npx tsx scripts/backfill-thumbnails.ts",
@@ -37,6 +38,7 @@
     "check-places-schema": "npx tsx scripts/check-places-schema.ts",
     "check-user-scoping": "npx tsx scripts/check-user-scoping.ts",
     "check-place-groups": "npx tsx scripts/check-place-groups.ts",
+    "check-places-stats": "npx tsx scripts/check-places-stats.ts",
     "seed-places": "npx tsx scripts/seed-places.ts"
   },
   "dependencies": {

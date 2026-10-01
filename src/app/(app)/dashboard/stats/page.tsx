@@ -29,6 +29,10 @@ import {
 } from "@/components/stats/superlatives";
 import { BucketProgress } from "@/components/stats/bucket-progress";
 import { hasSuperlatives } from "@/lib/superlatives";
+import { PLACES_ENABLED } from "@/lib/features";
+import { isDemoUser } from "@/lib/demo";
+import { getPlacesStats, getStateCoverage } from "@/lib/places-stats-data";
+import { PlacesStatsSection } from "@/components/places/places-stats-section";
 
 export const metadata = { title: "Travel Stats" };
 
@@ -39,9 +43,13 @@ export const metadata = { title: "Travel Stats" };
 // one-line insights are computed from the already-fetched view rows.
 export default async function StatsPage() {
   const { user } = await requireUser();
+  // Places is unshipped and has no demo exposure yet: behind the flag, and
+  // off for the demo account, there is no read at all rather than a read
+  // whose result goes unused.
+  const showPlaces = PLACES_ENABLED && !isDemoUser(user.id);
   // The poster draws the same travel history these numbers describe, so its
   // data rides along here rather than on a route of its own.
-  const [stats, mapData, trips, bucketItems] = await Promise.all([
+  const [stats, mapData, trips, bucketItems, stateCoverage, placesStats] = await Promise.all([
     getAllStats(user.id),
     getMapData(user.id),
     // The year recap is another reading of the same travel history this page
@@ -51,6 +59,8 @@ export default async function StatsPage() {
     // And the bucket rows, so its closing slide can name the places on the
     // list instead of only counting them.
     getBucketList(user.id),
+    showPlaces ? getStateCoverage() : Promise.resolve(null),
+    showPlaces ? getPlacesStats() : Promise.resolve(null),
   ]);
   const posterData = buildPosterData(mapData, stats);
 
@@ -61,7 +71,10 @@ export default async function StatsPage() {
   });
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-8">
+    // The bottom padding carries the home indicator's inset: the root viewport
+    // is viewport-fit=cover, so without it the last card sits under the bar
+    // on a phone (the same fix as the expenses page).
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:p-8 sm:pb-[calc(2rem+env(safe-area-inset-bottom))]">
       <div>
         <Link
           href="/dashboard"
@@ -137,6 +150,10 @@ export default async function StatsPage() {
         extremes={stats.extremes}
         furthestFromHome={stats.furthestFromHome}
       />
+
+      {placesStats ? (
+        <PlacesStatsSection coverage={stateCoverage} stats={placesStats} />
+      ) : null}
 
       {stats.bucket ? <BucketProgress bucket={stats.bucket} /> : null}
     </div>
