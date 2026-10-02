@@ -214,60 +214,67 @@ export function SharedTripCard({
                     leg={legByDestination.get(destination.id) ?? null}
                     isFirst={index === 0}
                   />
-                  <div className="flex gap-3 rounded-lg bg-white/[0.02] p-3 ring-1 ring-foreground/10">
-                  <div className="relative isolate h-16 w-20 shrink-0 overflow-hidden rounded-md bg-white/5">
-                    {destination.coverUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={destination.coverUrl}
-                        alt=""
-                        loading="lazy"
-                        style={coverImageStyle(destination.cover_position)}
-                        className="size-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex size-full items-center justify-center text-foreground/25">
-                        <ImageIcon className="size-5" />
-                      </div>
-                    )}
-                    <span className="absolute left-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-[0.65rem] text-white">
-                      {index + 1}
-                    </span>
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <h4 className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-medium text-foreground">
-                      <span className="min-w-0 break-words">
-                        {destination.name}
-                      </span>
-                      {destination.country_code ? (
-                        <span className="shrink-0 text-sm text-foreground/50">
-                          <CountryFlag
-                            code={destination.country_code}
-                            className="h-3"
-                          />{" "}
-                          {destination.country_code}
+                  <div className="rounded-lg bg-white/[0.02] p-3 ring-1 ring-foreground/10">
+                    {/* The photo sits beside the stop's header only. The
+                        experience list runs below at the full card width:
+                        indented under the photo column it left names about
+                        100px on a phone, and "Oktoberfest" broke mid-word. */}
+                    <div className="flex gap-3">
+                      <div className="relative isolate h-16 w-20 shrink-0 overflow-hidden rounded-md bg-white/5">
+                        {destination.coverUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={destination.coverUrl}
+                            alt=""
+                            loading="lazy"
+                            style={coverImageStyle(destination.cover_position)}
+                            className="size-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex size-full items-center justify-center text-foreground/25">
+                            <ImageIcon className="size-5" />
+                          </div>
+                        )}
+                        <span className="absolute left-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-[0.65rem] text-white">
+                          {index + 1}
                         </span>
-                      ) : null}
-                    </h4>
-                    <p className="text-xs text-muted-foreground">
-                      {formatDateRange(
-                        destination.arrival_date,
-                        destination.departure_date,
-                      )}
-                    </p>
-                    {/* Observed weather is public reference data keyed by
-                        coordinates and past dates, so the read-only surfaces
-                        show it too. Planned trips have nothing to observe. */}
-                    {trip.status !== "planned" ? (
-                      <VisitWeatherLine
-                        lat={destination.latitude}
-                        lng={destination.longitude}
-                        start={destination.arrival_date}
-                        end={destination.departure_date}
-                        className="mt-1"
-                      />
-                    ) : null}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <h4 className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-medium text-foreground">
+                          <span className="min-w-0 break-words">
+                            {destination.name}
+                          </span>
+                          {destination.country_code ? (
+                            <span className="shrink-0 text-sm text-foreground/50">
+                              <CountryFlag
+                                code={destination.country_code}
+                                className="h-3"
+                              />{" "}
+                              {destination.country_code}
+                            </span>
+                          ) : null}
+                        </h4>
+                        <p className="text-xs text-muted-foreground">
+                          {formatDateRange(
+                            destination.arrival_date,
+                            destination.departure_date,
+                          )}
+                        </p>
+                        {/* Observed weather is public reference data keyed by
+                            coordinates and past dates, so the read-only surfaces
+                            show it too. Planned trips have nothing to observe. */}
+                        {trip.status !== "planned" ? (
+                          <VisitWeatherLine
+                            lat={destination.latitude}
+                            lng={destination.longitude}
+                            start={destination.arrival_date}
+                            end={destination.departure_date}
+                            className="mt-1"
+                          />
+                        ) : null}
+                      </div>
+                    </div>
 
                     {destination.experiences.length > 0 ? (
                       <>
@@ -302,6 +309,7 @@ export function SharedTripCard({
                                     <RatingDisplay
                                       rating={experience.rating}
                                       size={12}
+                                      compactOnMobile
                                     />
                                   ) : null}
                                 </li>
@@ -316,7 +324,6 @@ export function SharedTripCard({
                         No experiences logged
                       </p>
                     )}
-                  </div>
                   </div>
                 </li>
               ))}
