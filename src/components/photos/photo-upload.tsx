@@ -30,7 +30,11 @@ import {
   uploadPhotoBlob,
   uploadThumbBlob,
 } from "@/lib/photos";
-import { insertPhotoRecord, setCoverPhoto } from "@/lib/actions/photos";
+import {
+  discardUploadedPhoto,
+  insertPhotoRecord,
+  setCoverPhoto,
+} from "@/lib/actions/photos";
 import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { useOnlineStatus } from "@/lib/offline/use-offline";
 import { cn } from "@/lib/utils";
@@ -460,6 +464,10 @@ export function PhotoUpload({
     await runWithConcurrency(batch, CONCURRENCY, async (item) => {
       const blob = item.blob;
       if (!blob) return;
+      // Set once the file is in Storage, cleared once its row is settled
+      // (saved, or failed inside insertPhotoRecord, which cleans up after
+      // itself). Anything still set in the catch was uploaded and orphaned.
+      let pendingPath: string | null = null;
       try {
         updateItem(item.id, { commit: "uploading", progress: 15 });
         const owner = resolveOwner(item.destId, item.expId);
@@ -470,6 +478,7 @@ export function PhotoUpload({
           owner.type,
           owner.id,
         );
+        pendingPath = storagePath;
         updateItem(item.id, { progress: 55 });
 
         // Best-effort thumbnail upload; null on failure means the record is
@@ -490,10 +499,11 @@ export function PhotoUpload({
           fingerprint: item.fingerprint,
           thumbPath,
         });
+        pendingPath = null;
         if ("error" in result) {
           errorCount += 1;
           updateItem(item.id, { commit: "error", progress: 100 });
-          toast.error(result.error);
+          toast.error(`${item.name}: ${result.error}`);
           return;
         }
 
@@ -502,10 +512,12 @@ export function PhotoUpload({
         }
         lastPhotoId = result.photoId;
         updateItem(item.id, { commit: "done", progress: 100 });
-      } catch {
+      } catch (err) {
         errorCount += 1;
         updateItem(item.id, { commit: "error", progress: 100 });
-        toast.error(`Could not upload ${item.name}.`);
+        if (pendingPath) void discardUploadedPhoto(pendingPath).catch(() => {});
+        const detail = err instanceof Error && err.message ? `: ${err.message}` : ".";
+        toast.error(`Could not upload ${item.name}${detail}`);
       }
     });
 

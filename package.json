@@ -20,6 +20,7 @@
     "setup-shares": "npx tsx scripts/setup-share-settings.ts",
     "resync-trip-schedules": "npx tsx scripts/resync-trip-schedules.ts",
     "cleanup-orphan-photos": "npx tsx scripts/cleanup-orphan-photos.ts",
+    "cleanup-orphan-uploads": "npx tsx scripts/cleanup-orphan-uploads.ts",
     "check-year-recap": "npx tsx scripts/check-year-recap.ts",
     "check-curation": "npx tsx scripts/check-curation.ts",
     "check-map-arcs": "npx tsx scripts/check-map-arcs.ts",

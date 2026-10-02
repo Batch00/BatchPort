@@ -27,7 +27,13 @@ import {
   deletePhotosByIds,
   type PhotoDeleteOutcome,
 } from "@/lib/photo-cleanup";
-import { type InsertPhotoInput } from "@/lib/photos";
+import {
+  PHOTO_BUCKET,
+  THUMB_SUFFIX,
+  type InsertPhotoInput,
+} from "@/lib/photos";
+import { sanitizeDateTaken, sanitizeGps } from "@/lib/photo-metadata";
+import { createAdminClient } from "@/utils/supabase/admin";
 import type { ActionResult } from "@/lib/action-result";
 import type { Photo, PhotoOwnerType } from "@/lib/types";
 
@@ -37,6 +43,53 @@ import type { Photo, PhotoOwnerType } from "@/lib/types";
 
 export type InsertPhotoResult =
   { ok: true; photoId: string } | { error: string };
+
+// Postgres data errors (class 22: invalid input syntax, value out of range,
+// numeric overflow) and check violations. These are what a malformed EXIF
+// value produces, and the only failures that retrying without the metadata
+// can fix.
+function isDataError(error: { code?: string }): boolean {
+  return (
+    error.code !== undefined &&
+    (error.code.startsWith("22") || error.code === "23514")
+  );
+}
+
+// A column the database does not have yet: PostgREST's schema cache miss on
+// insert, or Postgres's own undefined column.
+function isMissingColumnError(error: { code?: string }): boolean {
+  return error.code === "PGRST204" || error.code === "42703";
+}
+
+// Remove a just-uploaded Storage object and its thumbnail after its photos row
+// failed to save, so a failed save never leaves orphaned files. Strictly
+// best-effort and never throws: an orphan is recoverable with
+// scripts/cleanup-orphan-uploads.ts, a thrown cleanup would hide the real
+// error. Only paths inside the caller's own upload prefix are touched, and
+// never one a photos row references (the path came from the client).
+async function discardUpload(
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
+  userId: string,
+  storagePath: string,
+): Promise<void> {
+  try {
+    if (!storagePath.startsWith(`${userId}/`) || storagePath.includes("..")) {
+      return;
+    }
+    const { data: referenced, error } = await supabase
+      .from("photos")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("storage_path", storagePath)
+      .limit(1);
+    if (error || (referenced ?? []).length > 0) return;
+    await createAdminClient()
+      .storage.from(PHOTO_BUCKET)
+      .remove([storagePath, `${storagePath}${THUMB_SUFFIX}`]);
+  } catch {
+    // Best-effort; see above.
+  }
+}
 
 export async function insertPhotoRecord(
   input: InsertPhotoInput,
@@ -66,44 +119,72 @@ export async function insertPhotoRecord(
     attribution: input.attribution ?? null,
     order_index: nextOrder,
   };
-  if (input.dateTaken !== undefined && input.dateTaken !== null) {
-    payload.date_taken = input.dateTaken;
-  }
   if (input.fingerprint !== undefined && input.fingerprint !== null) {
     payload.fingerprint = input.fingerprint;
   }
-  const hasGps = input.gpsLat != null && input.gpsLng != null;
+  // EXIF-derived fields are validated again here: the client already ran the
+  // same checks, but the server is the one that pays for a bad value.
+  const dateTaken = sanitizeDateTaken(input.dateTaken);
+  if (dateTaken !== null) payload.date_taken = dateTaken;
+  const { gpsLat, gpsLng } = sanitizeGps(input.gpsLat, input.gpsLng);
+  const hasGps = gpsLat !== null && gpsLng !== null;
   if (hasGps) {
-    payload.gps_lat = input.gpsLat;
-    payload.gps_lng = input.gpsLng;
+    payload.gps_lat = gpsLat;
+    payload.gps_lng = gpsLng;
   }
+  const hasExif = dateTaken !== null || hasGps;
   const hasThumb = input.thumbPath != null;
   if (hasThumb) {
     payload.thumb_path = input.thumbPath;
   }
 
-  let { data, error } = await supabase
-    .from("photos")
-    .insert(payload)
-    .select("id")
-    .single();
+  const insert = () =>
+    supabase.from("photos").insert(payload).select("id").single();
+
+  let { data, error } = await insert();
+  // Metadata is a bonus, never a blocker. A value that passed validation and
+  // still failed as data goes, and the photo saves without its metadata.
+  if (error && hasExif && isDataError(error)) {
+    console.warn(
+      `insertPhotoRecord: retrying without EXIF metadata (${error.code} ${error.message})`,
+    );
+    delete payload.date_taken;
+    delete payload.gps_lat;
+    delete payload.gps_lng;
+    ({ data, error } = await insert());
+  }
   // Databases created before the GPS or thumbnail columns existed reject the
   // insert with a schema error. Retry without those optional fields so the
   // upload never fails just because the metadata could not be stored.
-  if (error && (hasGps || hasThumb)) {
+  if (error && (hasGps || hasThumb) && isMissingColumnError(error)) {
     delete payload.gps_lat;
     delete payload.gps_lng;
     delete payload.thumb_path;
-    ({ data, error } = await supabase
-      .from("photos")
-      .insert(payload)
-      .select("id")
-      .single());
+    ({ data, error } = await insert());
   }
-  if (error || !data) return { error: "Could not save the photo." };
+  if (error || !data) {
+    if (input.source === "upload" && input.storagePath) {
+      await discardUpload(supabase, user.id, input.storagePath);
+    }
+    const detail = error
+      ? `${error.message}${error.code ? ` (${error.code})` : ""}`
+      : "no row returned";
+    return { error: `Could not save the photo: ${detail}` };
+  }
 
   revalidateAppData();
   return { ok: true, photoId: data.id as string };
+}
+
+// Discard an upload whose insert never ran or never answered (the action
+// threw, or the network dropped mid-call). insertPhotoRecord cleans up after
+// its own failures; this is for the ones it never saw.
+export async function discardUploadedPhoto(
+  storagePath: string,
+): Promise<void> {
+  if (await isDemoBlocked()) return;
+  const { supabase, user } = await requireUser();
+  await discardUpload(supabase, user.id, storagePath);
 }
 
 export async function setCoverPhoto(
