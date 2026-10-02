@@ -72,8 +72,7 @@ export interface ProfileTrip {
   coverUrl: string | null;
   /** The same photo at full size, for full-screen and exported use. */
   coverFullUrl: string | null;
-  // The explicit cover photo id, when set. Lets the dashboard cover editor
-  // mark the current cover; the read-only share view ignores it.
+  // The explicit cover photo id, when set.
   cover_photo_id: string | null;
   cover_position: { x: number; y: number } | null;
   destinations: ProfileDestination[];

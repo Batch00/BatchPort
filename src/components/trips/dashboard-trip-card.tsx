@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
-  CameraIcon,
   ChevronDownIcon,
   ImageIcon,
   Loader2Icon,
@@ -35,7 +34,8 @@ import { StatusBadge } from "@/components/trips/status-badge";
 import { RatingDisplay } from "@/components/rating-display";
 import { CategoryIcon } from "@/components/category-icon";
 import { PlannedExperienceRowReadOnly } from "@/components/experiences/planned-checklist";
-import { TripCoverEditor } from "@/components/trips/trip-cover-editor";
+import { StoryLauncher } from "@/components/trips/story-launcher";
+import { hasStory, storyTripFromProfile } from "@/lib/story";
 import { deleteTripAction } from "@/lib/actions/trips";
 import { COVER_CARD_ASPECT, coverImageStyle } from "@/lib/photos";
 import { CountryFlag } from "@/components/country-flag";
@@ -53,8 +53,9 @@ import type { ProfileTrip, SharedTripExpenses } from "@/lib/share-data";
 
 // The authenticated dashboard trip card. Visually identical to the demo/share
 // card (panoramic cover, overlaid title, expandable destination list) but with
-// cover-edit and edit/delete controls in the top corner and destinations that
-// link into the app. Clicking the cover opens the trip; the stops chevron
+// the story and edit/delete controls in the top corner and destinations that
+// link into the app. Cover editing lives on the trip page (the cover picker
+// and Curate), not here. Clicking the cover opens the trip; the stops chevron
 // expands the inline destination list without navigating.
 export function DashboardTripCard({
   trip,
@@ -69,7 +70,6 @@ export function DashboardTripCard({
   const today = useToday();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [coverEditorOpen, setCoverEditorOpen] = useState(false);
   const destinationCount = trip.destinations.length;
   const days = durationDays(trip.start_date, trip.end_date);
   // Small anticipation cue on upcoming planned trips.
@@ -192,16 +192,18 @@ export function DashboardTripCard({
         </div>
       </div>
 
-      {/* Cover edit and menu controls, above the cover link. */}
+      {/* Story and menu controls, above the cover link. The story is offered
+          exactly where the share card offers it (hasStory), through the same
+          launcher, which mounts the overlay only on tap. Its payload is
+          already on the card: the dashboard reads trips with { story: true }
+          for the year recap, so a tap fetches nothing. */}
       <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
-        <button
-          type="button"
-          aria-label="Edit cover photo"
-          onClick={() => setCoverEditorOpen(true)}
-          className="flex size-9 items-center justify-center rounded-md bg-black/45 text-white backdrop-blur transition-colors hover:bg-black/65 sm:size-8"
-        >
-          <CameraIcon className="size-4" />
-        </button>
+        {hasStory(trip) ? (
+          <StoryLauncher
+            trip={storyTripFromProfile(trip)}
+            className="h-9 border-0 bg-black/45 px-2.5 text-xs hover:bg-black/65 sm:h-8"
+          />
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -348,20 +350,6 @@ export function DashboardTripCard({
             </ol>
           )}
         </div>
-      ) : null}
-
-      {coverEditorOpen ? (
-        <TripCoverEditor
-          tripId={trip.id}
-          tripName={trip.name}
-          coverPhotoId={trip.cover_photo_id}
-          coverPosition={trip.cover_position}
-          destinationIds={trip.destinations.map((d) => d.id)}
-          experienceIds={trip.destinations.flatMap((d) =>
-            d.experiences.map((e) => e.id),
-          )}
-          onClose={() => setCoverEditorOpen(false)}
-        />
       ) : null}
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>

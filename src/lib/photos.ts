@@ -270,58 +270,6 @@ export function compareByDateTaken(a: Photo, b: Photo): number {
   return a.created_at < b.created_at ? -1 : 1;
 }
 
-// Client-side fetch of every photo attached to a trip at any level (the trip
-// itself, its destinations, and their experiences). Used by the dashboard
-// cover editor, which loads photos lazily on open instead of shipping every
-// trip's gallery with the dashboard payload.
-//
-// Filters on user_id: the owner ids come from the caller, and RLS on photos
-// admits every shared profile's rows, so without it a stale or borrowed id
-// would pull somebody else's gallery into the cover editor.
-export async function fetchTripGalleryPhotos(
-  tripId: string,
-  destinationIds: string[],
-  experienceIds: string[],
-): Promise<Photo[]> {
-  const supabase = createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const userId = session?.user.id;
-  if (!userId) return [];
-  const queries = [
-    supabase
-      .from("photos")
-      .select(PHOTO_COLUMNS)
-      .eq("user_id", userId)
-      .eq("owner_type", "trip")
-      .eq("owner_id", tripId),
-    destinationIds.length > 0
-      ? supabase
-          .from("photos")
-          .select(PHOTO_COLUMNS)
-          .eq("user_id", userId)
-          .eq("owner_type", "destination")
-          .in("owner_id", destinationIds)
-      : null,
-    experienceIds.length > 0
-      ? supabase
-          .from("photos")
-          .select(PHOTO_COLUMNS)
-          .eq("user_id", userId)
-          .eq("owner_type", "experience")
-          .in("owner_id", experienceIds)
-      : null,
-  ].filter((query) => query !== null);
-  const results = await Promise.all(queries);
-  const photos: Photo[] = [];
-  for (const result of results) {
-    if (result.error) throw result.error;
-    photos.push(...((result.data ?? []) as Photo[]));
-  }
-  return photos.sort(compareByDateTaken);
-}
-
 // Pick the cover photo for an owner from its photo list: the explicit cover if
 // it is present, otherwise the first photo, otherwise null.
 export function pickCover(
