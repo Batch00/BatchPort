@@ -21,6 +21,7 @@ import {
   formatDateRange,
   formatDuration,
 } from "@/lib/format";
+import { useToday } from "@/components/today-provider";
 import { cn } from "@/lib/utils";
 import type { TripStatus } from "@/lib/types";
 import { TripSpendLine } from "@/components/trips/trip-spend-line";
@@ -101,6 +102,7 @@ export function SharedTripCard({
   spend?: SharedTripExpenses | null;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const today = useToday();
   const destinationCount = trip.destinations.length;
   // A leg belongs to the stop it arrives at, so the list is keyed by that id.
   const legByDestination = new Map(
@@ -109,7 +111,7 @@ export function SharedTripCard({
   const days = durationDays(trip.start_date, trip.end_date);
   // Small anticipation cue on upcoming planned trips.
   const countdown =
-    trip.status === "planned" ? daysUntil(trip.start_date) : null;
+    trip.status === "planned" ? daysUntil(trip.start_date, today) : null;
 
   return (
     // @container/card: the spend line sheds its tail by CARD width, not
@@ -135,8 +137,10 @@ export function SharedTripCard({
         type="button"
         onClick={() => setExpanded((open) => !open)}
         aria-expanded={expanded}
+        // The cover's own fixed-aspect box, and it clips: see the note on
+        // DashboardTripCard (a zoomed cover bled into the expanded list).
         className={cn(
-          "group relative block w-full text-left",
+          "group relative isolate block w-full overflow-hidden text-left",
           COVER_CARD_ASPECT,
         )}
       >
@@ -162,20 +166,26 @@ export function SharedTripCard({
               <StatusBadge status={trip.status as TripStatus} />
             </span>
           </div>
-          <div className="mt-0.5 flex items-center justify-between gap-2">
-            <p className="text-sm text-white/70">
-              {formatDateRange(trip.start_date, trip.end_date)}
-              {days ? (
-                <span className="text-white/50"> · {formatDuration(days)}</span>
-              ) : null}
-              {countdown ? (
-                <span className="font-medium text-brand">
-                  {" "}
-                  · in {formatDuration(countdown)}
-                </span>
-              ) : null}
-            </p>
-            <span className="flex items-center gap-1 text-xs text-white/60">
+          <p className="mt-0.5 text-sm text-white/70">
+            {formatDateRange(trip.start_date, trip.end_date)}
+            {days ? (
+              <span className="text-white/50"> · {formatDuration(days)}</span>
+            ) : null}
+            {countdown ? (
+              <span className="font-medium text-brand">
+                {" "}
+                · in {formatDuration(countdown)}
+              </span>
+            ) : null}
+          </p>
+          {/* Same bottom row as DashboardTripCard: the stops control in the
+              corner, so the name and dates get the full width. The whole
+              cover is the button here, so the label needs no hit area. */}
+          <div className="flex min-h-7 items-end justify-between gap-2">
+            <div className="min-w-0">
+              <TripSpendLine spend={spend ?? null} />
+            </div>
+            <span className="flex shrink-0 items-center gap-1 text-xs text-white/60">
               {destinationCount}{" "}
               {destinationCount === 1 ? "stop" : "stops"}
               <ChevronDownIcon
@@ -186,7 +196,6 @@ export function SharedTripCard({
               />
             </span>
           </div>
-          <TripSpendLine spend={spend ?? null} />
         </div>
       </button>
 

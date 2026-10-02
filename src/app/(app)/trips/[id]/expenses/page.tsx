@@ -24,6 +24,7 @@ import { ExpenseDayChart } from "@/components/expenses/expense-day-chart";
 import { ExpenseHighlights } from "@/components/expenses/expense-highlights";
 import { ExpenseWorkspace } from "@/components/expenses/expense-workspace";
 import { DestinationCosts } from "@/components/expenses/destination-costs";
+import { viewerToday } from "@/lib/viewer-date";
 
 export const metadata = { title: "Expenses" };
 
@@ -87,7 +88,7 @@ export default async function TripExpensesPage({
   // that is what is being logged; a finished one defaults to its last day,
   // because a retrospective pass starts at the end. A trip with no dates at
   // all defaults to today, which is the only date the app can be sure of.
-  const today = new Date().toISOString().slice(0, 10);
+  const today = await viewerToday();
   const defaultDate =
     trip.status === "ongoing" || !dates.end_date
       ? today

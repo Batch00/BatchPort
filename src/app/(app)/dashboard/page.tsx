@@ -13,7 +13,6 @@ import { getPlannedExperiencePoints } from "@/lib/nearby-data";
 import { getOnThisDay } from "@/lib/on-this-day";
 import { OnThisDaySection } from "@/components/dashboard/on-this-day";
 import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
-import { todayIso } from "@/lib/year-recap";
 import { getTripDestinationOptions, getTripOptions } from "@/lib/trips";
 import { placeKey } from "@/lib/geo";
 import { DashboardGlobe } from "@/components/map/dashboard-globe";
@@ -95,7 +94,6 @@ export default async function DashboardPage() {
           trips={trips}
           bucket={stats.bucket}
           bucketItems={bucketItems}
-          today={todayIso()}
         />
 
         <section>

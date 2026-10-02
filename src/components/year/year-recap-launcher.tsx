@@ -12,6 +12,7 @@ import {
 import { bucketItemName } from "@/lib/bucket-format";
 import { formatKm } from "@/lib/stats-format";
 import { storyTripFromProfile } from "@/lib/story";
+import { useToday } from "@/components/today-provider";
 import { cn } from "@/lib/utils";
 import type { BucketItem } from "@/lib/bucket-list";
 import type { ProfileTrip } from "@/lib/share-data";
@@ -78,7 +79,6 @@ export function YearRecapLauncher({
   trips,
   bucket,
   bucketItems,
-  today,
   variant = "banner",
   className,
 }: {
@@ -87,9 +87,6 @@ export function YearRecapLauncher({
   /** The list itself, so the closing slide can name places rather than count
    * them. Optional: a surface that has only the totals still shows the bar. */
   bucketItems?: BucketItem[];
-  /** YYYY-MM-DD, resolved on the server so the offered years and the "so far"
-   * label are the same on both sides of hydration. */
-  today: string;
   variant?: YearRecapVariant;
   className?: string;
 }) {
@@ -98,6 +95,10 @@ export function YearRecapLauncher({
   // number while the view is still mounted on this one.
   const [openYear, setOpenYear] = useState<number | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  // The viewer's date, not the server's: the provider is seeded with the
+  // server's answer for the viewer's zone, so the offered years and the "so
+  // far" label are the same on both sides of hydration.
+  const today = useToday();
 
   const input = useMemo<YearRecapInput>(() => {
     const transportModes: Record<string, TransportMode> = {};

@@ -3,6 +3,9 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { ServiceWorkerRegister } from "@/components/service-worker-register";
+import { TodayProvider } from "@/components/today-provider";
+import { viewerTimeZone } from "@/lib/viewer-date";
+import { todayInZone } from "@/lib/local-date";
 
 // Inter, exposed as the --font-sans CSS variable that globals.css maps onto the
 // Tailwind font-sans token.
@@ -70,18 +73,23 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // The viewer's zone and date, so client components render the same "today"
+  // on the server as in the browser (components/today-provider.tsx).
+  const zone = await viewerTimeZone();
   // The `dark` class makes the dark token set the default for the whole app.
   return (
     <html lang="en" className={`${inter.variable} dark h-full`}>
       {/* overflow-x-clip is a backstop against horizontal scroll on small
           screens; individual layouts still avoid overflowing on their own. */}
       <body className="flex min-h-full flex-col overflow-x-clip antialiased">
-        {children}
+        <TodayProvider serverToday={todayInZone(zone)} serverZone={zone}>
+          {children}
+        </TodayProvider>
         <Toaster />
         <ServiceWorkerRegister />
       </body>

@@ -8,6 +8,7 @@ import {
   EXPORT_FORMATS,
   type ExportFormat,
 } from "@/lib/export-data";
+import { viewerToday } from "@/lib/viewer-date";
 
 // GET /api/export?format=json|geojson
 //
@@ -54,7 +55,7 @@ export async function GET(request: NextRequest) {
           : raw === "expenses-csv"
             ? "text/csv; charset=utf-8"
             : "application/json; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${exportFilename(raw)}"`,
+      "Content-Disposition": `attachment; filename="${exportFilename(raw, await viewerToday())}"`,
       // A download is a snapshot of live data; never let a proxy reuse one.
       "Cache-Control": "no-store",
     },

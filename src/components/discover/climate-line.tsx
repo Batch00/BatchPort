@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDownIcon, ThermometerSunIcon } from "lucide-react";
 
+import { useToday } from "@/components/today-provider";
 import { cn } from "@/lib/utils";
 import type { DiscoverClimate } from "@/lib/discover";
 
@@ -27,10 +28,6 @@ const MONTH_NAMES = [
   "November",
   "December",
 ];
-
-function currentMonth(): number {
-  return new Date().getMonth() + 1;
-}
 
 function toF(celsius: number): number {
   return Math.round((celsius * 9) / 5 + 32);
@@ -58,7 +55,12 @@ export function ClimateSection({
   defaultMonth?: number | null;
   className?: string;
 }) {
-  const [month, setMonth] = useState(() => defaultMonth ?? currentMonth());
+  // The viewer's month, read off the shared today so the server render and
+  // the hydrating one agree.
+  const today = useToday();
+  const [month, setMonth] = useState(
+    () => defaultMonth ?? Number(today.slice(5, 7)),
+  );
   const [climate, setClimate] = useState<DiscoverClimate | null>(null);
   // Tracks whether the very first fetch resolved with data. Until it does the
   // whole block (selector included) stays hidden, so ocean points and failures

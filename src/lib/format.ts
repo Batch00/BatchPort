@@ -1,3 +1,4 @@
+import { daysBetween, isIsoDate } from "@/lib/local-date";
 import type { TripStatus } from "@/lib/types";
 
 // Turn a 2-letter ISO country code into its flag emoji (regional indicator
@@ -101,16 +102,17 @@ export function formatDuration(days: number): string {
   return `${days} ${days === 1 ? "day" : "days"}`;
 }
 
-// Whole days from today (local) until a future YYYY-MM-DD date. Returns null
-// for past dates, today, or missing/malformed input. Used for the "in N days"
-// hint on upcoming planned trips.
-export function daysUntil(date?: string | null): number | null {
-  if (!date) return null;
-  const target = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(target.getTime())) return null;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const days = Math.round((target.getTime() - today.getTime()) / 86400000);
+// Whole days from `today` until a future YYYY-MM-DD date. Returns null for
+// past dates, today, or missing/malformed input. Used for the "in N days" hint
+// on upcoming planned trips. `today` is the VIEWER'S date (useToday() or
+// viewerToday()), passed in rather than read here: a bare new Date() during a
+// server render is UTC, which counted down a day early every evening.
+export function daysUntil(
+  date: string | null | undefined,
+  today: string,
+): number | null {
+  if (!isIsoDate(date) || !isIsoDate(today)) return null;
+  const days = daysBetween(today, date);
   return days > 0 ? days : null;
 }
 

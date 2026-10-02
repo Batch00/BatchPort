@@ -20,6 +20,7 @@ import { enqueue } from "@/lib/offline/queue";
 import { useOfflineQueue } from "@/lib/offline/use-offline";
 import type { Category } from "@/lib/types";
 import type { OfflineTrip } from "@/lib/offline/types";
+import { useToday } from "@/components/today-provider";
 import { cn } from "@/lib/utils";
 
 // One trip, read from the snapshot, with the two writes that belong in the
@@ -33,13 +34,6 @@ import { cn } from "@/lib/utils";
 // actually queued. It deliberately offers less: no photo management, no
 // editing, no deletes, no reordering. Those need a connection and the shell
 // does not pretend otherwise by rendering controls that would refuse.
-
-function todayIso(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-}
 
 /** Queued writes referring to this experience, so a checked-off row can say so
  * even after a reload. The queue is the source of truth for "did that land",
@@ -300,6 +294,9 @@ export function OfflineTripView({
   readOnly: boolean;
   onBack: () => void;
 }) {
+  // The device's date once mounted: /offline is precached HTML, so whatever
+  // date it was rendered with is stale (see components/today-provider.tsx).
+  const today = useToday();
   const categoryById = useMemo(
     () => new Map(categories.map((category) => [category.id, category])),
     [categories],
@@ -380,7 +377,7 @@ export function OfflineTripView({
             const planned = destination.experiences.filter(
               (experience) => experience.status === "planned",
             );
-            const defaultDate = destination.arrivalDate ?? todayIso();
+            const defaultDate = destination.arrivalDate ?? today;
             return (
               <li key={destination.id}>
                 {mode ? (

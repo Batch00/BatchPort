@@ -4,7 +4,6 @@ import { SharedBucketList } from "@/components/share/shared-bucket-list";
 import { StatsOverview } from "@/components/stats/stats-overview";
 import { DiscoveryProvider } from "@/components/discover/discovery-host";
 import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
-import { todayIso } from "@/lib/year-recap";
 import { placeKey } from "@/lib/geo";
 import type { SharedProfile } from "@/lib/share-data";
 
@@ -50,7 +49,6 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
           trips={trips}
           bucket={stats.bucket}
           bucketItems={bucketItems}
-          today={todayIso()}
         />
 
         <StatsOverview

@@ -6,6 +6,8 @@ import { requireUser } from "@/lib/current-user";
 import { revalidateAppData } from "@/lib/revalidate";
 import { createExperience, markExperienceDone } from "@/lib/experiences";
 import type { QueuedOp } from "@/lib/offline/queue-types";
+import { isIsoDate } from "@/lib/local-date";
+import { viewerToday } from "@/lib/viewer-date";
 
 // Replay of one queued offline write.
 //
@@ -193,7 +195,12 @@ async function replayBucketFulfill(
     .from("bucket_list")
     .update({
       fulfilled_trip_id: op.tripId,
-      fulfilled_at: new Date().toISOString(),
+      // A date, like the auto-fulfill path writes: the day it was ticked off
+      // on the device. new Date().toISOString() was the UTC instant, which
+      // read as tomorrow on the card from 7 PM Central onward.
+      fulfilled_at: isIsoDate(op.fulfilledOn)
+        ? op.fulfilledOn
+        : await viewerToday(),
     })
     .eq("id", op.itemId);
   if (error)

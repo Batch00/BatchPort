@@ -57,6 +57,10 @@ export type QueuedOp =
       itemId: string;
       itemLabel: string;
       tripId: string;
+      /** The device's date when it was ticked off (YYYY-MM-DD). Optional
+       * because writes queued before it existed lack it; replay then uses the
+       * viewer's date at replay time. */
+      fulfilledOn?: string;
     };
 
 export type QueuedOpKind = QueuedOp["kind"];

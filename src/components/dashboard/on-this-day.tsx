@@ -6,6 +6,7 @@ import { CalendarHeartIcon } from "lucide-react";
 
 import { Lightbox } from "@/components/photos/lightbox";
 import { RatingDisplay } from "@/components/rating-display";
+import { useToday } from "@/components/today-provider";
 import type { OnThisDay } from "@/lib/on-this-day";
 
 // A quiet strip of what today looked like in earlier years. It renders only
@@ -13,14 +14,15 @@ import type { OnThisDay } from "@/lib/on-this-day";
 // getOnThisDay returns null on a day with no matches and the dashboard omits
 // the section entirely.
 
-function yearsAgo(year: number): string {
-  const gap = new Date().getFullYear() - year;
+function yearsAgo(year: number, today: string): string {
+  const gap = Number(today.slice(0, 4)) - year;
   if (gap <= 0) return String(year);
   return `${gap} ${gap === 1 ? "year" : "years"} ago`;
 }
 
 export function OnThisDaySection({ memories }: { memories: OnThisDay }) {
   const [index, setIndex] = useState<number | null>(null);
+  const today = useToday();
   const { photos, experiences } = memories;
   const open = index !== null ? photos[index] : null;
 
@@ -51,7 +53,7 @@ export function OnThisDaySection({ memories }: { memories: OnThisDay }) {
                   className="size-full object-cover"
                 />
                 <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 pb-1 pt-4 text-left text-[10px] text-white/85">
-                  {yearsAgo(photo.year)}
+                  {yearsAgo(photo.year, today)}
                 </span>
               </button>
             </li>
@@ -68,7 +70,7 @@ export function OnThisDaySection({ memories }: { memories: OnThisDay }) {
                   {experience.name}
                 </span>
                 <span className="shrink-0 text-foreground/40">
-                  {yearsAgo(experience.year)}
+                  {yearsAgo(experience.year, today)}
                 </span>
                 {experience.rating !== null ? (
                   <RatingDisplay

@@ -21,6 +21,7 @@ import {
   XIcon,
 } from "lucide-react";
 
+import { useToday } from "@/components/today-provider";
 import { cn } from "@/lib/utils";
 import { formatDateRange } from "@/lib/format";
 import {
@@ -45,11 +46,12 @@ const ACTION_CLASS =
 const PRIMARY_CLASS =
   "inline-flex items-center gap-1.5 rounded-full bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground transition-colors hover:bg-brand/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50";
 
-/** True when today falls inside the trip's dates, so the trip page's plan
- * block is the thing worth linking to rather than a finished trip's record. */
-function isUnderway(destination: GlobeDestination): boolean {
+/** True when `today` (the viewer's date) falls inside the trip's dates, so
+ * the trip page's plan block is the thing worth linking to rather than a
+ * finished trip's record. It used to read the UTC date, which ended a trip
+ * that evening rather than at local midnight. */
+function isUnderway(destination: GlobeDestination, today: string): boolean {
   if (destination.planned) return true;
-  const today = new Date().toISOString().slice(0, 10);
   const start = destination.tripStartDate;
   const end = destination.tripEndDate;
   if (!start) return false;
@@ -83,6 +85,7 @@ export function NearbyPanel({
   onRefresh: () => void;
   onExit: () => void;
 }) {
+  const today = useToday();
   if (status === "off") return null;
 
   if (status === "locating") {
@@ -223,7 +226,7 @@ export function NearbyPanel({
               href={`/trips/${destination.tripId}`}
               className={ACTION_CLASS}
             >
-              {isUnderway(destination) ? "Open plan" : "Open trip"}
+              {isUnderway(destination, today) ? "Open plan" : "Open trip"}
             </Link>
           </>
         ) : null}

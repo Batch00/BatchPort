@@ -37,18 +37,15 @@ export function planDayLabel(arrival: string, day: number): string {
   );
 }
 
-/** Which plan day is today, for the ongoing-trip highlight. Null when today
- * falls outside the stay. */
+/** Which plan day is `today` (the viewer's date, from useToday()), for the
+ * ongoing-trip highlight. Null when today falls outside the stay. */
 export function todayPlanDay(
   arrival: string | null,
   departure: string | null,
+  today: string,
 ): number | null {
   const dayCount = planDayCount(arrival, departure);
   if (!dayCount || !arrival) return null;
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const dayOfMonth = String(now.getDate()).padStart(2, "0");
-  const today = `${now.getFullYear()}-${month}-${dayOfMonth}`;
   for (let day = 1; day <= dayCount; day += 1) {
     if (planDayIso(arrival, day) === today) return day;
   }

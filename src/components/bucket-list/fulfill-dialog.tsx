@@ -28,6 +28,7 @@ import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { bucketItemName } from "@/lib/bucket-format";
 import { formatDateRange } from "@/lib/format";
 import type { BucketItem } from "@/lib/bucket-list";
+import { localToday } from "@/lib/local-date";
 
 export interface TripOption {
   id: string;
@@ -114,6 +115,8 @@ function FulfillForm({
         itemId: item.id,
         itemLabel: bucketItemName(item),
         tripId,
+        // The day it was ticked off, not the day the queue drains.
+        fulfilledOn: localToday(),
       });
       setSubmitting(false);
       if (!stored) {

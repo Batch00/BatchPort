@@ -613,11 +613,12 @@ a recap ends up leading on a fact nobody asked for. Each candidate must also be
 true as stated: "where you went deepest" needs a strict winner, because on a tie
 the caption would be a plain untruth.
 
-`todayIso()` is the one impure function in the file and is called **on the
-server**, in the page, so the offered years and the "so far" label cannot differ
-across hydration. Every check in `scripts/check-year-recap.ts` passes `today`
-explicitly, which is what makes the year logic testable at all
-(`npm run check-year-recap`).
+The file is wholly pure: `today` is an input. `YearRecapLauncher` reads it from
+`useToday()` (see "Today Is The Viewer's Date" below), which the root layout
+seeds with the server's answer for the viewer's zone, so the offered years and
+the "so far" label cannot differ across hydration. Every check in
+`scripts/check-year-recap.ts` passes `today` explicitly, which is what makes the
+year logic testable at all (`npm run check-year-recap`).
 
 **The closing slide names bucket list places, it does not score them.** "0 of
 7" is a scoreboard for a thing that is not a game. `yearBucket()` splits the
@@ -688,6 +689,37 @@ is nothing to reset. It and `AnimatedNumber` both stand down under
 `prefers-reduced-motion` (`lib/motion.ts`). `CountUpGroup` takes an optional
 `active` prop for this: the recap's slides are all mounted and toggled by
 opacity, so scrolling into view says nothing about whether they are visible.
+
+### Today Is The Viewer's Date
+
+The server runs in UTC, so a bare `new Date()` there answers with tomorrow from
+7 PM Central onward. Nothing asks it what day it is. `lib/local-date.ts` is the
+pure half (`todayInZone`, `localToday`, `daysBetween`); `lib/viewer-date.ts`
+(`viewerToday()`) is the server half; `components/today-provider.tsx`
+(`useToday()`) is the client half.
+
+- **The zone comes from the browser**, never a constant: `TodayProvider` writes
+  `Intl.DateTimeFormat().resolvedOptions().timeZone` into the `bp_tz` cookie,
+  so it follows the device while traveling. A request that arrives before the
+  cookie exists uses `FALLBACK_TIME_ZONE`, and the provider refreshes once if
+  that guess was a different day.
+- **Server code calls `viewerToday()`**: On this day, the expenses entry
+  default, manual and replayed bucket fulfillment dates, the auto-fulfill
+  future-stop gate, the export filename.
+- **Client components call `useToday()`, never `new Date()` during render.**
+  The provider is seeded with the server's answer, so SSR and hydration agree,
+  then switches to the device date after mount and on every return to the tab
+  (which also corrects the precached `/offline` page). Event handlers outside
+  render use `localToday()`.
+- **Pure helpers take `today` as an argument** (`daysUntil`, `todayPlanDay`,
+  `anniversaryDates`, the recap). That is what makes them checkable.
+- **Date-only values stay timezone-free.** The zone answers one question,
+  which calendar day it is now; all arithmetic on YYYY-MM-DD strings stays
+  UTC-anchored.
+- **The SQL views cannot see the viewer.** `v_bucket_fulfillment_matches` and
+  the places presence views compare against `current_date`, the database's
+  UTC date. The bucket auto-fulfill read filters future arrivals against
+  `viewerToday()` app-side; the places views still use the UTC date.
 
 ### Curation (Slots)
 
@@ -1575,6 +1607,9 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Offline write queue and replay loop | `src/lib/offline/queue.ts` |
 | Snapshot fetch, store, and staleness | `src/lib/offline/snapshot.ts` |
 | Per-trip photo cache warm and removal | `src/lib/offline/trip-cache.ts` |
+| Viewer's today: pure helpers and the cookie name | `src/lib/local-date.ts` |
+| Viewer's today on the server (`viewerToday()`) | `src/lib/viewer-date.ts` |
+| Viewer's today in client components (`useToday()`) | `src/components/today-provider.tsx` |
 | Online status, queue, and connection guard hooks | `src/lib/offline/use-offline.ts` |
 | Offline storage wipe on sign-out | `src/lib/offline/forget.ts` |
 | Offline replay server action | `src/lib/actions/offline.ts` |
@@ -1600,6 +1635,8 @@ Run `npm run build` to verify type correctness across the whole project (TypeScr
 - `npm run check-curation` asserts the curation model end to end (rank order, the cap, the photo slots and their backwards compatibility, the three slots' contents and their automatic answers, the derived per-stop capacity on a one day, ten day, and undated stop with a selection up to the maximum on each, the spread of a stop's picks across its day slides for equal, fewer, and more picks than days, the picker's day grouping and the per-day outcome each heading states, that a day with picks shows only those and a day without falls back to its own photos and then to the stop cover, that a moment shows its own experience's photograph and marks a place fallback as one, that the story opener names every stop, what the story, the share card, and the recap select, and the round trip through `applyCurationSelection` that lets the panel preview an unsaved selection), including the uncurated fallback path on every one of them. Re-run it after any change to `lib/curation.ts`, `lib/curation-slots.ts`, or a selector that consumes them.
 - `npm run check-map-arcs` asserts the transport arc families on the drawn maps: the mode to family mapping, the dash pattern each family draws (air solid, ground dashed, sea dotted, all scaling with the line width), that both exported cards style each hop by the mode on its **arriving** stop, that an unlocatable stop drops out without sliding a mode onto the wrong arc, that the poster passes no family, and that an unannotated trip or year is uniformly air on every one of them. Re-run it after any change to `arcFamily`, `familyArcColor` / `familyArcDash`, or either card's leg builder.
 - `npm run check-year-map-playback` asserts the recap map slide's clock: that 1x, 2x, and 4x all reach the end of a real multi-trip timeline, that changing speed mid-flight rescales the remaining time rather than jumping or truncating, that skip lands on the finished year, and that rebuilding the animation mid-playback resumes instead of restarting. Re-run it after any change to `advancePlayback` or to the map slide's effect wiring.
+
+- `npm run check-local-date` asserts that "today" is the viewer's calendar date: 8 PM Central (01:00 UTC the next day) resolves to the Central date, viewers in other zones (including a half-hour offset and one across new year) get their own, an invalid cookie zone falls back rather than throwing, and the consumers (`daysUntil`, `todayPlanDay`, `anniversaryDates`) answer for that date. It also runs the date-only arithmetic under six process time zones, across both DST changes, and asserts identical results. Re-run it after any change to `lib/local-date.ts` or a helper that takes `today`.
 
 - `npm run check-expense-csv` asserts that the expense CSV round-trips: export, parse, deep-equal, over the shapes that break naive CSV code (a refund staying negative, an undated row, an uncategorized row, a vendor with a comma, a vendor with a quote, a note containing a comma AND a quote AND a newline, cents, a trip name with a comma, a row with no id). It also asserts that re-exporting an unchanged ledger is byte-identical, that a wrong header is refused rather than guessed at, and that every bad row is reported with its line number. Pure. Re-run it after any change to `lib/expenses-csv.ts`, which is the single definition both the exporter and `import-expenses --csv` read.
 

@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/current-user";
 import { getPhotoUrl } from "@/lib/photos";
+import { viewerToday } from "@/lib/viewer-date";
 import type { PhotoSource } from "@/lib/types";
 
 // "On this day": photos taken and experiences logged on today's month and day
@@ -91,10 +92,6 @@ interface DestinationRow {
   trip_id: string;
 }
 
-function pad(value: number): string {
-  return String(value).padStart(2, "0");
-}
-
 function nextDay(date: string): string {
   return new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000)
     .toISOString()
@@ -102,11 +99,15 @@ function nextDay(date: string): string {
 }
 
 /** Today's month and day in each of the previous LOOKBACK_YEARS years, newest
- * first. The current year is excluded: today is not yet a memory. */
-function anniversaryDates(today: Date): string[] {
-  const month = pad(today.getMonth() + 1);
-  const day = pad(today.getDate());
-  const thisYear = today.getFullYear();
+ * first. The current year is excluded: today is not yet a memory. `today` is
+ * the viewer's YYYY-MM-DD; reading the parts off a server Date answered in
+ * UTC and showed tomorrow's memories from 7 PM Central onward. */
+export function anniversaryDates(today: string): string[] {
+  const [thisYear, month, day] = [
+    Number(today.slice(0, 4)),
+    today.slice(5, 7),
+    today.slice(8, 10),
+  ];
   const dates: string[] = [];
   for (let back = 1; back <= LOOKBACK_YEARS; back += 1) {
     const year = thisYear - back;
@@ -126,7 +127,7 @@ function anniversaryDates(today: Date): string[] {
  * is the common case and saying so every morning is noise.
  */
 export async function getOnThisDay(): Promise<OnThisDay | null> {
-  const today = new Date();
+  const today = await viewerToday();
   const dates = anniversaryDates(today);
   if (dates.length === 0) return null;
 
@@ -256,7 +257,13 @@ export async function getOnThisDay(): Promise<OnThisDay | null> {
   }));
 
   return {
-    label: today.toLocaleDateString("en-US", { month: "long", day: "numeric" }),
+    // Formatted in UTC from the date string, so the label is the viewer's
+    // date whatever zone the server runs in.
+    label: new Date(`${today}T00:00:00Z`).toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    }),
     photos,
     experiences,
   };

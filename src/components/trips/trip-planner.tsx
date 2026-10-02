@@ -32,6 +32,7 @@ import {
   proximitySummary,
   todayPlanDay,
 } from "@/lib/day-plan";
+import { useToday } from "@/components/today-provider";
 import { cn } from "@/lib/utils";
 import type { Category, Experience, TripStatus } from "@/lib/types";
 
@@ -164,6 +165,7 @@ export function DestinationPlan({
   const planning = tripStatus === "planned" || tripStatus === "ongoing";
   // Leftovers on completed trips are a quiet afterword, collapsed by default.
   const [leftoversOpen, setLeftoversOpen] = useState(false);
+  const today = useToday();
 
   if (!planning && planned.length === 0) return null;
 
@@ -177,7 +179,7 @@ export function DestinationPlan({
   );
   const todayDay =
     tripStatus === "ongoing"
-      ? todayPlanDay(destination.arrival_date, destination.departure_date)
+      ? todayPlanDay(destination.arrival_date, destination.departure_date, today)
       : null;
   const climateMonth = climateMonthOf(destination.arrival_date);
   const hasClimateCoords =

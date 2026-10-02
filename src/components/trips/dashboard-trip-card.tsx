@@ -45,6 +45,7 @@ import {
   formatDateRange,
   formatDuration,
 } from "@/lib/format";
+import { useToday } from "@/components/today-provider";
 import { cn } from "@/lib/utils";
 import type { TripStatus } from "@/lib/types";
 import { TripSpendLine } from "@/components/trips/trip-spend-line";
@@ -65,6 +66,7 @@ export function DashboardTripCard({
   spend?: SharedTripExpenses | null;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const today = useToday();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [coverEditorOpen, setCoverEditorOpen] = useState(false);
@@ -72,7 +74,7 @@ export function DashboardTripCard({
   const days = durationDays(trip.start_date, trip.end_date);
   // Small anticipation cue on upcoming planned trips.
   const countdown =
-    trip.status === "planned" ? daysUntil(trip.start_date) : null;
+    trip.status === "planned" ? daysUntil(trip.start_date, today) : null;
   // Planned experiences saved while planning; the data is already on the card.
   const ideaCount =
     trip.status === "planned" || trip.status === "ongoing"
@@ -101,7 +103,16 @@ export function DashboardTripCard({
     // @container/card: the spend line sheds its tail by CARD width, not
     // viewport width. See components/trips/trip-spend-line.tsx.
     <div className="@container/card relative isolate overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 transition-all hover:ring-brand/40">
-      <div className={cn("group relative w-full", COVER_CARD_ASPECT)}>
+      {/* The cover's own fixed-aspect box, and it CLIPS: a zoomed
+          cover_position scales the image past its box, and with only the
+          card clipping it the overflow showed through behind the expanded
+          stop list. isolate for the WebKit clip of a transformed child. */}
+      <div
+        className={cn(
+          "group relative isolate w-full overflow-hidden",
+          COVER_CARD_ASPECT,
+        )}
+      >
         {trip.coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -124,7 +135,7 @@ export function DashboardTripCard({
           aria-label={`Open ${trip.name}`}
           className="absolute inset-0"
         />
-        <div className="pointer-events-none absolute inset-0 flex flex-col justify-end p-4 pr-12">
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-end p-4">
           <div className="flex items-start gap-2">
             <h3 className="min-w-0 break-words text-lg font-semibold tracking-tight text-white">
               {trip.name}
@@ -133,25 +144,33 @@ export function DashboardTripCard({
               <StatusBadge status={trip.status as TripStatus} />
             </span>
           </div>
-          <div className="mt-0.5 flex items-center justify-between gap-2">
-            <p className="text-sm text-white/70">
-              {formatDateRange(trip.start_date, trip.end_date)}
-              {days ? (
-                <span className="text-white/50"> · {formatDuration(days)}</span>
-              ) : null}
-              {countdown ? (
-                <span className="font-medium text-brand">
-                  {" "}
-                  · in {formatDuration(countdown)}
-                </span>
-              ) : null}
-              {ideaCount > 0 ? (
-                <span className="text-white/50">
-                  {" "}
-                  · {ideaCount} {ideaCount === 1 ? "idea" : "ideas"} saved
-                </span>
-              ) : null}
-            </p>
+          <p className="mt-0.5 text-sm text-white/70">
+            {formatDateRange(trip.start_date, trip.end_date)}
+            {days ? (
+              <span className="text-white/50"> · {formatDuration(days)}</span>
+            ) : null}
+            {countdown ? (
+              <span className="font-medium text-brand">
+                {" "}
+                · in {formatDuration(countdown)}
+              </span>
+            ) : null}
+            {ideaCount > 0 ? (
+              <span className="text-white/50">
+                {" "}
+                · {ideaCount} {ideaCount === 1 ? "idea" : "ideas"} saved
+              </span>
+            ) : null}
+          </p>
+          {/* The expand control owns the bottom-right corner on a row of its
+              own, beside the spend line when there is one, so the name and
+              the date line above get the full width. It used to share the
+              date row and squeezed it onto two lines on a phone. Negative
+              margins grow the hit area to 44px without moving the label. */}
+          <div className="flex min-h-7 items-end justify-between gap-2">
+            <div className="min-w-0">
+              <TripSpendLine spend={spend ?? null} />
+            </div>
             <button
               type="button"
               onClick={() => setExpanded((open) => !open)}
@@ -159,7 +178,7 @@ export function DashboardTripCard({
               aria-label={
                 expanded ? "Hide destinations" : "Show destinations"
               }
-              className="pointer-events-auto -my-1 -mr-1.5 flex items-center gap-1 rounded-md px-1.5 py-2 text-xs text-white/60 transition-colors hover:bg-white/15 hover:text-white"
+              className="pointer-events-auto -mb-2.5 -mr-2.5 flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-md px-2.5 text-xs text-white/60 transition-colors hover:bg-white/15 hover:text-white"
             >
               {destinationCount} {destinationCount === 1 ? "stop" : "stops"}
               <ChevronDownIcon
@@ -170,7 +189,6 @@ export function DashboardTripCard({
               />
             </button>
           </div>
-          <TripSpendLine spend={spend ?? null} />
         </div>
       </div>
 

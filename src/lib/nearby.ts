@@ -89,10 +89,6 @@ export function formatProximity(km: number): string {
 }
 
 /** Today in the device's own timezone, as YYYY-MM-DD, for the visited date of
- * something logged where you are standing. */
-export function localToday(): string {
-  const now = new Date();
-  const month = `${now.getMonth() + 1}`.padStart(2, "0");
-  const day = `${now.getDate()}`.padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-}
+ * something logged where you are standing. Called from event handlers, so the
+ * device date is the right answer; the definition lives in lib/local-date.ts. */
+export { localToday } from "@/lib/local-date";

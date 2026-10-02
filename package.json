@@ -26,6 +26,7 @@
     "check-map-arcs": "npx tsx scripts/check-map-arcs.ts",
     "check-stays": "npx tsx scripts/check-stays.ts",
     "check-year-map-playback": "npx tsx scripts/check-year-map-playback.ts",
+    "check-local-date": "npx tsx scripts/check-local-date.ts",
     "build-expense-fixture": "npx tsx scripts/build-expense-fixture.ts",
     "check-expense-attribution": "npx tsx scripts/check-expense-attribution.ts",
     "purge-parity-fixture": "npx tsx scripts/check-expense-attribution.ts --purge",

@@ -9,6 +9,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { formatDate } from "@/lib/format";
+import { useToday } from "@/components/today-provider";
 import { cn } from "@/lib/utils";
 
 // One calendar for a start and an end, instead of two date inputs the user has
@@ -170,9 +171,11 @@ function RangeCalendar({
   onDone: () => void;
 }) {
   // Opening lands on the month the range is in, or on this month when there is
-  // no range yet. Read once, at mount: "today" must not shift under a re-render
-  // and the month must not jump back when an end date is picked in a later one.
-  const [today] = useState(() => toIso(Date.now()));
+  // no range yet. The month is read once, at mount, so it does not jump back
+  // when an end date is picked in a later render. "Today" is the viewer's
+  // date: toIso(Date.now()) was the UTC date, which marked tomorrow from
+  // 7 PM Central onward.
+  const today = useToday();
   const [month, setMonth] = useState(() => monthStart(start || end || today));
   // The day the pointer is over while a range is half-open, so the user can see
   // what they are about to select.

@@ -13,6 +13,7 @@ import { markExperienceDoneAction } from "@/lib/actions/experiences";
 import { enqueue } from "@/lib/offline/queue";
 import { useOnlineStatus } from "@/lib/offline/use-offline";
 import { cn } from "@/lib/utils";
+import { useToday } from "@/components/today-provider";
 
 // The checklist row for a planned experience, shared by the destination page
 // and the trip planning workspace. Tapping the circle checks the idea off
@@ -27,13 +28,6 @@ export interface PlannedRowData {
   categoryLabel?: string | null;
   categoryIcon?: string | null;
   categoryColor?: string | null;
-}
-
-function todayIso(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
 }
 
 export function PlannedExperienceRow({
@@ -61,7 +55,9 @@ export function PlannedExperienceRow({
   const [checked, setChecked] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
   const [rating, setRating] = useState(0);
-  const [visitedDate, setVisitedDate] = useState(() => defaultDate ?? todayIso());
+  // The viewer's date, so the server render and the hydrating one agree.
+  const today = useToday();
+  const [visitedDate, setVisitedDate] = useState(() => defaultDate ?? today);
   const [saving, setSaving] = useState(false);
   const [queued, setQueued] = useState(false);
   const online = useOnlineStatus();

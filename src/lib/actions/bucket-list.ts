@@ -7,6 +7,7 @@ import { DEMO_READONLY_MESSAGE } from "@/lib/demo";
 import { isDemoBlocked } from "@/lib/demo-guard";
 import type { ActionResult } from "@/lib/action-result";
 import type { BucketItemInput } from "@/lib/bucket-list";
+import { viewerToday } from "@/lib/viewer-date";
 
 // Server actions for bucket list mutations. Every write refuses the demo
 // account and revalidates the pages that surface bucket data.
@@ -174,7 +175,9 @@ export async function fulfillBucketItem(
   const { supabase } = await requireUser();
   const { error } = await supabase
     .from("bucket_list")
-    .update({ fulfilled_trip_id: tripId, fulfilled_at: new Date().toISOString() })
+    // The viewer's date, the same shape the auto-fulfill path writes. The UTC
+    // instant this used to store read as tomorrow on the card in the evening.
+    .update({ fulfilled_trip_id: tripId, fulfilled_at: await viewerToday() })
     .eq("id", id);
   if (error) return { error: "Could not mark the item as completed." };
 

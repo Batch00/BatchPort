@@ -1224,7 +1224,7 @@ function upcomingTrips(
       name: trip.name,
       startDate: start,
       dateLabel: range ? rangeLabel(range) : "Dates to be decided",
-      daysAway: start ? daysUntil(start) : null,
+      daysAway: start ? daysUntil(start, today) : null,
       countryCodes: Array.from(
         new Set(
           trip.destinations
@@ -1389,16 +1389,6 @@ export function buildYearRecap(
     mapStops: stops,
     slides,
   };
-}
-
-/**
- * Today, as the recap's input wants it. The one impure function in this file,
- * kept here so every surface resolves it the same way: on the server, before
- * the launcher renders, so the offered years and the "so far" label cannot
- * differ across hydration.
- */
-export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 /** Whether a recap is worth offering at all: at least one trip that happened

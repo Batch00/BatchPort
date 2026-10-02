@@ -9,7 +9,6 @@ import { getBucketList } from "@/lib/bucket-list";
 import { buildPosterData, hasPosterData } from "@/lib/poster/poster-data";
 import { PosterExportButton } from "@/components/poster/poster-export";
 import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
-import { todayIso } from "@/lib/year-recap";
 import {
   categoryInsight,
   countryInsight,
@@ -100,7 +99,6 @@ export default async function StatsPage() {
               trips={trips}
               bucket={stats.bucket}
               bucketItems={bucketItems}
-              today={todayIso()}
               variant="button"
             />
             {hasPosterData(posterData) ? (

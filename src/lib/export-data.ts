@@ -26,9 +26,9 @@ import type { PhotoSource, TripStatus } from "@/lib/types";
 export const EXPORT_FORMATS = ["json", "geojson", "expenses-csv"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
-/** "batchport-export-2026-07-29.json" */
-export function exportFilename(format: ExportFormat, now = new Date()): string {
-  const date = now.toISOString().slice(0, 10);
+/** "batchport-export-2026-07-29.json". `date` is the viewer's YYYY-MM-DD
+ * (viewerToday()), so an evening export is not named for tomorrow. */
+export function exportFilename(format: ExportFormat, date: string): string {
   if (format === "expenses-csv") return `batchport-expenses-${date}.csv`;
   return `batchport-export-${date}.${format}`;
 }

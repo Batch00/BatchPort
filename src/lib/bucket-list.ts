@@ -3,6 +3,7 @@ import { cache } from "react";
 import { requireUser } from "@/lib/current-user";
 import { createClient } from "@/utils/supabase/server";
 import { parseEwkbPoint } from "@/lib/geo";
+import { viewerToday } from "@/lib/viewer-date";
 import { compareByDateTaken } from "@/lib/photos";
 import {
   resolveBucketCovers,
@@ -347,19 +348,32 @@ export async function getBucketCountryCodes(userId?: string): Promise<string[]> 
 export async function autoFulfillBucketItems(): Promise<void> {
   const { supabase, user } = await requireUser();
 
-  const { data, error } = await supabase
-    .from("v_bucket_fulfillment_matches")
-    .select("bucket_id, trip_id, fulfilled_on")
-    .eq("user_id", user.id);
+  const [{ data, error }, today] = await Promise.all([
+    supabase
+      .from("v_bucket_fulfillment_matches")
+      .select("bucket_id, trip_id, fulfilled_on, date_source")
+      .eq("user_id", user.id),
+    viewerToday(),
+  ]);
   if (error) {
     console.warn("Bucket auto-fulfill: match read failed:", error.message);
     return;
   }
-  const matches = (data ?? []) as {
-    bucket_id: string;
-    trip_id: string;
-    fulfilled_on: string;
-  }[];
+  // "A stop dated after today does not count" means the VIEWER'S today. The
+  // view can only ask the database, whose current_date is UTC, so for a
+  // viewer west of Greenwich it admits tomorrow's arrival every evening. The
+  // view picks the earliest qualifying visit, so dropping a future one here
+  // never hides an earlier visit that should have won.
+  const matches = (
+    (data ?? []) as {
+      bucket_id: string;
+      trip_id: string;
+      fulfilled_on: string;
+      date_source: string;
+    }[]
+  ).filter(
+    (match) => !(match.date_source === "arrival" && match.fulfilled_on > today),
+  );
 
   const results = await Promise.all(
     matches.map((match) =>
