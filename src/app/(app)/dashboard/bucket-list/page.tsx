@@ -9,12 +9,9 @@ import {
   getCountries,
 } from "@/lib/bucket-list";
 import { getTripDestinationOptions, getTripOptions } from "@/lib/trips";
-import { getPhotosByIds } from "@/lib/photos-data";
-import { getPhotoUrl } from "@/lib/photos";
 import { placeKey } from "@/lib/geo";
 import { BucketListBoard } from "@/components/bucket-list/bucket-list-board";
 import { DiscoveryProvider } from "@/components/discover/discovery-host";
-import type { BucketTripCover } from "@/components/bucket-list/bucket-card";
 
 export const metadata = { title: "Bucket List" };
 
@@ -30,28 +27,6 @@ export default async function BucketListPage() {
       getTripOptions(),
       getTripDestinationOptions(),
     ]);
-
-  // Fulfilled cards prefer the fulfilling trip's cover photo (the memory)
-  // over the Wikimedia stock image. Resolve those covers in one query.
-  const coverPhotoIds = Array.from(
-    new Set(
-      items
-        .map((item) => item.fulfilled_trip_cover_photo_id)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  );
-  const coverPhotos = await getPhotosByIds(coverPhotoIds);
-  const photoById = new Map(coverPhotos.map((photo) => [photo.id, photo]));
-  const tripCovers: Record<string, BucketTripCover> = {};
-  for (const item of items) {
-    if (!item.fulfilled_trip_cover_photo_id) continue;
-    const photo = photoById.get(item.fulfilled_trip_cover_photo_id);
-    if (!photo) continue;
-    tripCovers[item.id] = {
-      url: getPhotoUrl(photo),
-      position: item.fulfilled_trip_cover_position,
-    };
-  }
 
   // Identities for the discovery panel's "on your bucket list" states: place
   // keys for city views, country codes for country views (a place item's
@@ -82,7 +57,6 @@ export default async function BucketListPage() {
 
         <BucketListBoard
           items={items}
-          tripCovers={tripCovers}
           countries={countries}
           trips={tripOptions}
           stats={stats}

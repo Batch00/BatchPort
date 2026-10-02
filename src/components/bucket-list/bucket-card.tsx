@@ -33,24 +33,16 @@ import { CountryFlag } from "@/components/country-flag";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { BucketItem } from "@/lib/bucket-list";
-import type { CoverPosition } from "@/lib/types";
 
 // A visual bucket list card: Wikimedia hero (or the fulfilling trip's cover
 // for completed items), name and flag over the usual dark gradient, target
 // date and note. Clicking the card opens discovery; actions live in the
 // corner menu so they never trigger the card click.
 
-/** The fulfilling trip's cover, preferred over the stock photo. */
-export interface BucketTripCover {
-  url: string;
-  position: CoverPosition | null;
-}
-
 interface BucketCardProps {
   item: BucketItem;
   /** 1-based rank among unfulfilled items; the top three get a pick chip. */
   rank?: number | null;
-  tripCover?: BucketTripCover | null;
   dragging?: boolean;
   /**
    * Share/demo rendering: no corner menu, and the fulfilling trip renders as
@@ -78,7 +70,6 @@ function heroKeyOf(item: BucketItem): BucketHeroKey {
 export function BucketCard({
   item,
   rank = null,
-  tripCover = null,
   dragging = false,
   readOnly = false,
   onOpen,
@@ -90,6 +81,10 @@ export function BucketCard({
   const fulfilled = Boolean(item.fulfilled_at);
   const name = bucketItemName(item);
   const cacheKey = bucketHeroKey(heroKeyOf(item));
+  // A fulfilled item's own photograph (resolved once, server-side, in
+  // lib/bucket-cover.ts) is preferred over the stock photo. Gated on
+  // fulfilled so an optimistic undo never keeps showing the memory.
+  const tripCover = fulfilled ? item.fulfilled_cover : null;
 
   // The trip cover needs no lookup; only Wikimedia heroes are fetched.
   const [hero, setHero] = useState<string | null>(

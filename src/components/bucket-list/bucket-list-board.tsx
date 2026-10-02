@@ -16,10 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  BucketCard,
-  type BucketTripCover,
-} from "@/components/bucket-list/bucket-card";
+import { BucketCard } from "@/components/bucket-list/bucket-card";
 import { BucketItemDialog } from "@/components/bucket-list/bucket-item-dialog";
 import {
   FulfillDialog,
@@ -46,8 +43,6 @@ import type {
 
 interface BucketListBoardProps {
   items: BucketItem[];
-  /** Fulfilling-trip covers for completed items, keyed by item id. */
-  tripCovers: Record<string, BucketTripCover>;
   countries: CountryOption[];
   trips: TripOption[];
   stats: BucketStats | null;
@@ -58,7 +53,6 @@ const COMPLETED_PREVIEW_COUNT = 6;
 
 export function BucketListBoard({
   items,
-  tripCovers,
   countries,
   trips,
   stats,
@@ -431,7 +425,6 @@ export function BucketListBoard({
               <BucketCard
                 key={item.id}
                 item={item}
-                tripCover={tripCovers[item.id] ?? null}
                 onOpen={() => openDiscovery(item)}
                 onEdit={() => openEdit(item)}
                 onFulfill={() => openFulfill(item)}

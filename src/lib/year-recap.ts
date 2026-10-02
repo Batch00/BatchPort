@@ -33,6 +33,7 @@ import type {
 } from "@/lib/story";
 import { funDistanceComparison } from "@/lib/stats-format";
 import type { TransportMode } from "@/lib/transport";
+import type { CoverPosition } from "@/lib/types";
 
 // --- Input ------------------------------------------------------------------
 
@@ -295,6 +296,13 @@ export interface YearBucketItem {
   /** ISO timestamp, or null while it is still on the list. */
   fulfilledAt: string | null;
   fulfilledTripName: string | null;
+  /**
+   * A ticked-off item's own photograph, from the same resolution the bucket
+   * cards use (lib/bucket-cover.ts): the matching stop's cover, its first
+   * photo, then the trip cover. Absent or null falls back to the Wikimedia
+   * hero, which is all an item still on the list ever shows.
+   */
+  cover?: { url: string; position: CoverPosition | null } | null;
 }
 
 export interface YearBucket {

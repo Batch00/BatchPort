@@ -11,7 +11,6 @@ import {
 import { cn } from "@/lib/utils";
 import type { BucketItem } from "@/lib/bucket-list";
 import type { BucketCompletion } from "@/lib/stats-data";
-import type { SharedBucketCover } from "@/lib/share-data";
 
 // The read-only bucket list on the share and demo surfaces: the same visual
 // card grid as the authenticated bucket page (BucketCard in readOnly mode),
@@ -23,17 +22,14 @@ const PREVIEW_COUNT = 6;
 
 interface SharedBucketListProps {
   items: BucketItem[];
-  tripCovers: Record<string, SharedBucketCover>;
   bucket: BucketCompletion | null;
 }
 
 function ExpandableGrid({
   items,
-  tripCovers,
   ranked,
 }: {
   items: BucketItem[];
-  tripCovers: Record<string, SharedBucketCover>;
   ranked: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
@@ -50,7 +46,6 @@ function ExpandableGrid({
               key={item.id}
               item={item}
               rank={ranked ? index + 1 : null}
-              tripCover={tripCovers[item.id] ?? null}
               readOnly
               onOpen={target ? () => open(target) : undefined}
             />
@@ -75,7 +70,6 @@ function ExpandableGrid({
 
 export function SharedBucketList({
   items,
-  tripCovers,
   bucket,
 }: SharedBucketListProps) {
   // The data layer already orders unfulfilled items by rank (priority desc).
@@ -121,7 +115,7 @@ export function SharedBucketList({
             <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-foreground/45">
               To visit ({toVisit.length})
             </h3>
-            <ExpandableGrid items={toVisit} tripCovers={tripCovers} ranked />
+            <ExpandableGrid items={toVisit} ranked />
           </div>
         ) : null}
 
@@ -132,7 +126,6 @@ export function SharedBucketList({
             </h3>
             <ExpandableGrid
               items={completed}
-              tripCovers={tripCovers}
               ranked={false}
             />
           </div>

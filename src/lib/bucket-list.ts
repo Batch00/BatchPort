@@ -3,7 +3,15 @@ import { cache } from "react";
 import { requireUser } from "@/lib/current-user";
 import { createClient } from "@/utils/supabase/server";
 import { parseEwkbPoint } from "@/lib/geo";
-import type { CoverPosition } from "@/lib/types";
+import { compareByDateTaken } from "@/lib/photos";
+import {
+  resolveBucketCovers,
+  type BucketCover,
+  type BucketCoverPhoto,
+  type BucketCoverStop,
+  type BucketCoverTrip,
+} from "@/lib/bucket-cover";
+import type { CoverPosition, Photo } from "@/lib/types";
 
 type BucketClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -29,9 +37,12 @@ export interface BucketItem {
   lng: number | null;
   fulfilled_trip_id: string | null;
   fulfilled_trip_name: string | null;
-  /** The fulfilling trip's cover, so completed cards can show the memory. */
-  fulfilled_trip_cover_photo_id: string | null;
-  fulfilled_trip_cover_position: CoverPosition | null;
+  /**
+   * The photograph a fulfilled card shows, most specific first: the matching
+   * stop's cover, its first photo, then the trip cover. Null when none exists
+   * (the card keeps its Wikimedia hero). See lib/bucket-cover.ts.
+   */
+  fulfilled_cover: BucketCover | null;
   fulfilled_at: string | null;
   created_at: string;
 }
@@ -104,7 +115,8 @@ async function fetchBucketList(
     .order("created_at", { ascending: false });
   if (error) throw error;
 
-  return ((data ?? []) as unknown as BucketRow[]).map((row) => {
+  const rows = (data ?? []) as unknown as BucketRow[];
+  const items: BucketItem[] = rows.map((row) => {
     const point = row.geom ? parseEwkbPoint(row.geom) : null;
     return {
       id: row.id,
@@ -119,12 +131,130 @@ async function fetchBucketList(
       lng: point?.lng ?? null,
       fulfilled_trip_id: row.fulfilled_trip_id,
       fulfilled_trip_name: row.fulfilling_trip?.name ?? null,
-      fulfilled_trip_cover_photo_id: row.fulfilling_trip?.cover_photo_id ?? null,
-      fulfilled_trip_cover_position: row.fulfilling_trip?.cover_position ?? null,
+      fulfilled_cover: null,
       fulfilled_at: row.fulfilled_at,
       created_at: row.created_at,
     };
   });
+
+  const tripById = new Map<string, BucketCoverTrip>();
+  for (const row of rows) {
+    if (row.fulfilled_trip_id && row.fulfilling_trip) {
+      tripById.set(row.fulfilled_trip_id, row.fulfilling_trip);
+    }
+  }
+  const covers = await fetchFulfilledCovers(supabase, uid, items, tripById);
+  for (const item of items) item.fulfilled_cover = covers.get(item.id) ?? null;
+  return items;
+}
+
+const COVER_PHOTO_COLUMNS =
+  "id, source, storage_path, external_url, thumb_path";
+
+// The photographs behind fulfilled cards, in three batched reads whatever the
+// list's size: the fulfilling trips' stops, the covers they and the trips
+// point at, then the photos of matching stops that have no usable cover (the
+// only ones the fallback reaches). Best-effort: a failed read degrades the
+// affected cards to the Wikimedia hero rather than failing the list.
+async function fetchFulfilledCovers(
+  supabase: BucketClient,
+  uid: string,
+  items: BucketItem[],
+  tripById: Map<string, BucketCoverTrip>,
+): Promise<Map<string, BucketCover>> {
+  const tripIds = Array.from(
+    new Set(
+      items
+        .map((item) => (item.fulfilled_at ? item.fulfilled_trip_id : null))
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  if (tripIds.length === 0) return new Map();
+
+  const { data: stopData, error: stopError } = await supabase
+    .from("destinations")
+    .select(
+      "id, trip_id, name, country_code, latitude, longitude, arrival_date, departure_date, order_index, cover_photo_id, cover_position",
+    )
+    .eq("user_id", uid)
+    .in("trip_id", tripIds);
+  if (stopError) {
+    console.warn("Bucket covers: stop read failed:", stopError.message);
+  }
+  const stopsByTrip = new Map<string, BucketCoverStop[]>();
+  for (const stop of (stopData ?? []) as BucketCoverStop[]) {
+    const list = stopsByTrip.get(stop.trip_id) ?? [];
+    list.push(stop);
+    stopsByTrip.set(stop.trip_id, list);
+  }
+
+  const coverIds = new Set<string>();
+  for (const stops of stopsByTrip.values()) {
+    for (const stop of stops) {
+      if (stop.cover_photo_id) coverIds.add(stop.cover_photo_id);
+    }
+  }
+  for (const trip of tripById.values()) {
+    if (trip.cover_photo_id) coverIds.add(trip.cover_photo_id);
+  }
+  const photoById = new Map<string, BucketCoverPhoto>();
+  if (coverIds.size > 0) {
+    const { data, error } = await supabase
+      .from("photos")
+      .select(COVER_PHOTO_COLUMNS)
+      .eq("user_id", uid)
+      .in("id", Array.from(coverIds));
+    if (error) console.warn("Bucket covers: cover read failed:", error.message);
+    for (const photo of (data ?? []) as BucketCoverPhoto[]) {
+      photoById.set(photo.id, photo);
+    }
+  }
+
+  // First pass without fallback photos, to learn which items still need one.
+  // An item resolved from a stop cover never reaches the fallback, so only the
+  // stops of unresolved items are worth reading photos for.
+  const firstPass = resolveBucketCovers(
+    items,
+    stopsByTrip,
+    new Map(),
+    photoById,
+    new Map(),
+  );
+  const fallbackStopIds = new Set<string>();
+  for (const item of items) {
+    if (!item.fulfilled_at || !item.fulfilled_trip_id) continue;
+    if (firstPass.has(item.id)) continue;
+    for (const stop of stopsByTrip.get(item.fulfilled_trip_id) ?? []) {
+      fallbackStopIds.add(stop.id);
+    }
+  }
+  const firstPhotoByStop = new Map<string, BucketCoverPhoto>();
+  if (fallbackStopIds.size > 0) {
+    const { data, error } = await supabase
+      .from("photos")
+      .select(`${COVER_PHOTO_COLUMNS}, owner_id, date_taken, order_index, created_at`)
+      .eq("user_id", uid)
+      .eq("owner_type", "destination")
+      .in("owner_id", Array.from(fallbackStopIds));
+    if (error) console.warn("Bucket covers: photo read failed:", error.message);
+    // Gallery order, so "first photo" is the one the stop's gallery leads with.
+    const photos = ((data ?? []) as (Photo & { owner_id: string })[]).sort(
+      compareByDateTaken,
+    );
+    for (const photo of photos) {
+      if (!firstPhotoByStop.has(photo.owner_id)) {
+        firstPhotoByStop.set(photo.owner_id, photo);
+      }
+    }
+  }
+
+  return resolveBucketCovers(
+    items,
+    stopsByTrip,
+    tripById,
+    photoById,
+    firstPhotoByStop,
+  );
 }
 
 // All bucket items for the user: unfulfilled first, then highest priority, then

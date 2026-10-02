@@ -19,7 +19,6 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
     photoMapData,
     trips,
     bucketItems,
-    bucketTripCovers,
     expenses,
   } = profile;
 
@@ -81,7 +80,6 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
 
         <SharedBucketList
           items={bucketItems}
-          tripCovers={bucketTripCovers}
           bucket={stats.bucket}
         />
       </div>

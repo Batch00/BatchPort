@@ -27,6 +27,7 @@ import {
   hasCachedBucketHero,
   rememberBucketHero,
 } from "@/lib/bucket-hero";
+import { coverImageStyle } from "@/lib/photos";
 import { cn } from "@/lib/utils";
 import {
   buildYearRecap,
@@ -611,11 +612,12 @@ function ScoreboardView({
 /**
  * One bucket list place, with its photograph.
  *
- * The image is resolved client-side through the same lookup and the same
- * session cache the bucket cards use (lib/bucket-hero.ts), so a place cannot
- * show one picture on the bucket page and another here. A miss is a designed
- * state: the tile keeps the brand gradient and the name, which is the part
- * that matters.
+ * A ticked-off place shows its own photograph (`item.cover`, resolved by
+ * lib/bucket-cover.ts exactly as the bucket cards resolve it). Anything else
+ * goes through the same Wikimedia lookup and session cache the bucket cards
+ * use (lib/bucket-hero.ts). Either way a place cannot show one picture on the
+ * bucket page and another here. A miss is a designed state: the tile keeps the
+ * brand gradient and the name, which is the part that matters.
  */
 function BucketTile({
   item,
@@ -633,8 +635,11 @@ function BucketTile({
     () => cachedBucketHero(key) ?? null,
   );
 
+  const own = done ? (item.cover ?? null) : null;
+  const hasOwn = own !== null;
+
   useEffect(() => {
-    if (hasCachedBucketHero(key)) return;
+    if (hasOwn || hasCachedBucketHero(key)) return;
     let live = true;
     fetchBucketHero({
       type: item.type,
@@ -651,16 +656,19 @@ function BucketTile({
     return () => {
       live = false;
     };
-  }, [key, item.type, item.countryCode, item.placeName]);
+  }, [hasOwn, key, item.type, item.countryCode, item.placeName]);
+
+  const src = own?.url ?? hero;
 
   return (
     <div className="relative isolate aspect-[4/3] overflow-hidden rounded-xl bg-gradient-to-br from-brand/20 via-[#101623] to-[#0a0a0a] ring-1 ring-white/10">
-      {hero ? (
+      {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={hero}
+          src={src}
           alt=""
           loading="lazy"
+          style={own ? coverImageStyle(own.position) : undefined}
           className={cn(
             "absolute inset-0 size-full object-cover",
             done && "saturate-50",

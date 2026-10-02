@@ -16,7 +16,7 @@ import { chronologicalDestinations, resolveTripDates } from "@/lib/trip-dates";
 import { DEMO_USER_ID } from "@/lib/constants";
 import type { JournalEntry } from "@/lib/journal";
 import type { StoryPhoto } from "@/lib/story";
-import type { CoverPosition, PhotoSource } from "@/lib/types";
+import type { PhotoSource } from "@/lib/types";
 
 // Data layer for the public share and demo surfaces. Everything here uses the
 // anon/server Supabase client (never the admin client), so the is_shared() RLS
@@ -87,12 +87,6 @@ export interface ProfileTrip {
   transport: TransportLeg[];
 }
 
-/** A fulfilled item's trip cover on the read-only bucket grid. */
-export interface SharedBucketCover {
-  url: string;
-  position: CoverPosition | null;
-}
-
 export interface SharedProfile {
   stats: SummaryStats;
   mapData: MapData;
@@ -100,8 +94,6 @@ export interface SharedProfile {
   photoMapData: PhotoMapData;
   trips: ProfileTrip[];
   bucketItems: BucketItem[];
-  /** Fulfilling-trip covers for completed bucket items, keyed by item id. */
-  bucketTripCovers: Record<string, SharedBucketCover>;
   /**
    * Per-trip spending, or NULL when the surface did not ask for it.
    *
@@ -526,45 +518,6 @@ export async function getProfileTrips(
   });
 }
 
-// Fulfilled bucket cards prefer the fulfilling trip's cover photo (the memory)
-// over the Wikimedia stock image, mirroring the authenticated bucket page.
-// Anon client: the photos are readable through the same is_shared() RLS path.
-async function getBucketTripCovers(
-  userId: string,
-  items: BucketItem[],
-): Promise<Record<string, SharedBucketCover>> {
-  const coverIds = Array.from(
-    new Set(
-      items
-        .map((item) => item.fulfilled_trip_cover_photo_id)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  );
-  if (coverIds.length === 0) return {};
-
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from("photos")
-    .select("id, source, storage_path, external_url, thumb_path")
-    .eq("user_id", userId)
-    .in("id", coverIds);
-
-  const photoById = new Map(
-    ((data ?? []) as PhotoRow[]).map((photo) => [photo.id, photo]),
-  );
-  const covers: Record<string, SharedBucketCover> = {};
-  for (const item of items) {
-    if (!item.fulfilled_trip_cover_photo_id) continue;
-    const photo = photoById.get(item.fulfilled_trip_cover_photo_id);
-    if (!photo) continue;
-    covers[item.id] = {
-      url: getPhotoUrl(photo),
-      position: item.fulfilled_trip_cover_position,
-    };
-  }
-  return covers;
-}
-
 // Everything the public/demo surface needs, in parallel. The share view only
 // renders summary stats, so it skips the chart and extremes queries entirely.
 /**
@@ -666,7 +619,6 @@ export async function getSharedProfile(
     getProfileTrips(userId, { story: true }),
     getSharedBucketList(userId),
   ]);
-  const bucketTripCovers = await getBucketTripCovers(userId, bucketItems);
   // Not fetched at all unless asked for, so a surface that forgets the flag
   // has nothing to leak rather than a field it might render by accident.
   const expenses = options.expenses
@@ -678,7 +630,6 @@ export async function getSharedProfile(
     photoMapData,
     trips,
     bucketItems,
-    bucketTripCovers,
     expenses,
   };
 }

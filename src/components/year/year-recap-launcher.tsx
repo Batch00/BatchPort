@@ -121,6 +121,13 @@ export function YearRecapLauncher({
         placeName: item.place_name,
         fulfilledAt: item.fulfilled_at,
         fulfilledTripName: item.fulfilled_trip_name,
+        // A recap tile is a small chip, so it takes the thumbnail.
+        cover: item.fulfilled_cover
+          ? {
+              url: item.fulfilled_cover.thumbUrl,
+              position: item.fulfilled_cover.position,
+            }
+          : null,
       })),
       today,
     };
