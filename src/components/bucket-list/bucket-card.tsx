@@ -115,7 +115,8 @@ export function BucketCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheKey, Boolean(tripCover)]);
 
-  const imageUrl = tripCover?.url ?? hero;
+  // A card is a grid tile, so the fulfilled photo is the thumbnail.
+  const imageUrl = tripCover?.thumbUrl ?? hero;
   const subtitle = item.type === "place" ? item.country_name : null;
 
   return (

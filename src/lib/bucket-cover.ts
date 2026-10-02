@@ -30,9 +30,10 @@ import type { CoverPosition, Photo } from "@/lib/types";
 export const BUCKET_PLACE_MATCH_KM = 25;
 
 export interface BucketCover {
-  /** Full image, for the bucket cards. */
+  /** Full image, for any surface larger than a card. No current consumer. */
   url: string;
-  /** Gallery thumbnail, for small tiles (the recap's closing slide). */
+  /** Gallery thumbnail: the bucket cards and the recap's closing-slide tiles
+   * are grid tiles, which take the thumbnail (see CLAUDE.md). */
   thumbUrl: string;
   /** The crop of whichever cover answered; null for a plain photo. */
   position: CoverPosition | null;
