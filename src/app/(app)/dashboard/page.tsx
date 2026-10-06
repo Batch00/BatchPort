@@ -17,6 +17,10 @@ import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
 import { getTripDestinationOptions, getTripOptions } from "@/lib/trips";
 import { placeKey } from "@/lib/geo";
 import { DashboardGlobe } from "@/components/map/dashboard-globe";
+import { PlaceEntryLauncher } from "@/components/places/place-entry-launcher";
+import { RecentPlacesStrip } from "@/components/places/recent-places-strip";
+import { getDashboardPlaces } from "@/lib/places-dashboard-data";
+import { getOccasions } from "@/lib/places";
 import { DashboardTrips } from "@/components/trips/dashboard-trips";
 import { DashboardBucket } from "@/components/bucket-list/dashboard-bucket";
 import { StatsOverview } from "@/components/stats/stats-overview";
@@ -31,6 +35,10 @@ export const metadata = { title: "Dashboard" };
 // the whole page: globe clicks, search, and bucket card clicks all share it.
 export default async function DashboardPage() {
   const { user } = await requireUser();
+  // The places additions (overview tiles, recent strip, log action, globe
+  // pins): behind the flag, and never for the demo account, which could not
+  // use the log action and whose places exposure was decided against.
+  const showPlaces = PLACES_ENABLED && !isDemoUser(user.id);
   // Passing the user id lets each fetch skip its own auth.getUser round-trip,
   // and the summary fetch loads only the stats this page renders.
   const [
@@ -46,6 +54,8 @@ export default async function DashboardPage() {
     plannedPoints,
     memories,
     tripSpend,
+    dashboardPlaces,
+    occasions,
   ] = await Promise.all([
     // The story payload rides along because the year recap reads it: the
     // hero image, the photo count, and the journal days all come from it, and
@@ -53,9 +63,7 @@ export default async function DashboardPage() {
     getProfileTrips(user.id, { story: true }),
     // Places pins are the dashboard's alone: behind the flag, and never for
     // the demo account, whose places were decided against.
-    getMapData(user.id, undefined, {
-      places: PLACES_ENABLED && !isDemoUser(user.id),
-    }),
+    getMapData(user.id, undefined, { places: showPlaces }),
     getPhotoMapData(user.id),
     getSummaryStats(user.id),
     getBucketList(user.id),
@@ -71,6 +79,8 @@ export default async function DashboardPage() {
     // keeps the section absent rather than empty.
     getOnThisDay(),
     getTripSpendByTrip(),
+    showPlaces ? getDashboardPlaces() : Promise.resolve(null),
+    showPlaces ? getOccasions().catch(() => null) : Promise.resolve(null),
   ]);
 
   const toVisit = bucketItems.filter((item) => !item.fulfilled_at);
@@ -84,7 +94,11 @@ export default async function DashboardPage() {
       bucketPlaceKeys={bucketPlaceKeys}
       tripOptions={tripDestinationOptions}
     >
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-8">
+      {/* The bottom padding carries the home indicator's inset: the root
+          viewport is viewport-fit=cover, so without it the bucket list's last
+          row sits under the bar on a phone (as on the stats and expenses
+          pages). */}
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:p-8 sm:pb-[calc(2rem+env(safe-area-inset-bottom))]">
         <DashboardGlobe
           data={mapData}
           photoData={photoMapData}
@@ -115,12 +129,36 @@ export default async function DashboardPage() {
             summary={stats.summary}
             distanceKm={stats.distanceKm}
             flagCodes={mapData.visitedCountryCodes}
+            places={dashboardPlaces?.summary ?? null}
           />
         </section>
 
         {memories ? <OnThisDaySection memories={memories} /> : null}
 
-        <DashboardTrips trips={trips} spend={Object.fromEntries(tripSpend)} />
+        <DashboardTrips
+          trips={trips}
+          spend={Object.fromEntries(tripSpend)}
+          secondaryAction={
+            // Reuses the one launcher. Its save calls router.refresh(), which
+            // re-renders this page, so the tiles and the strip pick up the new
+            // place with no extra wiring.
+            occasions ? (
+              <PlaceEntryLauncher
+                occasions={occasions}
+                variant="outline"
+                size="sm"
+                label="Log place"
+              />
+            ) : null
+          }
+        />
+
+        {dashboardPlaces && occasions ? (
+          <RecentPlacesStrip
+            places={dashboardPlaces.recent}
+            occasions={occasions}
+          />
+        ) : null}
 
         <DashboardBucket
           toVisit={toVisit}

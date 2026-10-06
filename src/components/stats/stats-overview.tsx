@@ -5,9 +5,11 @@ import {
   CalendarIcon,
   GlobeIcon,
   MapPinIcon,
+  MapPinnedIcon,
   RouteIcon,
   SendIcon,
   SparklesIcon,
+  WaypointsIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -17,6 +19,7 @@ import { InfoTip } from "@/components/ui/info-tip";
 import { funDistanceComparison, lapProgress } from "@/lib/stats-format";
 import { cn } from "@/lib/utils";
 import type { TravelSummary } from "@/lib/stats-data";
+import type { DashboardPlacesSummary } from "@/lib/places-dashboard-data";
 
 // The summary stats treatment shared by the dashboard Overview, the detailed
 // stats page hero, and the public share/demo profile. Two feature cards
@@ -24,6 +27,12 @@ import type { TravelSummary } from "@/lib/stats-data";
 // tiles stay compact. All values come straight from v_user_travel_summary and
 // f_distance_traveled; the flag strip is the visited country codes the caller
 // already has (globe data or the country frequency view), never a new query.
+//
+// The dashboard alone appends two places tiles (states and places) from
+// v_places_summary, which stays a separate view from v_user_travel_summary.
+// Like every tile in the row they are not links: the "Detailed stats" link
+// above the row already goes to the detail. Every other caller leaves
+// `places` unset and renders exactly the row it always did.
 
 const MAX_FLAGS = 8;
 const CONTINENTS_TOTAL = 7;
@@ -33,6 +42,9 @@ interface StatsOverviewProps {
   distanceKm: number;
   /** Visited country codes for the flag strip; order decides which show. */
   flagCodes?: string[];
+  /** The dashboard's two places tiles. Absent everywhere else, including the
+   * read-only surfaces, which is the gate. */
+  places?: DashboardPlacesSummary | null;
 }
 
 function FeatureCard({
@@ -128,33 +140,82 @@ function Sliver({ pct }: { pct: number }) {
   );
 }
 
+// A compact tile. `unit` rides beside the number ("of 50") and `subtext` is a
+// one-line fun caption under it in the brand colour the feature cards use for
+// theirs. Both are optional, so the original four tiles render exactly as
+// they did.
 function SupportTile({
   label,
   value,
   icon: Icon,
+  unit,
+  subtext,
+  className,
 }: {
   label: string;
   value: number;
   icon: LucideIcon;
+  unit?: string;
+  subtext?: string | null;
+  className?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+    <div
+      className={cn(
+        "flex min-w-0 flex-col gap-1 rounded-xl bg-card p-4 ring-1 ring-foreground/10",
+        className,
+      )}
+    >
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-foreground/50">{label}</span>
         <Icon className="size-4 text-foreground/30" />
       </div>
-      <AnimatedNumber
-        value={value}
-        className="text-2xl font-semibold tracking-tight tabular-nums text-foreground sm:text-3xl"
-      />
+      <div className="flex items-baseline gap-1.5">
+        <AnimatedNumber
+          value={value}
+          className="text-2xl font-semibold tracking-tight tabular-nums text-foreground sm:text-3xl"
+        />
+        {unit ? (
+          <span className="text-sm text-foreground/50">{unit}</span>
+        ) : null}
+      </div>
+      {subtext ? (
+        <p className="truncate text-xs text-brand">{subtext}</p>
+      ) : null}
     </div>
   );
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+// The states caption, a true statement at every count. DC is on the map and
+// not in the 50, so it is named rather than silently dropped.
+function statesSubtext(places: DashboardPlacesSummary): string {
+  const togo = Math.max(0, places.statesTotal - places.statesVisited);
+  if (places.statesVisited === 0) {
+    return places.dcVisited ? "DC so far" : "Your first state is out there";
+  }
+  if (togo === 0) return places.dcVisited ? "All 50, and DC" : "All 50";
+  const rest = `${togo} to go`;
+  return places.dcVisited ? `${rest}, plus DC` : rest;
+}
+
+// The places caption names the localities, the towns those places sit in. A
+// stadium or a park has no locality, so the count can be smaller than the
+// places count, and it is simply left out when there is none.
+function placesSubtext(places: DashboardPlacesSummary): string | null {
+  if (places.places === 0) return "Log the first one";
+  if (places.localities === 0) return null;
+  return `across ${plural(places.localities, "town", "towns")}`;
 }
 
 export function StatsOverview({
   summary,
   distanceKm,
   flagCodes = [],
+  places = null,
 }: StatsOverviewProps) {
   if (!summary) {
     return (
@@ -235,6 +296,29 @@ export function StatsOverview({
         value={summary.days_traveling}
         icon={CalendarIcon}
       />
+
+      {/* Two tiles: a pair on a phone row, and two columns each from lg up so
+          the four-column row closes rather than leaving half a row empty. */}
+      {places ? (
+        <>
+          <SupportTile
+            label="US states"
+            value={places.statesVisited}
+            unit={`of ${places.statesTotal}`}
+            subtext={statesSubtext(places)}
+            icon={MapPinnedIcon}
+            className="lg:col-span-2"
+          />
+          <SupportTile
+            label="Places"
+            value={places.places}
+            unit={places.places === 1 ? "place" : "places"}
+            subtext={placesSubtext(places)}
+            icon={WaypointsIcon}
+            className="lg:col-span-2"
+          />
+        </>
+      ) : null}
     </CountUpGroup>
   );
 }

@@ -20,6 +20,8 @@ interface PlaceEntryLauncherProps {
   tenants?: string[];
   label?: string;
   variant?: "default" | "outline" | "ghost";
+  /** "sm" sits beside the dashboard's "Add trip" button at its height. */
+  size?: "default" | "sm";
   className?: string;
 }
 
@@ -29,6 +31,7 @@ export function PlaceEntryLauncher({
   tenants,
   label,
   variant = "default",
+  size = "default",
   className,
 }: PlaceEntryLauncherProps) {
   const [open, setOpen] = useState(false);
@@ -39,6 +42,7 @@ export function PlaceEntryLauncher({
       <Button
         type="button"
         variant={variant}
+        size={size}
         className={className}
         onClick={() => setOpen(true)}
       >

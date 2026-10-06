@@ -46,8 +46,13 @@ function sortTrips(trips: ProfileTrip[], sort: SortKey): ProfileTrip[] {
 export function DashboardTrips({
   trips,
   spend,
+  secondaryAction,
 }: {
   trips: ProfileTrip[];
+  /** A secondary action beside "Add trip" (the places log launcher, behind
+   * its flag). Rendered before it, so "Add trip" stays the rightmost and
+   * primary control. */
+  secondaryAction?: React.ReactNode;
   /** Per-trip spending keyed by trip id, or an empty object when expenses are
    * not set up. Passed as a plain object rather than a Map so it crosses the
    * server boundary. */
@@ -82,6 +87,7 @@ export function DashboardTrips({
               </SelectContent>
             </Select>
           ) : null}
+          {secondaryAction}
           <Link
             href="/trips/new"
             className={cn(
