@@ -188,6 +188,21 @@ const NO_PLACES: GlobePlace[] = [];
 // with room to tap, which is the inset the expenses page was bitten by.
 const POPUP_BOTTOM_CLEARANCE = 56;
 
+// A tap is followed by compatibility mouse events (mousemove, then click) at
+// the same point, so without a guard a tap shows the hover tooltip AND the
+// popup, stacked. Any mousemove this soon after a touch is one of those and is
+// not hover. Long enough to cover a slow browser's emulation, short enough
+// that a hybrid laptop's real mouse is back to hovering almost at once.
+const TOUCH_EMULATION_WINDOW_MS = 800;
+
+// The pin a popup belongs to, by layer and the pin's own id (not the numeric
+// feature id, which setData reissues). Lets hover recognise "the cursor is on
+// the pin whose popup is already open" and stay quiet.
+function pinKey(feature: MapGeoJSONFeature): string {
+  const props = feature.properties ?? {};
+  return `${feature.layer.id}:${String(props.destId ?? props.placeId ?? feature.id ?? "")}`;
+}
+
 // Every clickable pin layer, in tie-break order: when two pins sit on the
 // same spot the earlier layer wins, so a trip stop beats a logged place.
 // Otherwise the pin nearest the pointer wins (nearestPinFeature).
@@ -687,6 +702,16 @@ export function Globe({
     let hoveredCountryId: number | string | null = null;
     let hoveredPinId: number | string | null = null;
     let hoveredPlaceId: number | string | null = null;
+    // Touch never hovers. A device with no hover-capable pointer at all skips
+    // hover outright; a hybrid one skips it only for the mouse events a tap
+    // emulates (TOUCH_EMULATION_WINDOW_MS).
+    const noHoverPointer =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(hover: none)").matches === true;
+    let lastTouchAt = -Infinity;
+    // The pin whose popup is open, if one is: hover over that same pin shows
+    // no tooltip, so the two boxes never stack on desktop either.
+    let popupPin: { key: string; popup: MlPopup } | null = null;
     // The active basemap id, read by installOverlays for the per-style
     // overlay theme and zoom cap. Set before setStyle so the style.load
     // reinstall sees the new id.
@@ -967,8 +992,25 @@ export function Globe({
       hoveredPlaceId = null;
     }
 
+    function onTouchStart() {
+      lastTouchAt = performance.now();
+      hideTooltip();
+    }
+
     function onMouseMove(event: MapMouseEvent) {
       if (!map) return;
+
+      // Touch: a tap only ever opens the popup. The mousemove here is the
+      // browser emulating a mouse for the tap, not a pointer hovering.
+      if (
+        noHoverPointer ||
+        performance.now() - lastTouchAt < TOUCH_EMULATION_WINDOW_MS
+      ) {
+        clearPinHover();
+        clearCountryHover();
+        hideTooltip();
+        return;
+      }
 
       // Replay and photo modes: the globe is a stage, not a control surface.
       if (replayActiveRef.current || photoActiveRef.current) {
@@ -1020,6 +1062,13 @@ export function Globe({
           }
         }
         clearCountryHover();
+        map.getCanvas().style.cursor = "pointer";
+        // The popup for this pin is already open and says more than the
+        // tooltip would.
+        if (popupPin && popupPin.key === pinKey(pin) && popupPin.popup.isOpen()) {
+          hideTooltip();
+          return;
+        }
         const name = String(pin.properties?.name ?? "");
         const planned = pin.properties?.planned === true;
         showTooltip(
@@ -1140,6 +1189,10 @@ export function Globe({
         } else {
           showPinPopupFromFeature(pin);
         }
+        // The tooltip is up under the cursor at the moment of the click; the
+        // popup replaces it rather than joining it.
+        hideTooltip();
+        popupPin = popup ? { key: pinKey(pin), popup } : null;
         return;
       }
 
@@ -1400,6 +1453,7 @@ export function Globe({
       m.on("mousedown", markInteraction);
       m.on("wheel", markInteraction);
       m.on("touchstart", markInteraction);
+      m.on("touchstart", onTouchStart);
       m.on("drag", markInteraction);
       m.on("zoom", markInteraction);
       m.on("rotate", markInteraction);
