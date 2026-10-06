@@ -612,7 +612,10 @@ export async function getSharedProfile(
 ): Promise<SharedProfile> {
   const [stats, mapData, photoMapData, trips, bucketItems] = await Promise.all([
     getSummaryStats(userId),
-    getMapData(userId),
+    // No places pins on /demo or /share/[slug]. Demo exposure was decided
+    // against and share exposure is an open decision, so this is stated
+    // rather than left to the default.
+    getMapData(userId, undefined, { places: false }),
     getPhotoMapData(userId),
     // The read-only surfaces offer the story, so they ask for its payload.
     getProfileTrips(userId, { story: true }),

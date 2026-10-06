@@ -316,6 +316,7 @@ const families = (legs: MapLeg[]): (string | undefined)[] =>
           mode: "ferry",
         },
       ],
+      places: [],
       stats: { countries: 2, trips: 1, destinations: 2 },
     },
     { summary: null, distanceKm: null } as unknown as StatsData,

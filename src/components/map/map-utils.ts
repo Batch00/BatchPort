@@ -15,6 +15,8 @@ export const VISITED_BORDER = "#4a8af5";
  */
 export const TRAVEL_LAYERS = [
   "country-bucket",
+  "country-places",
+  "country-places-outline",
   "country-visited",
   "country-visited-outline",
   "country-planned-outline",
@@ -26,6 +28,8 @@ export const TRAVEL_LAYERS = [
   "bucket-pins-glow",
   "bucket-pins-halo",
   "bucket-pins",
+  "place-pins-halo",
+  "place-pins",
   "pins-glow",
   "pins-halo",
   "pins",

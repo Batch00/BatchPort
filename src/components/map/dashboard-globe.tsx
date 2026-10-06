@@ -48,6 +48,7 @@ export function DashboardGlobe({
     bucketCountryCodes,
     bucketPlaces,
     arcs,
+    places,
     stats,
   } = data;
   const [selected, setSelected] = useState<GlobeCountrySelection | null>(null);
@@ -180,6 +181,7 @@ export function DashboardGlobe({
         destinations={globeDestinations}
         arcs={arcs}
         bucketPlaces={globeBucketPlaces}
+        places={places}
         onExplorePlace={(place) => {
           if (!place.countryCode) return;
           setSelected(null);

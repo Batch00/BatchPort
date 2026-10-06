@@ -33,6 +33,11 @@ export interface OverlayTheme {
   visitedOutlineWidth: number;
   visitedOutlineOpacity: number;
   plannedOutlineWidth: number;
+  /** Opacity of the places-only hatch. The stripes cover about a third of the
+   * country, so this reads well under the visited fill at the same number;
+   * detailed basemaps get a higher value than their visited tint because a
+   * faint hatch over streets or imagery disappears entirely. */
+  placesHatchOpacity: number;
   pinHalo: boolean;
 }
 
@@ -45,6 +50,7 @@ const OVERLAY_THEMES: Record<string, OverlayTheme> = {
     visitedOutlineWidth: 1,
     visitedOutlineOpacity: 0.9,
     plannedOutlineWidth: 1.5,
+    placesHatchOpacity: 0.6,
     pinHalo: false,
   },
   // Dark streets style: light tint so the road network reads through.
@@ -55,6 +61,7 @@ const OVERLAY_THEMES: Record<string, OverlayTheme> = {
     visitedOutlineWidth: 1.6,
     visitedOutlineOpacity: 1,
     plannedOutlineWidth: 1.6,
+    placesHatchOpacity: 0.45,
     pinHalo: false,
   },
   // Imagery: the faintest wash, borders do the work; halo the pins against
@@ -66,6 +73,7 @@ const OVERLAY_THEMES: Record<string, OverlayTheme> = {
     visitedOutlineWidth: 1.6,
     visitedOutlineOpacity: 1,
     plannedOutlineWidth: 1.6,
+    placesHatchOpacity: 0.45,
     pinHalo: true,
   },
   // Outdoor terrain is a light style: light tint, strong borders, pin halos.
@@ -76,6 +84,7 @@ const OVERLAY_THEMES: Record<string, OverlayTheme> = {
     visitedOutlineWidth: 1.6,
     visitedOutlineOpacity: 1,
     plannedOutlineWidth: 1.6,
+    placesHatchOpacity: 0.45,
     pinHalo: true,
   },
 };

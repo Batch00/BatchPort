@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { requireUser } from "@/lib/current-user";
 import { isDemoUser } from "@/lib/demo";
+import { PLACES_ENABLED } from "@/lib/features";
 import { getTripSpendByTrip } from "@/lib/expenses-data";
 import { getProfileTrips } from "@/lib/share-data";
 import { getMapData } from "@/lib/map-data";
@@ -50,7 +51,11 @@ export default async function DashboardPage() {
     // hero image, the photo count, and the journal days all come from it, and
     // the alternative was a second trip query on the same page.
     getProfileTrips(user.id, { story: true }),
-    getMapData(user.id),
+    // Places pins are the dashboard's alone: behind the flag, and never for
+    // the demo account, whose places were decided against.
+    getMapData(user.id, undefined, {
+      places: PLACES_ENABLED && !isDemoUser(user.id),
+    }),
     getPhotoMapData(user.id),
     getSummaryStats(user.id),
     getBucketList(user.id),

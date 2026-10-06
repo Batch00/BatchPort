@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -17,7 +19,7 @@ import type {
   MapGeoJSONFeature,
 } from "maplibre-gl";
 
-import { formatDateRange } from "@/lib/format";
+import { formatDate, formatDateRange } from "@/lib/format";
 import { boundsOfPoints, haversineKm } from "@/lib/geo";
 import {
   CONTEXT_RADIUS_KM,
@@ -28,10 +30,12 @@ import {
   type PlannedExperiencePoint,
 } from "@/lib/nearby";
 import { markExperienceDoneAction } from "@/lib/actions/experiences";
-import type { Category } from "@/lib/types";
+import type { Category, PlaceType } from "@/lib/types";
+import { placeTypeLabel } from "@/lib/place-types";
 import { buildReplayTimeline } from "@/lib/replay";
 import { cn } from "@/lib/utils";
 import { Lightbox } from "@/components/photos/lightbox";
+import { PlaceTypeIcon } from "@/components/places/place-type-icon";
 import { FixLocationDialog } from "@/components/photos/fix-location-dialog";
 import { UnlocatedPhotosModal } from "./unlocated-photos-modal";
 import type { UnlocatedPhoto } from "@/lib/photo-map-data";
@@ -62,9 +66,11 @@ import {
 import {
   arcsFC,
   bucketPlacesFC,
+  countryTiers,
   destinationsFC,
   escapeHtml,
   flagImgHtml,
+  placesFC,
   wrapLng,
 } from "./globe-sources";
 import {
@@ -76,6 +82,7 @@ import type {
   GlobeBucketPlace,
   GlobeCountrySelection,
   GlobeDestination,
+  GlobePlace,
 } from "./globe-types";
 
 export type {
@@ -83,6 +90,7 @@ export type {
   GlobeBucketPlace,
   GlobeCountrySelection,
   GlobeDestination,
+  GlobePlace,
 };
 
 type Projection = "globe" | "mercator";
@@ -97,6 +105,9 @@ export interface GlobeProps {
   arcs: GlobeArc[];
   /** Place-type bucket items, shown as amber pins. */
   bucketPlaces?: GlobeBucketPlace[];
+  /** Logged places (the places feature), one muted pin class. Only the
+   * dashboard passes these; every other host leaves the layer empty. */
+  places?: GlobePlace[];
   /** Clicking a bucket place pin's action button reports the place. */
   onExplorePlace?: (place: GlobeBucketPlace) => void;
   /** Label of the bucket pin popup action. Default "Explore". */
@@ -163,6 +174,20 @@ export interface GlobeProps {
 // Auto-rotation pacing for the landing hero. Every colour and radius the map
 // draws with lives in globe-layers.ts alongside the layers that use them.
 const ROTATION_DEG_PER_SEC = 3;
+
+// The dashboard's "Show places" checkbox, remembered for the tab session the
+// same way the basemap and attractions choices are. Absent means on.
+const PLACES_PINS_STORAGE_KEY = "batchport:places-pins";
+const NO_PLACES: GlobePlace[] = [];
+
+// A popup whose bottom edge lands closer than this to the bottom of the
+// viewport is panned up into view. It clears a phone's home indicator (34px)
+// with room to tap, which is the inset the expenses page was bitten by.
+const POPUP_BOTTOM_CLEARANCE = 56;
+
+// Every clickable pin layer, top of the stack first: queryRenderedFeatures
+// returns in this order, so a trip stop wins an overlap with a logged place.
+const PIN_LAYERS = ["pins", "place-pins", "bucket-pins"];
 const IDLE_BEFORE_RESUME_MS = 5000;
 
 export function Globe({
@@ -172,6 +197,7 @@ export function Globe({
   destinations,
   arcs,
   bucketPlaces = [],
+  places = [],
   onExplorePlace,
   explorePlaceLabel = "Explore",
   focus = null,
@@ -238,6 +264,37 @@ export function Globe({
   // True from a basemap switch until the new style's tiles settle, so the
   // brief tile load reads as intentional rather than a broken map.
   const [styleLoading, setStyleLoading] = useState(false);
+  // Logged places pins: on unless the viewer switched them off this session.
+  // Hiding empties the source rather than setting layer visibility, because
+  // replay and photo mode restore TRAVEL_LAYERS to visible on exit and would
+  // otherwise bring hidden pins back.
+  //
+  // Read in the initializer: the server render says "on", and the only markup
+  // that depends on it is the checkbox inside the settings popover, which is
+  // closed on first paint, so hydration cannot disagree.
+  const [placesVisible, setPlacesVisible] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return sessionStorage.getItem(PLACES_PINS_STORAGE_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
+  function togglePlacesVisible() {
+    setPlacesVisible((current) => {
+      const next = !current;
+      try {
+        sessionStorage.setItem(PLACES_PINS_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        // Non-fatal: the choice just will not survive a reload.
+      }
+      return next;
+    });
+  }
+  const shownPlaces = placesVisible ? places : NO_PLACES;
+  // The open place popup, if any, so the toggle can close it. The map effect
+  // owns the popup itself; this only mirrors which one is a place's.
+  const placePopupRef = useRef<MlPopup | null>(null);
   // The style-switch routine, defined inside the one-time map effect and read
   // by the switcher control.
   const applyBasemapRef = useRef<(id: string) => void>(() => {});
@@ -489,6 +546,7 @@ export function Globe({
     destinations,
     arcs,
     bucketPlaces,
+    places: shownPlaces,
     onExplorePlace,
     autoRotate,
     fitToData,
@@ -507,6 +565,7 @@ export function Globe({
       destinations,
       arcs,
       bucketPlaces,
+      places: shownPlaces,
       onExplorePlace,
       autoRotate,
       fitToData,
@@ -531,10 +590,12 @@ export function Globe({
     const bucketSource = map.getSource("bucket-places") as
       | GeoJSONSource
       | undefined;
+    const placeSource = map.getSource("places") as GeoJSONSource | undefined;
     destSource?.setData(destinationsFC(destinations, brandHex));
     arcSource?.setData(arcsFC(arcs));
     bucketSource?.setData(bucketPlacesFC(bucketPlaces));
-  }, [destinations, arcs, bucketPlaces]);
+    placeSource?.setData(placesFC(shownPlaces));
+  }, [destinations, arcs, bucketPlaces, shownPlaces]);
 
   // Fly to a requested focus target (search results, explored places) so the
   // camera lands where the panel's content is.
@@ -550,23 +611,40 @@ export function Globe({
 
   // Keep the country fill filters in sync so a new bucket list country turns
   // amber (and a newly visited one turns blue) without rebuilding the map.
+  //
+  // Every tier comes from countryTiers, the same function the first install
+  // uses, so a country can only ever take one of them. The places tier reads
+  // the pins actually on show, which is what makes the toggle clear it too.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current || !map.getLayer("country-visited")) return;
-    const visitedFilter = matchFilter(visitedCountryCodes);
-    const visited = new Set(visitedCountryCodes);
-    // The amber fill only paints countries that are not already visited; the
-    // unfiltered list also feeds the discovery panel's bucket state.
-    map.setFilter(
-      "country-bucket",
-      matchFilter(bucketCountryCodes.filter((code) => !visited.has(code))),
-    );
+    const tiers = countryTiers({
+      visited: visitedCountryCodes,
+      planned: plannedCountryCodes,
+      bucket: bucketCountryCodes,
+      places: shownPlaces,
+    });
+    const visitedFilter = matchFilter(tiers.visited);
+    const placesFilter = matchFilter(tiers.places);
+    map.setFilter("country-bucket", matchFilter(tiers.bucket));
     map.setFilter("country-visited", visitedFilter);
     map.setFilter("country-visited-outline", visitedFilter);
-    if (map.getLayer("country-planned-outline")) {
-      map.setFilter("country-planned-outline", matchFilter(plannedCountryCodes));
+    if (map.getLayer("country-places")) {
+      map.setFilter("country-places", placesFilter);
     }
-  }, [visitedCountryCodes, bucketCountryCodes, plannedCountryCodes]);
+    if (map.getLayer("country-places-outline")) {
+      map.setFilter("country-places-outline", placesFilter);
+    }
+    if (map.getLayer("country-planned-outline")) {
+      map.setFilter("country-planned-outline", matchFilter(tiers.planned));
+    }
+  }, [visitedCountryCodes, bucketCountryCodes, plannedCountryCodes, shownPlaces]);
+
+  // Hiding places closes a place popup that is still open: it would be
+  // pointing at a pin that is no longer on the map.
+  useEffect(() => {
+    if (!placesVisible) placePopupRef.current?.remove();
+  }, [placesVisible]);
 
   function handleToggle() {
     if (!mapRef.current) return;
@@ -604,6 +682,7 @@ export function Globe({
 
     let hoveredCountryId: number | string | null = null;
     let hoveredPinId: number | string | null = null;
+    let hoveredPlaceId: number | string | null = null;
     // The active basemap id, read by installOverlays for the per-style
     // overlay theme and zoom cap. Set before setStyle so the style.load
     // reinstall sees the new id.
@@ -734,6 +813,110 @@ export function Globe({
         .addTo(map);
     }
 
+    // Popup for a logged place: type icon and name, the type in words, the
+    // first visit, the visit count when there is more than one, and a link to
+    // the place's page. It links out rather than opening the entry sheet: a
+    // MapLibre popup lives outside the React tree, and mounting the sheet from
+    // one is machinery for something the detail page already does in a tap.
+    //
+    // The icon is the app's own PlaceTypeIcon in a throwaway React root, so the
+    // type-to-icon mapping exists once. The root is unmounted when the popup
+    // closes (deferred, since close can fire from inside another handler).
+    function showPlacePopupFromFeature(feature: MapGeoJSONFeature) {
+      if (!maplibregl || !map) return;
+      const props = feature.properties ?? {};
+      const placeId = String(props.placeId ?? "");
+      const name = String(props.name ?? "");
+      const placeType = String(props.placeType ?? "other") as PlaceType;
+      const firstVisitDate = props.firstVisitDate
+        ? String(props.firstVisitDate)
+        : null;
+      const visitCount = Number(props.visitCount ?? 0);
+      const geometry = feature.geometry;
+      if (!placeId || geometry.type !== "Point") return;
+      const [lng, lat] = geometry.coordinates as [number, number];
+
+      const container = document.createElement("div");
+
+      const titleRow = document.createElement("div");
+      titleRow.style.cssText =
+        "display:flex;align-items:flex-start;gap:6px;font-weight:600;color:#f4f4f5";
+      const iconSlot = document.createElement("span");
+      iconSlot.style.cssText =
+        "display:inline-flex;flex-shrink:0;margin-top:2px;color:var(--brand,#3b82f6)";
+      const title = document.createElement("span");
+      title.textContent = name;
+      titleRow.append(iconSlot, title);
+      container.appendChild(titleRow);
+
+      const iconRoot = createRoot(iconSlot);
+      flushSync(() => {
+        iconRoot.render(
+          <PlaceTypeIcon type={placeType} className="size-3.5" />,
+        );
+      });
+
+      const subtitle = document.createElement("div");
+      subtitle.style.cssText = "color:#a1a1aa;font-size:0.75rem";
+      subtitle.textContent = placeTypeLabel(placeType);
+      container.appendChild(subtitle);
+
+      // A place logged with no visit has no date to state, and says nothing
+      // rather than "never visited", which would be untrue of a pin the user
+      // put on their own map.
+      const visitParts: string[] = [];
+      if (firstVisitDate) {
+        visitParts.push(`First visited ${formatDate(firstVisitDate)}`);
+      }
+      if (visitCount > 1) visitParts.push(`${visitCount} visits`);
+      if (visitParts.length > 0) {
+        const visits = document.createElement("div");
+        visits.style.cssText = "margin-top:4px;color:#8b8b94;font-size:0.75rem";
+        visits.textContent = visitParts.join(" \u00b7 ");
+        container.appendChild(visits);
+      }
+
+      // Padded so the tap target is finger-sized on a phone, and pulled back
+      // by the same amount so the text still sits on the popup's left edge.
+      const link = document.createElement("a");
+      link.href = `/places/${encodeURIComponent(placeId)}`;
+      link.textContent = "View place";
+      link.style.cssText =
+        "display:inline-block;margin:4px 0 -6px -6px;padding:6px;color:var(--brand,#3b82f6);font-weight:600;font-size:0.75rem";
+      container.appendChild(link);
+
+      popup?.remove();
+      const placePopup = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: true,
+        className: "batchport-popup",
+        offset: 10,
+        maxWidth: "240px",
+      })
+        .setLngLat([lng, lat])
+        .setDOMContent(container)
+        .addTo(map);
+      placePopup.on("close", () => {
+        if (placePopupRef.current === placePopup) placePopupRef.current = null;
+        queueMicrotask(() => iconRoot.unmount());
+      });
+      placePopupRef.current = placePopup;
+      popup = placePopup;
+      keepPopupClearOfBottomEdge(placePopup);
+    }
+
+    // MapLibre keeps a popup inside the map's own box, but on a fullscreen
+    // phone globe that box runs under the home indicator. Pan just enough to
+    // lift the popup's bottom edge clear of it.
+    function keepPopupClearOfBottomEdge(target: MlPopup) {
+      const el = target.getElement();
+      if (!map || !el) return;
+      const overlap =
+        el.getBoundingClientRect().bottom -
+        (window.innerHeight - POPUP_BOTTOM_CLEARANCE);
+      if (overlap > 0) map.panBy([0, overlap], { duration: 300 });
+    }
+
     function showTooltip(x: number, y: number, text: string, hint?: string) {
       const el = tooltipRef.current;
       if (!el) return;
@@ -771,6 +954,13 @@ export function Globe({
         );
       }
       hoveredPinId = null;
+      if (map && hoveredPlaceId !== null) {
+        map.setFeatureState(
+          { source: "places", id: hoveredPlaceId },
+          { hover: false },
+        );
+      }
+      hoveredPlaceId = null;
     }
 
     function onMouseMove(event: MapMouseEvent) {
@@ -785,10 +975,9 @@ export function Globe({
         return;
       }
 
-      // Pins (destination and bucket place) win over country hover.
-      const pinLayers = ["pins", "bucket-pins"].filter((layer) =>
-        map?.getLayer(layer),
-      );
+      // Pins (destination, logged place, bucket place) win over country
+      // hover. Listed top layer first, so a trip stop wins an overlap.
+      const pinLayers = PIN_LAYERS.filter((layer) => map?.getLayer(layer));
       const pinFeatures =
         pinLayers.length > 0
           ? map.queryRenderedFeatures(event.point, { layers: pinLayers })
@@ -796,8 +985,21 @@ export function Globe({
       if (pinFeatures.length > 0) {
         const feature = pinFeatures[0];
         const isBucketPin = feature.layer?.id === "bucket-pins";
+        const isPlacePin = feature.layer?.id === "place-pins";
         if (isBucketPin) {
           clearPinHover();
+        } else if (isPlacePin) {
+          const nextId = feature.id ?? null;
+          if (nextId !== hoveredPlaceId) {
+            clearPinHover();
+            hoveredPlaceId = nextId;
+            if (nextId !== null) {
+              map.setFeatureState(
+                { source: "places", id: nextId },
+                { hover: true },
+              );
+            }
+          }
         } else {
           const nextId = feature.id ?? null;
           if (nextId !== hoveredPinId) {
@@ -818,7 +1020,13 @@ export function Globe({
           event.point.x,
           event.point.y,
           name,
-          isBucketPin ? "On your bucket list" : planned ? "Planned trip" : undefined,
+          isBucketPin
+            ? "On your bucket list"
+            : isPlacePin
+              ? placeTypeLabel(feature.properties?.placeType as PlaceType)
+              : planned
+                ? "Planned trip"
+                : undefined,
         );
         map.getCanvas().style.cursor = "pointer";
         return;
@@ -854,10 +1062,18 @@ export function Globe({
         "";
       const code = feature.properties?.ISO_A2_EH as string | undefined;
       const count = code ? destCountByCode.get(code) ?? 0 : 0;
+      // A places-only country says so, so the hatch is explained on hover.
+      // Counted from the pins on show, the same list the tier is built from.
+      const placeCount =
+        code && count === 0
+          ? dataRef.current.places.filter((p) => p.countryCode === code).length
+          : 0;
       const text =
         count > 0
           ? `${name} · ${count} ${count === 1 ? "destination" : "destinations"}`
-          : name;
+          : placeCount > 0
+            ? `${name} · ${placeCount} ${placeCount === 1 ? "place" : "places"}`
+            : name;
       // Countries whose click would open discovery get a hint and a pointer:
       // unvisited ones always, and visited ones too on discovery-only hosts
       // (the map picker) where no drill-down competes for the click.
@@ -901,15 +1117,17 @@ export function Globe({
       if (replayActiveRef.current || photoActiveRef.current) return;
 
       // A click on a pin opens its popup and never doubles as a country select.
-      const pinLayers = ["pins", "bucket-pins"].filter((layer) =>
-        map?.getLayer(layer),
-      );
+      const pinLayers = PIN_LAYERS.filter((layer) => map?.getLayer(layer));
       if (pinLayers.length > 0) {
         const pinFeatures = map.queryRenderedFeatures(event.point, {
           layers: pinLayers,
         });
         if (pinFeatures.length > 0) {
           const feature = pinFeatures[0];
+          if (feature.layer?.id === "place-pins") {
+            showPlacePopupFromFeature(feature);
+            return;
+          }
           if (feature.layer?.id === "bucket-pins") {
             showBucketPopupFromFeature(feature);
           } else {
@@ -1016,6 +1234,7 @@ export function Globe({
         destinations: data.destinations,
         arcs: data.arcs,
         bucketPlaces: data.bucketPlaces,
+        places: data.places,
       });
     }
 
@@ -1347,6 +1566,8 @@ export function Globe({
           attractionsActive={attractions.active}
           onNearbyToggle={nearby ? toggleNearby : undefined}
           nearbyActive={nearbyMode.active}
+          onPlacesToggle={places.length > 0 ? togglePlacesVisible : undefined}
+          placesVisible={placesVisible}
           projection={projection}
           onToggleProjection={handleToggle}
           onRecenter={

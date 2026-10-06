@@ -5,6 +5,7 @@
 // working everywhere it is already used.
 
 import type { TransportMode } from "@/lib/transport";
+import type { PlaceType } from "@/lib/types";
 
 /** A single mappable stop. Positions are [lng, lat]. */
 export interface GlobeDestination {
@@ -54,6 +55,22 @@ export interface GlobeBucketPlace {
   countryCode: string | null;
   lat: number;
   lng: number;
+}
+
+/** A logged place (the places feature). Pinned as one class, never tinted by
+ * type: trip stops already speak a colour language (experience category), and
+ * a second one with no legend would be unreadable. The type is shown as an
+ * icon in the popup instead. */
+export interface GlobePlace {
+  id: string;
+  name: string;
+  placeType: PlaceType;
+  /** Drives the places-only country tier. Null fills nothing. */
+  countryCode: string | null;
+  lat: number;
+  lng: number;
+  firstVisitDate: string | null;
+  visitCount: number;
 }
 
 /** The country a drill-down was opened on. */

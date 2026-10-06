@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  CheckIcon,
   Globe2,
   ImageIcon,
   LandmarkIcon,
   LocateFixedIcon,
   NavigationIcon,
   Map as MapIcon,
+  MapPinIcon,
   Maximize2Icon,
   Minimize2Icon,
   PlayIcon,
@@ -55,6 +57,12 @@ import { ActionTip } from "@/components/ui/info-tip";
 // buttons (about 220px on phones including the bottom inset) and the search
 // button occupies the top 56px, so any map at least ~280px tall keeps them
 // apart. Every globe surface here is at least 300px tall, or fullscreen.
+//
+// LAYERS sit between the utilities and the modes: a checkbox row per optional
+// layer (today only logged places, on the dashboard). A layer is NOT a mode.
+// It is on by default, so feeding it into the trigger's "a mode is running"
+// tint would light the trigger permanently and make the signal mean nothing.
+// Turning it off is its own visible signal: the pins are gone.
 
 /** One selectable basemap style for the switcher swatches. */
 export interface BasemapOption {
@@ -80,6 +88,12 @@ interface MapControlsProps {
    * browser for location permission; nothing here prompts on its own. */
   onNearbyToggle?: () => void;
   nearbyActive?: boolean;
+
+  // --- Popover: layers ----------------------------------------------------
+  /** When provided, offers a "Places" checkbox row that shows or hides the
+   * logged places pins. Only the dashboard wires it. */
+  onPlacesToggle?: () => void;
+  placesVisible?: boolean;
 
   // --- Popover: utilities -------------------------------------------------
   projection: "globe" | "mercator";
@@ -224,6 +238,8 @@ export function MapControls({
   attractionsActive = false,
   onNearbyToggle,
   nearbyActive = false,
+  onPlacesToggle,
+  placesVisible = true,
   projection,
   onToggleProjection,
   onRecenter,
@@ -468,6 +484,37 @@ export function MapControls({
                 {item.label}
               </button>
             ))}
+
+            {onPlacesToggle ? (
+              <>
+                <div className="my-1 h-px bg-white/10" />
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={placesVisible}
+                  // The menu stays open: a layer toggle is checked and
+                  // unchecked in place, and closing would hide the result.
+                  onClick={onPlacesToggle}
+                  className={MENU_ITEM_CLASS}
+                >
+                  <span className="shrink-0 text-foreground/50">
+                    <MapPinIcon className="size-4" />
+                  </span>
+                  Show places
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "ml-auto flex size-4 shrink-0 items-center justify-center rounded border",
+                      placesVisible
+                        ? "border-brand bg-brand text-brand-foreground"
+                        : "border-white/25",
+                    )}
+                  >
+                    {placesVisible ? <CheckIcon className="size-3" /> : null}
+                  </span>
+                </button>
+              </>
+            ) : null}
 
             {modes.length > 0 ? (
               <>

@@ -6,6 +6,7 @@ import type {
   GlobeArc,
   GlobeBucketPlace,
   GlobeDestination,
+  GlobePlace,
 } from "./globe-types";
 
 // Pure builders that turn the globe's data props into the GeoJSON its native
@@ -82,6 +83,73 @@ export function bucketPlacesFC(
         lng: place.lng,
       },
     })),
+  };
+}
+
+export function placesFC(places: GlobePlace[]): FeatureCollection<Point> {
+  return {
+    type: "FeatureCollection",
+    features: places.map((place, index) => ({
+      type: "Feature",
+      // Numeric id so MapLibre feature-state (hover) works.
+      id: index,
+      geometry: { type: "Point", coordinates: [place.lng, place.lat] },
+      properties: {
+        placeId: place.id,
+        name: place.name,
+        placeType: place.placeType,
+        firstVisitDate: place.firstVisitDate ?? "",
+        visitCount: place.visitCount,
+      },
+    })),
+  };
+}
+
+/**
+ * The globe's country tiers, strongest first. A country takes exactly one:
+ *
+ *   visited   a completed or ongoing trip stopped there      solid brand fill
+ *   places    reached only through logged places            brand hatch
+ *   planned   only a planned trip goes there                dashed outline
+ *   bucket    on the bucket list, none of the above          amber fill
+ *
+ * "places" is presentation only. It never joins visitedCountryCodes, so the
+ * countries count, v_user_travel_summary, and every stat are untouched; it is
+ * derived here, on the client, from the pins the globe is already showing.
+ * That is also why hiding places with the toggle removes the tier: a hatched
+ * country with no pin in it would be a fill nobody can explain.
+ *
+ * It outranks planned and bucket because it is a statement about the past
+ * (the user has been there), the same reason visited outranks them. A bucket
+ * country reached by a place stays on the list (auto-fulfillment counts trips
+ * only); the list is where that is visible, not the fill.
+ */
+export interface CountryTiers {
+  visited: string[];
+  places: string[];
+  planned: string[];
+  bucket: string[];
+}
+
+export function countryTiers(input: {
+  visited: string[];
+  planned: string[];
+  bucket: string[];
+  places: GlobePlace[];
+}): CountryTiers {
+  const visited = new Set(input.visited);
+  const places = new Set<string>();
+  for (const place of input.places) {
+    if (place.countryCode && !visited.has(place.countryCode)) {
+      places.add(place.countryCode);
+    }
+  }
+  const taken = (code: string) => visited.has(code) || places.has(code);
+  return {
+    visited: input.visited,
+    places: Array.from(places),
+    planned: input.planned.filter((code) => !taken(code)),
+    bucket: Array.from(new Set(input.bucket.filter((code) => !taken(code)))),
   };
 }
 

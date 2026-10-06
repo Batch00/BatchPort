@@ -2,12 +2,19 @@ import type { FilterSpecification, Map as MlMap } from "maplibre-gl";
 
 import { GROUND_ARC_COLOR, SEA_ARC_COLOR } from "@/lib/transport";
 import { getCachedCountries, overlayTheme } from "./basemaps";
-import { arcsFC, bucketPlacesFC, destinationsFC } from "./globe-sources";
+import {
+  arcsFC,
+  bucketPlacesFC,
+  countryTiers,
+  destinationsFC,
+  placesFC,
+} from "./globe-sources";
 import { VISITED_BORDER, matchFilter } from "./map-utils";
 import type {
   GlobeArc,
   GlobeBucketPlace,
   GlobeDestination,
+  GlobePlace,
 } from "./globe-types";
 
 // Every runtime layer the globe draws on top of whichever basemap style is
@@ -29,6 +36,54 @@ const BUCKET_PIN_STROKE = "#fbbf24";
 const PLANNED_PIN_CORE = "#111318";
 const PIN_RADIUS = 6;
 const PIN_RADIUS_HOVER = 8.5;
+// Logged places: one class, never tinted by type. Smaller than a trip stop,
+// no glow, no category ring, and a soft grey-white rather than the stop's pure
+// white, so a stop always reads as the louder of the two. The dark stroke
+// keeps a 3.5px dot legible against the brand-blue country fill it will
+// usually sit on.
+const PLACE_PIN_FILL = "#cbd5e1";
+const PLACE_PIN_STROKE = "#0a0a0a";
+const PLACE_PIN_RADIUS = 3.5;
+const PLACE_PIN_RADIUS_HOVER = 5.5;
+
+// The places-only country tier is a diagonal hatch in the brand blue: a
+// partial fill, which is what it means (been there, not on a trip). A fainter
+// solid fill was the alternative and loses twice: it reads as "visited, but
+// dim", and on detailed basemaps, where visited is already a 14 to 18 percent
+// tint, half of that is invisible. Stripes stay legible on every basemap.
+export const PLACES_HATCH_IMAGE = "places-hatch";
+// One tile, in CSS pixels; drawn at 2x so the stripes stay crisp.
+const HATCH_TILE = 8;
+const HATCH_PIXEL_RATIO = 2;
+const HATCH_STROKE = 1.6;
+
+// A seamless 45 degree hatch: lines x + y = k * HATCH_TILE / 2, so shifting by
+// a whole tile maps every line onto another one and the edges meet. Returned
+// as raw RGBA so it needs no canvas element in the DOM.
+function hatchImage(brandHex: string): {
+  width: number;
+  height: number;
+  data: Uint8Array;
+} | null {
+  const size = HATCH_TILE * HATCH_PIXEL_RATIO;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.strokeStyle = brandHex;
+  ctx.lineWidth = HATCH_STROKE * HATCH_PIXEL_RATIO;
+  ctx.lineCap = "square";
+  const step = size / 2;
+  for (let k = -1; k <= 5; k += 1) {
+    ctx.beginPath();
+    ctx.moveTo(k * step - size, size);
+    ctx.lineTo(k * step, 0);
+    ctx.stroke();
+  }
+  const { data } = ctx.getImageData(0, 0, size, size);
+  return { width: size, height: size, data: new Uint8Array(data.buffer) };
+}
 
 export interface OverlayInstallOptions {
   /** The active basemap id, which selects the overlay tint treatment. */
@@ -41,6 +96,7 @@ export interface OverlayInstallOptions {
   destinations: GlobeDestination[];
   arcs: GlobeArc[];
   bucketPlaces: GlobeBucketPlace[];
+  places: GlobePlace[];
 }
 
 /** Sky and atmosphere. Re-applied after every style (initial load or a later
@@ -124,11 +180,15 @@ export function installOverlays(map: MlMap, options: OverlayInstallOptions) {
   ensureCountriesBase(map, basemapId);
 
   const theme = overlayTheme(basemapId);
-  const visitedFilter = matchFilter(options.visitedCountryCodes);
-  const visitedSet = new Set(options.visitedCountryCodes);
-  const bucketFilter = matchFilter(
-    options.bucketCountryCodes.filter((code) => !visitedSet.has(code)),
-  );
+  const tiers = countryTiers({
+    visited: options.visitedCountryCodes,
+    planned: options.plannedCountryCodes,
+    bucket: options.bucketCountryCodes,
+    places: options.places,
+  });
+  const visitedFilter = matchFilter(tiers.visited);
+  const bucketFilter = matchFilter(tiers.bucket);
+  const placesFilter = matchFilter(tiers.places);
   const beforeOutline = map.getLayer("country-outline")
     ? "country-outline"
     : undefined;
@@ -144,6 +204,33 @@ export function installOverlays(map: MlMap, options: OverlayInstallOptions) {
         paint: {
           "fill-color": BUCKET_FILL,
           "fill-opacity": theme.bucketOpacity,
+        },
+      },
+      beforeOutline,
+    );
+  }
+
+  // Places-only tier (brand hatch), above amber and beneath visited. The image
+  // is runtime state, so a basemap switch wipes it with everything else and
+  // this re-adds it.
+  if (!map.hasImage(PLACES_HATCH_IMAGE)) {
+    const image = hatchImage(brandHex);
+    if (image) {
+      map.addImage(PLACES_HATCH_IMAGE, image, {
+        pixelRatio: HATCH_PIXEL_RATIO,
+      });
+    }
+  }
+  if (map.hasImage(PLACES_HATCH_IMAGE) && !map.getLayer("country-places")) {
+    map.addLayer(
+      {
+        id: "country-places",
+        type: "fill",
+        source: "countries",
+        filter: placesFilter,
+        paint: {
+          "fill-pattern": PLACES_HATCH_IMAGE,
+          "fill-opacity": theme.placesHatchOpacity,
         },
       },
       beforeOutline,
@@ -187,6 +274,23 @@ export function installOverlays(map: MlMap, options: OverlayInstallOptions) {
     });
   }
 
+  // Places-only countries: a SOLID outline, thinner and fainter than visited.
+  // Solid is what separates it from planned (dashed) at a glance, before the
+  // hatch inside has resolved.
+  if (!map.getLayer("country-places-outline")) {
+    map.addLayer({
+      id: "country-places-outline",
+      type: "line",
+      source: "countries",
+      filter: placesFilter,
+      paint: {
+        "line-color": VISITED_BORDER,
+        "line-width": theme.visitedOutlineWidth,
+        "line-opacity": theme.visitedOutlineOpacity * 0.6,
+      },
+    });
+  }
+
   // Planned trips: countries get a dashed brand-blue outline with no fill, so
   // upcoming travel is visible but clearly not yet visited.
   if (!map.getLayer("country-planned-outline")) {
@@ -194,7 +298,7 @@ export function installOverlays(map: MlMap, options: OverlayInstallOptions) {
       id: "country-planned-outline",
       type: "line",
       source: "countries",
-      filter: matchFilter(options.plannedCountryCodes),
+      filter: matchFilter(tiers.planned),
       paint: {
         "line-color": VISITED_BORDER,
         "line-width": theme.plannedOutlineWidth,
@@ -363,6 +467,47 @@ export function installOverlays(map: MlMap, options: OverlayInstallOptions) {
         "circle-color": BUCKET_PIN_FILL,
         "circle-stroke-color": BUCKET_PIN_STROKE,
         "circle-stroke-width": 2,
+      },
+    });
+  }
+
+  // Logged places: above bucket pins, beneath every destination layer, so a
+  // trip stop wins any overlap (the click and hover handlers query pins in
+  // the same order).
+  if (!map.getSource("places")) {
+    map.addSource("places", {
+      type: "geojson",
+      data: placesFC(options.places),
+    });
+  }
+  if (theme.pinHalo && !map.getLayer("place-pins-halo")) {
+    map.addLayer({
+      id: "place-pins-halo",
+      type: "circle",
+      source: "places",
+      paint: {
+        "circle-radius": PLACE_PIN_RADIUS + 2.5,
+        "circle-color": "#0a0a0a",
+        "circle-opacity": 0.6,
+      },
+    });
+  }
+  if (!map.getLayer("place-pins")) {
+    map.addLayer({
+      id: "place-pins",
+      type: "circle",
+      source: "places",
+      paint: {
+        "circle-radius": [
+          "case",
+          ["boolean", ["feature-state", "hover"], false],
+          PLACE_PIN_RADIUS_HOVER,
+          PLACE_PIN_RADIUS,
+        ],
+        "circle-color": PLACE_PIN_FILL,
+        "circle-opacity": 0.9,
+        "circle-stroke-color": PLACE_PIN_STROKE,
+        "circle-stroke-width": 1.25,
       },
     });
   }
