@@ -41,10 +41,13 @@ import { UnlocatedPhotosModal } from "./unlocated-photos-modal";
 import type { UnlocatedPhoto } from "@/lib/photo-map-data";
 import { MapControls } from "./map-controls";
 import {
+  PIN_HIT_RADIUS_MOUSE,
   TRAVEL_LAYERS,
   boundsOfFeature,
   hexToRgb,
   matchFilter,
+  nearestPinFeature,
+  pinHitRadius,
   readBrandHex,
   rgbToHex,
 } from "./map-utils";
@@ -185,8 +188,9 @@ const NO_PLACES: GlobePlace[] = [];
 // with room to tap, which is the inset the expenses page was bitten by.
 const POPUP_BOTTOM_CLEARANCE = 56;
 
-// Every clickable pin layer, top of the stack first: queryRenderedFeatures
-// returns in this order, so a trip stop wins an overlap with a logged place.
+// Every clickable pin layer, in tie-break order: when two pins sit on the
+// same spot the earlier layer wins, so a trip stop beats a logged place.
+// Otherwise the pin nearest the pointer wins (nearestPinFeature).
 const PIN_LAYERS = ["pins", "place-pins", "bucket-pins"];
 const IDLE_BEFORE_RESUME_MS = 5000;
 
@@ -976,20 +980,22 @@ export function Globe({
       }
 
       // Pins (destination, logged place, bucket place) win over country
-      // hover. Listed top layer first, so a trip stop wins an overlap.
-      const pinLayers = PIN_LAYERS.filter((layer) => map?.getLayer(layer));
-      const pinFeatures =
-        pinLayers.length > 0
-          ? map.queryRenderedFeatures(event.point, { layers: pinLayers })
-          : [];
-      if (pinFeatures.length > 0) {
-        const feature = pinFeatures[0];
-        const isBucketPin = feature.layer?.id === "bucket-pins";
-        const isPlacePin = feature.layer?.id === "place-pins";
+      // hover, found within the cursor radius rather than at the exact pixel
+      // so the pointer cursor appears wherever a click would open the pin.
+      // Hover is a mouse affair (a tap never hovers), hence the mouse radius.
+      const pin = nearestPinFeature(
+        map,
+        event.point,
+        PIN_LAYERS,
+        PIN_HIT_RADIUS_MOUSE,
+      );
+      if (pin) {
+        const isBucketPin = pin.layer?.id === "bucket-pins";
+        const isPlacePin = pin.layer?.id === "place-pins";
         if (isBucketPin) {
           clearPinHover();
         } else if (isPlacePin) {
-          const nextId = feature.id ?? null;
+          const nextId = pin.id ?? null;
           if (nextId !== hoveredPlaceId) {
             clearPinHover();
             hoveredPlaceId = nextId;
@@ -1001,7 +1007,7 @@ export function Globe({
             }
           }
         } else {
-          const nextId = feature.id ?? null;
+          const nextId = pin.id ?? null;
           if (nextId !== hoveredPinId) {
             clearPinHover();
             hoveredPinId = nextId;
@@ -1014,8 +1020,8 @@ export function Globe({
           }
         }
         clearCountryHover();
-        const name = String(feature.properties?.name ?? "");
-        const planned = feature.properties?.planned === true;
+        const name = String(pin.properties?.name ?? "");
+        const planned = pin.properties?.planned === true;
         showTooltip(
           event.point.x,
           event.point.y,
@@ -1023,7 +1029,7 @@ export function Globe({
           isBucketPin
             ? "On your bucket list"
             : isPlacePin
-              ? placeTypeLabel(feature.properties?.placeType as PlaceType)
+              ? placeTypeLabel(pin.properties?.placeType as PlaceType)
               : planned
                 ? "Planned trip"
                 : undefined,
@@ -1116,25 +1122,25 @@ export function Globe({
       // (photo layers register their own click handlers).
       if (replayActiveRef.current || photoActiveRef.current) return;
 
-      // A click on a pin opens its popup and never doubles as a country select.
-      const pinLayers = PIN_LAYERS.filter((layer) => map?.getLayer(layer));
-      if (pinLayers.length > 0) {
-        const pinFeatures = map.queryRenderedFeatures(event.point, {
-          layers: pinLayers,
-        });
-        if (pinFeatures.length > 0) {
-          const feature = pinFeatures[0];
-          if (feature.layer?.id === "place-pins") {
-            showPlacePopupFromFeature(feature);
-            return;
-          }
-          if (feature.layer?.id === "bucket-pins") {
-            showBucketPopupFromFeature(feature);
-          } else {
-            showPinPopupFromFeature(feature);
-          }
-          return;
+      // A click on a pin opens its popup and never doubles as a country
+      // select. Pins are found within a finger's radius of a tap (a cursor's
+      // for a mouse) and checked BEFORE the country fill, so a near miss on a
+      // 3.5px dot opens the pin rather than the country under it.
+      const pin = nearestPinFeature(
+        map,
+        event.point,
+        PIN_LAYERS,
+        pinHitRadius(event.originalEvent),
+      );
+      if (pin) {
+        if (pin.layer.id === "place-pins") {
+          showPlacePopupFromFeature(pin);
+        } else if (pin.layer.id === "bucket-pins") {
+          showBucketPopupFromFeature(pin);
+        } else {
+          showPinPopupFromFeature(pin);
         }
+        return;
       }
 
       const {
