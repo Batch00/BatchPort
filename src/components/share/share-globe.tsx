@@ -40,6 +40,7 @@ export function ShareGlobe({
     bucketCountryCodes,
     bucketPlaces,
     arcs,
+    places,
     stats,
   } = data;
 
@@ -145,6 +146,10 @@ export function ShareGlobe({
         destinations={globeDestinations}
         arcs={arcs}
         bucketPlaces={globeBucketPlaces}
+        // Public popup: name, type, first visit, and no link (enablePlaceLinks
+        // stays off), because /places/[id] is behind auth. Empty unless the
+        // profile read places, i.e. unless the flag is on.
+        places={places}
         onExplorePlace={(place) => {
           if (!place.countryCode) return;
           setSelected(null);

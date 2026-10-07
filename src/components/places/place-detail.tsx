@@ -54,9 +54,19 @@ interface PlaceDetailProps {
   occasions: Occasion[];
   tenants: string[];
   catalogs: PlaceCatalogRef[];
+  /** The signed-in demo account: the place and its visits, and no add, edit,
+   * or delete control. The actions refuse the demo account regardless; this
+   * only stops offering buttons that cannot work. */
+  readOnly?: boolean;
 }
 
-export function PlaceDetail({ place, occasions, tenants, catalogs }: PlaceDetailProps) {
+export function PlaceDetail({
+  place,
+  occasions,
+  tenants,
+  catalogs,
+  readOnly = false,
+}: PlaceDetailProps) {
   const router = useRouter();
   const guard = useConnectionGuard();
 
@@ -163,10 +173,12 @@ export function PlaceDetail({ place, occasions, tenants, catalogs }: PlaceDetail
             ) : null}
           </div>
         </div>
-        <Button type="button" variant="outline" disabled={busy} onClick={() => setAdding(true)}>
-          <PlusIcon className="size-4" />
-          Add visit
-        </Button>
+        {readOnly ? null : (
+          <Button type="button" variant="outline" disabled={busy} onClick={() => setAdding(true)}>
+            <PlusIcon className="size-4" />
+            Add visit
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -208,7 +220,7 @@ export function PlaceDetail({ place, occasions, tenants, catalogs }: PlaceDetail
                     <p className="mt-1 text-xs whitespace-pre-wrap text-foreground/70">{visit.notes}</p>
                   ) : null}
                 </div>
-                <div className="flex shrink-0 gap-1">
+                <div className={readOnly ? "hidden" : "flex shrink-0 gap-1"}>
                   <button
                     type="button"
                     aria-label="Edit visit"
@@ -234,18 +246,20 @@ export function PlaceDetail({ place, occasions, tenants, catalogs }: PlaceDetail
         )}
       </div>
 
-      <div className="flex justify-end border-t border-white/10 pt-4">
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={busy}
-          onClick={() => setConfirmDeletePlace(true)}
-          className="text-destructive hover:text-destructive"
-        >
-          <Trash2Icon className="size-4" />
-          Delete place
-        </Button>
-      </div>
+      {readOnly ? null : (
+        <div className="flex justify-end border-t border-white/10 pt-4">
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => setConfirmDeletePlace(true)}
+            className="text-destructive hover:text-destructive"
+          >
+            <Trash2Icon className="size-4" />
+            Delete place
+          </Button>
+        </div>
+      )}
 
       {adding ? (
         <PlaceEntrySheet

@@ -14,6 +14,13 @@ import {
 } from "@/lib/photos";
 import { chronologicalDestinations, resolveTripDates } from "@/lib/trip-dates";
 import { DEMO_USER_ID } from "@/lib/constants";
+import { PLACES_ENABLED } from "@/lib/features";
+import {
+  readPlacesSummary,
+  readRecentPlaces,
+  type DashboardPlacesSummary,
+  type RecentPlace,
+} from "@/lib/places-dashboard-data";
 import type { JournalEntry } from "@/lib/journal";
 import type { StoryPhoto } from "@/lib/story";
 import type { PhotoSource } from "@/lib/types";
@@ -93,6 +100,20 @@ export interface SharedProfile {
   photoMapData: PhotoMapData;
   trips: ProfileTrip[];
   bucketItems: BucketItem[];
+  /**
+   * The two places tiles (US states, places), the same as the dashboard's.
+   * Null when the flag is off or the account has logged no places: a public
+   * profile then shows no tiles rather than a stranger reading "0 places, log
+   * the first one".
+   */
+  placesSummary: DashboardPlacesSummary | null;
+  /**
+   * The recent places strip, or NULL when the route did not ask for it.
+   * Only /demo asks (seeded data, decided 2026-10-06); /share/[slug] never
+   * does, because each entry's caption is the visit's own occasion_label,
+   * which is private on a real profile. Same shape of gate as `expenses`.
+   */
+  recentPlaces: RecentPlace[] | null;
   /**
    * Per-trip spending, or NULL when the surface did not ask for it.
    *
@@ -608,30 +629,51 @@ async function getSharedExpenseSummaries(
  */
 export async function getSharedProfile(
   userId: string,
-  options: { expenses?: boolean } = {},
+  options: { expenses?: boolean; recentPlaces?: boolean } = {},
 ): Promise<SharedProfile> {
-  const [stats, mapData, photoMapData, trips, bucketItems] = await Promise.all([
+  const [stats, mapData, photoMapData, trips, bucketItems, placesSummary] = await Promise.all([
     getSummaryStats(userId),
-    // No places pins on /demo or /share/[slug]. Demo exposure was decided
-    // against and share exposure is an open decision, so this is stated
-    // rather than left to the default.
-    getMapData(userId, undefined, { places: false }),
+    // Places pins and the places-only country hatch are public, decided
+    // 2026-10-06: a shared profile shows them, behind the flag, with no
+    // separate opt-in. The reads take the to-date views only, so a future
+    // visit never pins publicly (see readMapPlaces).
+    getMapData(userId, undefined, { places: PLACES_ENABLED }),
     getPhotoMapData(userId),
     // The read-only surfaces offer the story, so they ask for its payload.
     getProfileTrips(userId, { story: true }),
     getSharedBucketList(userId),
+    PLACES_ENABLED ? getSharedPlacesSummary(userId) : Promise.resolve(null),
   ]);
   // Not fetched at all unless asked for, so a surface that forgets the flag
   // has nothing to leak rather than a field it might render by accident.
   const expenses = options.expenses
     ? await getSharedExpenseSummaries(userId)
     : null;
+  // The strip only when the route asked AND there are places to list, so the
+  // read-only strip never has an empty state to draw.
+  const recentPlaces =
+    options.recentPlaces && PLACES_ENABLED && placesSummary
+      ? await readRecentPlaces(await createClient(), userId)
+      : null;
   return {
     stats,
     mapData,
     photoMapData,
     trips,
     bucketItems,
+    placesSummary,
+    recentPlaces,
     expenses,
   };
+}
+
+// The two places tiles for a public profile: v_places_summary through the
+// cookie-backed server client (anon for a visitor, so is_shared() gates it),
+// filtered to the profile's owner. The view counts places through the to-date
+// chain, so a future visit is in no number. Null with no places logged.
+async function getSharedPlacesSummary(
+  userId: string,
+): Promise<DashboardPlacesSummary | null> {
+  const summary = await readPlacesSummary(await createClient(), userId);
+  return summary && summary.places > 0 ? summary : null;
 }

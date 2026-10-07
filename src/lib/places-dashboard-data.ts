@@ -1,7 +1,13 @@
 // Server reads for the dashboard's places additions: the two overview tiles
 // and the recent places strip.
 //
-// Every read carries .eq("user_id", user.id). The views are security_invoker,
+// Each read is written once, as read*(supabase, userId), with two callers:
+// getDashboardPlaces() for the signed-in owner, and share-data.ts for the
+// public profile (the tiles on /share/[slug] and /demo, the strip on /demo
+// only), which passes the cookie-backed server client and the profile's
+// owner. Same query, same owner filter, on every surface.
+//
+// Every read carries .eq("user_id", userId). The views are security_invoker,
 // so RLS applies, but RLS here is `own OR is_shared(user_id)`, which would
 // hand back the demo account's rows beside the caller's. The explicit filter
 // is the access boundary; see "RLS IS NOT AN OWNER FILTER" in CLAUDE.md.
@@ -10,6 +16,7 @@
 // front door, and a missing view must cost these additions, never the page.
 
 import { requireUser } from "@/lib/current-user";
+import type { createClient } from "@/utils/supabase/server";
 import { num } from "@/lib/places-stats";
 import type { PlaceType } from "@/lib/types";
 
@@ -48,17 +55,27 @@ export const RECENT_PLACES_LIMIT = 6;
 // visited many times. Twelve places today; this is a ceiling, not a page.
 const RECENT_VISIT_SCAN = 200;
 
+/** The session or anon server client. Never the admin client, which would
+ * bypass is_shared() on the public path. */
+export type PlacesDashboardClient = Awaited<ReturnType<typeof createClient>>;
+
 export async function getDashboardPlaces(): Promise<DashboardPlaces> {
-  const [summary, recent] = await Promise.all([readSummary(), readRecent()]);
+  const { supabase, user } = await requireUser();
+  const [summary, recent] = await Promise.all([
+    readPlacesSummary(supabase, user.id),
+    readRecentPlaces(supabase, user.id),
+  ]);
   return { summary, recent };
 }
 
-async function readSummary(): Promise<DashboardPlacesSummary | null> {
-  const { supabase, user } = await requireUser();
+export async function readPlacesSummary(
+  supabase: PlacesDashboardClient,
+  userId: string,
+): Promise<DashboardPlacesSummary | null> {
   const { data, error } = await supabase
     .from("v_places_summary")
     .select("places_visited, states_visited, states_total, dc_visited, localities")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
   if (error) {
     console.error("getDashboardPlaces: summary failed", error);
@@ -88,13 +105,14 @@ async function readSummary(): Promise<DashboardPlacesSummary | null> {
 //   place_visits            occasion_label only, for exactly the visit ids
 //                           the to-date view admitted; the view does not
 //                           carry the free text override
-async function readRecent(): Promise<RecentPlace[]> {
-  const { supabase, user } = await requireUser();
-
+export async function readRecentPlaces(
+  supabase: PlacesDashboardClient,
+  userId: string,
+): Promise<RecentPlace[]> {
   const visits = await supabase
     .from("v_place_visits_to_date")
     .select("id, place_id, visit_date, occasion_id")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("visit_date", { ascending: false })
     .order("id", { ascending: true })
     .limit(RECENT_VISIT_SCAN);
@@ -127,12 +145,12 @@ async function readRecent(): Promise<RecentPlace[]> {
     supabase
       .from("v_place_presence")
       .select("place_id, name, place_type")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .in("place_id", placeIds),
     supabase
       .from("place_visits")
       .select("id, occasion_label")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .in(
         "id",
         latest.map((row) => row.id),

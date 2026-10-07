@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 
 import { PlaceEntryLauncher } from "@/components/places/place-entry-launcher";
 import { PlacesList } from "@/components/places/places-list";
+import { requireUser } from "@/lib/current-user";
+import { isDemoUser } from "@/lib/demo";
 import { PLACES_ENABLED } from "@/lib/features";
 import { getOccasions, getPlacesList } from "@/lib/places";
 
@@ -15,7 +17,13 @@ import { getOccasions, getPlacesList } from "@/lib/places";
 export default async function PlacesPage() {
   if (!PLACES_ENABLED) notFound();
 
-  const [places, occasions] = await Promise.all([getPlacesList(), getOccasions()]);
+  const [{ user }, places, occasions] = await Promise.all([
+    requireUser(),
+    getPlacesList(),
+    getOccasions(),
+  ]);
+  // The demo account reads its seeded places and is offered no log action.
+  const readOnly = isDemoUser(user.id);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
@@ -26,7 +34,7 @@ export default async function PlacesPage() {
             Somewhere you stayed overnight or spent a real day.
           </p>
         </div>
-        <PlaceEntryLauncher occasions={occasions} />
+        {readOnly ? null : <PlaceEntryLauncher occasions={occasions} />}
       </div>
 
       <PlacesList places={places} occasions={occasions} />

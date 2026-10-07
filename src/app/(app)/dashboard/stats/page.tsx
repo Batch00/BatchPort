@@ -29,7 +29,6 @@ import {
 import { BucketProgress } from "@/components/stats/bucket-progress";
 import { hasSuperlatives } from "@/lib/superlatives";
 import { PLACES_ENABLED } from "@/lib/features";
-import { isDemoUser } from "@/lib/demo";
 import { getPlacesStats, getStateCoverage } from "@/lib/places-stats-data";
 import { PlacesStatsSection } from "@/components/places/places-stats-section";
 
@@ -45,7 +44,10 @@ export default async function StatsPage() {
   // Places is unshipped and has no demo exposure yet: behind the flag, and
   // off for the demo account, there is no read at all rather than a read
   // whose result goes unused.
-  const showPlaces = PLACES_ENABLED && !isDemoUser(user.id);
+  // Read side only: the demo account sees its seeded places here too. The
+  // section has no write control once anything is logged, and every places
+  // action refuses the demo account at the server.
+  const showPlaces = PLACES_ENABLED;
   // The poster draws the same travel history these numbers describe, so its
   // data rides along here rather than on a route of its own.
   const [stats, mapData, trips, bucketItems, stateCoverage, placesStats] = await Promise.all([

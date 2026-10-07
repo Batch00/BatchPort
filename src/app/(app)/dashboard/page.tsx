@@ -35,10 +35,13 @@ export const metadata = { title: "Dashboard" };
 // the whole page: globe clicks, search, and bucket card clicks all share it.
 export default async function DashboardPage() {
   const { user } = await requireUser();
-  // The places additions (overview tiles, recent strip, log action, globe
-  // pins): behind the flag, and never for the demo account, which could not
-  // use the log action and whose places exposure was decided against.
-  const showPlaces = PLACES_ENABLED && !isDemoUser(user.id);
+  // The places additions (overview tiles, recent strip, globe pins) are behind
+  // the flag and read for every account, the demo included (its places are
+  // seeded; decided 2026-10-06). The log action is the one write here, and
+  // the demo account is never offered it.
+  const isDemo = isDemoUser(user.id);
+  const showPlaces = PLACES_ENABLED;
+  const canLogPlaces = showPlaces && !isDemo;
   // Passing the user id lets each fetch skip its own auth.getUser round-trip,
   // and the summary fetch loads only the stats this page renders.
   const [
@@ -142,7 +145,7 @@ export default async function DashboardPage() {
             // Reuses the one launcher. Its save calls router.refresh(), which
             // re-renders this page, so the tiles and the strip pick up the new
             // place with no extra wiring.
-            occasions ? (
+            occasions && canLogPlaces ? (
               <PlaceEntryLauncher
                 occasions={occasions}
                 variant="outline"
@@ -157,6 +160,9 @@ export default async function DashboardPage() {
           <RecentPlacesStrip
             places={dashboardPlaces.recent}
             occasions={occasions}
+            // The demo session keeps the links (it can open its own places)
+            // but has no empty-state log action.
+            readOnly={isDemo && dashboardPlaces.recent.length === 0}
           />
         ) : null}
 

@@ -4,6 +4,7 @@ import { SharedBucketList } from "@/components/share/shared-bucket-list";
 import { StatsOverview } from "@/components/stats/stats-overview";
 import { DiscoveryProvider } from "@/components/discover/discovery-host";
 import { YearRecapLauncher } from "@/components/year/year-recap-launcher";
+import { RecentPlacesStrip } from "@/components/places/recent-places-strip";
 import { placeKey } from "@/lib/geo";
 import type { SharedProfile } from "@/lib/share-data";
 
@@ -18,6 +19,8 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
     photoMapData,
     trips,
     bucketItems,
+    placesSummary,
+    recentPlaces,
     expenses,
   } = profile;
 
@@ -55,6 +58,7 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
           summary={stats.summary}
           distanceKm={stats.distanceKm}
           flagCodes={mapData.visitedCountryCodes}
+          places={placesSummary}
         />
 
         <section>
@@ -75,6 +79,12 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
             </div>
           )}
         </section>
+
+        {/* Below the trips and above the bucket list, as on the dashboard.
+            Only /demo asks for it (see SharedProfile.recentPlaces). */}
+        {recentPlaces && recentPlaces.length > 0 ? (
+          <RecentPlacesStrip places={recentPlaces} readOnly />
+        ) : null}
 
         <SharedBucketList
           items={bucketItems}

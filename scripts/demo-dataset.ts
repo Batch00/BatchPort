@@ -29,7 +29,8 @@
 // on the demo surface, or accept the visibility window) was needed.
 //
 // The rule that survives: nothing may write to the demo account except this
-// seeder. It is a public profile.
+// seeder and its places sibling, scripts/seed-demo-places.ts (places are not in
+// this fixture). It is a public profile.
 // ---------------------------------------------------------------------------
 
 // --- Types -----------------------------------------------------------------

@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
 
 import { PlaceDetail } from "@/components/places/place-detail";
+import { requireUser } from "@/lib/current-user";
+import { isDemoUser } from "@/lib/demo";
 import { PLACES_ENABLED } from "@/lib/features";
 import { getCatalogItem, getOccasions, getPlace } from "@/lib/places";
 
@@ -18,7 +20,11 @@ export default async function PlaceDetailPage({
   if (!PLACES_ENABLED) notFound();
 
   const { id } = await params;
-  const [place, occasions] = await Promise.all([getPlace(id), getOccasions()]);
+  const [{ user }, place, occasions] = await Promise.all([
+    requireUser(),
+    getPlace(id),
+    getOccasions(),
+  ]);
   if (!place) notFound();
 
   // Only a tracked venue has tenants to offer the game chips, and only then is
@@ -31,6 +37,7 @@ export default async function PlaceDetailPage({
       occasions={occasions}
       tenants={catalogItem?.tenants ?? []}
       catalogs={catalogItem?.catalogs ?? []}
+      readOnly={isDemoUser(user.id)}
     />
   );
 }

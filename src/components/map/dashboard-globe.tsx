@@ -182,6 +182,7 @@ export function DashboardGlobe({
         arcs={arcs}
         bucketPlaces={globeBucketPlaces}
         places={places}
+        enablePlaceLinks
         onExplorePlace={(place) => {
           if (!place.countryCode) return;
           setSelected(null);

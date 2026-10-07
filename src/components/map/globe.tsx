@@ -108,9 +108,14 @@ export interface GlobeProps {
   arcs: GlobeArc[];
   /** Place-type bucket items, shown as amber pins. */
   bucketPlaces?: GlobeBucketPlace[];
-  /** Logged places (the places feature), one muted pin class. Only the
-   * dashboard passes these; every other host leaves the layer empty. */
+  /** Logged places (the places feature), one muted pin class. The dashboard
+   * and the public profile pass these; every other host leaves the layer
+   * empty. */
   places?: GlobePlace[];
+  /** The owner's place popup: adds the visit count and a "View place" link to
+   * /places/[id]. Off by default, which is the public popup (name, type, first
+   * visit), because that route is behind auth. */
+  enablePlaceLinks?: boolean;
   /** Clicking a bucket place pin's action button reports the place. */
   onExplorePlace?: (place: GlobeBucketPlace) => void;
   /** Label of the bucket pin popup action. Default "Explore". */
@@ -217,6 +222,7 @@ export function Globe({
   arcs,
   bucketPlaces = [],
   places = [],
+  enablePlaceLinks = false,
   onExplorePlace,
   explorePlaceLabel = "Explore",
   focus = null,
@@ -566,6 +572,7 @@ export function Globe({
     arcs,
     bucketPlaces,
     places: shownPlaces,
+    enablePlaceLinks,
     onExplorePlace,
     autoRotate,
     fitToData,
@@ -585,6 +592,7 @@ export function Globe({
       arcs,
       bucketPlaces,
       places: shownPlaces,
+      enablePlaceLinks,
       onExplorePlace,
       autoRotate,
       fitToData,
@@ -893,11 +901,14 @@ export function Globe({
       // A place logged with no visit has no date to state, and says nothing
       // rather than "never visited", which would be untrue of a pin the user
       // put on their own map.
+      // The public popup stops at the first visit; the count and the link
+      // are the owner's.
+      const ownerPopup = dataRef.current.enablePlaceLinks;
       const visitParts: string[] = [];
       if (firstVisitDate) {
         visitParts.push(`First visited ${formatDate(firstVisitDate)}`);
       }
-      if (visitCount > 1) visitParts.push(`${visitCount} visits`);
+      if (ownerPopup && visitCount > 1) visitParts.push(`${visitCount} visits`);
       if (visitParts.length > 0) {
         const visits = document.createElement("div");
         visits.style.cssText = "margin-top:4px;color:#8b8b94;font-size:0.75rem";
@@ -907,12 +918,14 @@ export function Globe({
 
       // Padded so the tap target is finger-sized on a phone, and pulled back
       // by the same amount so the text still sits on the popup's left edge.
-      const link = document.createElement("a");
-      link.href = `/places/${encodeURIComponent(placeId)}`;
-      link.textContent = "View place";
-      link.style.cssText =
-        "display:inline-block;margin:4px 0 -6px -6px;padding:6px;color:var(--brand,#3b82f6);font-weight:600;font-size:0.75rem";
-      container.appendChild(link);
+      if (ownerPopup) {
+        const link = document.createElement("a");
+        link.href = `/places/${encodeURIComponent(placeId)}`;
+        link.textContent = "View place";
+        link.style.cssText =
+          "display:inline-block;margin:4px 0 -6px -6px;padding:6px;color:var(--brand,#3b82f6);font-weight:600;font-size:0.75rem";
+        container.appendChild(link);
+      }
 
       popup?.remove();
       const placePopup = new maplibregl.Popup({

@@ -1,8 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { DEMO_READONLY_MESSAGE, isDemoUser } from "@/lib/demo";
 import { PLACES_ENABLED } from "@/lib/features";
 import { searchCatalog, searchPhotonPlaces } from "@/lib/place-search-data";
 import { rankPlaceResults, SEARCH_MIN_CHARS } from "@/lib/place-search";
+import { createClient } from "@/utils/supabase/server";
 
 // GET /api/places/search?q={query}&lat={lat}&lng={lng}
 //
@@ -22,6 +24,17 @@ import { rankPlaceResults, SEARCH_MIN_CHARS } from "@/lib/place-search";
 export async function GET(request: NextRequest) {
   if (!PLACES_ENABLED) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // The search only feeds the log sheet, which the demo account cannot save
+  // from, so it gets no search either: one more place the read-only account
+  // is refused at the server rather than merely not shown a button.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (isDemoUser(user?.id)) {
+    return NextResponse.json({ error: DEMO_READONLY_MESSAGE }, { status: 403 });
   }
 
   const params = request.nextUrl.searchParams;

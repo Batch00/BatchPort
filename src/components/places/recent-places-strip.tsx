@@ -18,21 +18,34 @@ import type { Occasion } from "@/lib/types";
 //
 // With nothing logged, the strip is one line and the action that fills it.
 // There is no empty grid of placeholders.
+//
+// READ-ONLY is /demo: the same cards with no way in. Items are not links and
+// there is no "See all", because /places and /places/[id] are behind auth,
+// and there is no empty state, because its only content is the log action.
+// The caller does not mount a read-only strip with nothing in it.
+
+const CARD_CLASS =
+  "flex h-full flex-col gap-1.5 rounded-xl bg-card p-3 ring-1 ring-foreground/10";
 
 export function RecentPlacesStrip({
   places,
-  occasions,
+  occasions = [],
+  readOnly = false,
 }: {
   places: RecentPlace[];
-  occasions: Occasion[];
+  /** For the empty state's log action; unused when read-only. */
+  occasions?: Occasion[];
+  readOnly?: boolean;
 }) {
+  if (readOnly && places.length === 0) return null;
+
   return (
     <section aria-labelledby="recent-places">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 id="recent-places" className="text-sm font-medium text-foreground/80">
           Recent places
         </h2>
-        {places.length > 0 ? (
+        {places.length > 0 && !readOnly ? (
           <Link
             href="/places"
             className="inline-flex items-center gap-1 text-sm text-brand underline-offset-4 transition-colors hover:underline"
@@ -58,15 +71,9 @@ export function RecentPlacesStrip({
         </div>
       ) : (
         <ul className="-mx-6 flex snap-x snap-mandatory gap-3 overflow-x-auto px-6 pb-1 [scrollbar-width:none] sm:mx-0 sm:grid sm:snap-none sm:grid-cols-3 sm:overflow-visible sm:px-0 lg:grid-cols-6 [&::-webkit-scrollbar]:hidden">
-          {places.map((place) => (
-            <li
-              key={place.id}
-              className="w-40 shrink-0 snap-start sm:w-auto sm:min-w-0"
-            >
-              <Link
-                href={`/places/${place.id}`}
-                className="flex h-full flex-col gap-1.5 rounded-xl bg-card p-3 ring-1 ring-foreground/10 transition-colors hover:bg-white/[0.04] hover:ring-brand/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
-              >
+          {places.map((place) => {
+            const body = (
+              <>
                 <PlaceTypeIcon type={place.placeType} className="size-4 text-brand" />
                 <span className="line-clamp-2 text-sm font-medium leading-snug text-foreground">
                   {place.name}
@@ -79,9 +86,26 @@ export function RecentPlacesStrip({
                     {place.occasion}
                   </span>
                 ) : null}
-              </Link>
-            </li>
-          ))}
+              </>
+            );
+            return (
+              <li
+                key={place.id}
+                className="w-40 shrink-0 snap-start sm:w-auto sm:min-w-0"
+              >
+                {readOnly ? (
+                  <div className={CARD_CLASS}>{body}</div>
+                ) : (
+                  <Link
+                    href={`/places/${place.id}`}
+                    className={`${CARD_CLASS} transition-colors hover:bg-white/[0.04] hover:ring-brand/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60`}
+                  >
+                    {body}
+                  </Link>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

@@ -17,7 +17,14 @@ export default async function DemoPage() {
   // are allowed on; /share/[slug] is not, INCLUDING when its slug resolves to
   // this same demo account, which it does ("demo"). RLS permits that read, so
   // the route is the only thing that refuses it. See getSharedProfile.
-  const profile = await getSharedProfile(userId, { expenses: true });
+  //
+  // The recent places strip rides the same gate for a different reason: its
+  // captions are each visit's own occasion_label, private on a real profile
+  // and harmless on the seeded demo. /share/demo does not get it either.
+  const profile = await getSharedProfile(userId, {
+    expenses: true,
+    recentPlaces: true,
+  });
 
   return (
     <div className="flex min-h-dvh flex-col bg-[#0a0a0a]">
