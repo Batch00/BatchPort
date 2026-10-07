@@ -32,15 +32,94 @@ These apply to every change, no exceptions:
 
 ## Places feature
 
-**Places feature (in development, unshipped).** Additive only. Do not
-`CREATE OR REPLACE` any existing view, in particular
-`v_user_travel_summary`. Do not `ALTER TABLE` any existing table.
-Place-related summary metrics live in `v_places_summary` until the
-feature ships. Seed to Carson's user_id only; demo stays untouched.
-Catalog coordinates come from sourced CSVs, never generated from model
-knowledge.
+**Places is shipped** (phases 0 to 4 plus share and demo, behind
+`PLACES_ENABLED`, which is on in production). A place is somewhere the user
+went outside a trip: a city, a campus, a sports venue, a park. It shows on the
+dashboard (two overview tiles, the recent places strip, a log action, and globe
+pins), the stats page (the Places section), `/places` and `/places/[id]`, and
+publicly on `/share/[slug]` and `/demo` (see below).
 
-Two schema details that will produce confusing failures in phase 1:
+Permanent decisions, not deferrals:
+
+- **`v_places_summary` stays separate from `v_user_travel_summary`.** Place
+  metrics never move into the travel summary, and `v_user_travel_summary` is
+  not `CREATE OR REPLACE`d to absorb them.
+- **`countries_visited` is not re-sourced from places.** A country is visited
+  when a non-planned trip stopped there, full stop. A country reached only
+  through places gets its own globe tier (the brand hatch, from
+  `countryTiers()` in `components/map/globe-sources.ts`), which is
+  presentation only and changes no count or view.
+- **Catalog coordinates come from sourced CSVs, never generated from model
+  knowledge.** Seeded places take theirs from a catalog row or from Photon at
+  seed time (`scripts/places-seed-core.ts`).
+
+**The presence chain.** Each rule is written once, and everything downstream
+reads the view that owns it rather than restating it:
+
+```
+place_visits -> v_place_visits_to_date -> v_place_presence
+             -> v_presence_points -> v_presence_state -> v_state_coverage
+```
+
+`v_place_visits_to_date` is "a visit counts" (dated on or before today).
+`v_place_presence` is "a place counts" (a visit to date, or no visits at all).
+`v_presence_points` adds trip stops to "the user was physically here",
+`v_presence_state` is the one state resolution rule, and `v_state_coverage` is
+the states map. A future visit is in no count, no pin, and no public surface.
+`v_places` is the exception by design: it is UNFILTERED (the `/places` list
+shows upcoming visits), so never read its `visit_count` or `first_visit_date`
+for anything that means "so far". The globe reads it for `country_code` only,
+for place ids `v_place_presence` already admitted.
+
+**Public exposure is accepted as-is** (decided 2026-10-06). The `is_shared()`
+policies on `places` and `place_visits` let anon read a shared profile's rows
+exactly as they read its trips, and there is no column-level privacy and no
+separate "include places" switch: if sharing is on, places show.
+`/share/[slug]` renders the two overview tiles and the globe pins with the
+places-only hatch, and nothing else. `/places` and `/places/[id]` stay behind
+auth.
+
+**Anything readable under `is_shared()` is public through the API**, whatever
+the UI chooses to render: anybody holding the anon key can query those tables
+for a shared profile directly. Not rendering a field is a presentation choice,
+not a privacy boundary. Place names must therefore never hold private
+information, and neither should a visit's notes, `occasion_label`, or
+`event_detail`, which the UI keeps off every public surface but the API does
+not.
+
+Gates that keep the public surfaces honest:
+
+- **The recent places strip is a route-level gate, like expenses.** Its
+  captions are each visit's own `occasion_label`, private on a real profile,
+  so `getSharedProfile` returns `recentPlaces` only when the ROUTE passes
+  `{ recentPlaces: true }`, and only `src/app/demo/page.tsx` does.
+  `/share/demo` resolves the same demo account and still does not get it. Do
+  not derive the flag from the user, and do not move the decision into
+  `SharedProfileView`, for exactly the reasons the expenses gate gives.
+- **`enablePlaceLinks` on `Globe` is off by default**, which is the public
+  popup: name, type, and first visit. The owner's popup adds the visit count
+  and a "View place" link to `/places/[id]`, and only `DashboardGlobe` turns
+  it on. A new globe host gets the public popup unless it opts in, because a
+  link into an auth route is a dead end for a visitor.
+
+**The demo account has seeded places** (`npm run seed-demo-places`,
+`scripts/seed-demo-places.ts`): 15 US places across 8 states, dated into the
+gaps between the persona's trips and never after today. It writes to the demo
+account only (checked against the constant and against `is_demo` in the
+database), goes through `lib/place-dedup.ts` so a re-run is a no-op, and its
+occasion labels never name a person. `/demo` mirrors the dashboard read-only:
+tiles, pins, and the recent strip as plain cards. A signed-in demo session
+reads places everywhere with every write control hidden, and every places
+server action and `/api/places/search` refuse it at the server.
+
+**Anon access is tested, not inferred.** `npm run check-places-anon` reads
+every view and table the public places surfaces read, through the anon key and
+the service role, and fails on any difference. A missing grant raises; a
+missing policy returns zero rows with no error, which renders as "this person
+has no places". Re-run it after any change to the places views, their grants,
+or what the public surfaces read.
+
+Three schema details that produce confusing failures:
 
 - **`place_visits.transport_mode` is `text` with a check constraint, not an
   enum.** There is no batchport transport mode enum. `transport_legs.mode` is
@@ -1640,10 +1719,12 @@ Run `npm run build` to verify type correctness across the whole project (TypeScr
 
 - `npm run check-expense-csv` asserts that the expense CSV round-trips: export, parse, deep-equal, over the shapes that break naive CSV code (a refund staying negative, an undated row, an uncategorized row, a vendor with a comma, a vendor with a quote, a note containing a comma AND a quote AND a newline, cents, a trip name with a comma, a row with no id). It also asserts that re-exporting an unchanged ledger is byte-identical, that a wrong header is refused rather than guessed at, and that every bad row is reported with its line number. Pure. Re-run it after any change to `lib/expenses-csv.ts`, which is the single definition both the exporter and `import-expenses --csv` read.
 
-Two check scripts are deliberately NOT in that list, because they break the property the others share:
+Three check scripts are deliberately NOT in that list, because they break the property the others share:
 
 - `npm run check-expense-attribution` **needs a database and writes to the live project**. It is a sibling of `check-stays` rather than part of it, so `check-stays` stays pure. It asserts two things that each live in two places: the day-to-stay boundary rule, implemented in TypeScript (`stayForDate`) and again in SQL (the lateral in `v_expense_rows`), by inserting a six-stop trip covering the transfer day, the gap, the nested stop, the revisit and the undated stop and asserting the two agree; and the privacy gate, by reading `v_expense_rows` through the ANON key and asserting it sees the demo account's expenses and none of the owner's, filtered and unfiltered. The gate half runs its preconditions first (the service role really can see the fixture rows, and anon really can read demo trips through `is_shared`), because "anon saw zero rows" also passes when the anon key is broken. Requires `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Every fixture row carries the reserved name `__parity_fixture__`, the fixture trip is `planned` so a crash survivor is excluded from every stats view, and purge runs on entry as well as in a `finally`. `npm run purge-parity-fixture` sweeps by hand.
 
 - `npm run check-share-gate` **needs a running dev server and a seeded demo account.** It asserts that expenses reach `/demo` and never `/share/[slug]`, by fetching both pages and searching the rendered HTML. It exists for its NEGATIVE case: `/share/demo` resolves the demo account (`getUserBySlug` accepts `is_demo = true`), RLS permits anon to read that account's expenses, so the *only* thing refusing is that the share route calls `getSharedProfile(userId)` without the flag. A gate exercised only on the route that should pass is not tested. It carries a control (`/demo` must render spending, or the leak test passes trivially) and it verifies its own markers against every trip, city and experience name in the fixture before using them, because the first draft picked "Naschmarkt", which is also a Vienna experience. If it cannot reach the server it FAILS rather than skipping. Verify changes to it by deliberately breaking the gate and watching it fail.
+
+- `npm run check-places-anon` **needs a database but only reads.** It compares what the anon key and the service role see, view by view, on everything the public places surfaces read (the globe views, `v_places_summary`, and `place_visits` for the demo strip's captions, plus the `occasions` reference table), for every shared account and the demo account, after a positive control (anon can read the account's trips). See the Places feature block for why a missing policy is invisible to every other check.
 
 Interactive features including the globe, photo lightbox, geocoding typeahead, and experience dialog require manual browser testing.
