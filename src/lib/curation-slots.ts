@@ -18,9 +18,11 @@
 import {
   SLIDE_PHOTO_CAP,
   SLOT_CAPACITY,
+  anchoredDay,
   compareCurated,
-  distributeStopPhotos,
+  distributeStopPhotosDetailed,
   heroPhoto,
+  type PickPlacement,
   stopPhotoCapacity,
 } from "@/lib/curation";
 import { formatDateRange } from "@/lib/format";
@@ -39,6 +41,9 @@ export interface SlotPhoto {
   url: string;
   thumbUrl: string;
   dateTaken: string | null;
+  /** An undated stop pick's explicit day, or null for Auto. See
+   * distributeStopPhotos. */
+  featuredDay: string | null;
   /** Position within its slot (1 leads), or null when it holds none. */
   position: number | null;
 }
@@ -152,6 +157,7 @@ function toSlotPhoto(photo: StoryPhoto, position: number | null): SlotPhoto {
     url: photo.url,
     thumbUrl: photo.thumbUrl,
     dateTaken: photo.dateTaken,
+    featuredDay: photo.featuredDay ?? null,
     position,
   };
 }
@@ -295,7 +301,7 @@ export function planStopSelection(
   chosen: SlotPhoto[],
 ): StopSelectionPlan {
   const dates = slot.days.map((day) => day.date);
-  const plan = distributeStopPhotos(dates, chosen, SLIDE_PHOTO_CAP);
+  const { plan } = distributeStopPhotosDetailed(dates, chosen, SLIDE_PHOTO_CAP);
   const placedIds = new Set<string>();
   for (const ids of plan.values()) {
     for (const id of ids) placedIds.add(id);
@@ -391,7 +397,7 @@ export function groupChosenPhotos(
     return groups;
   }
 
-  const plan = distributeStopPhotos(
+  const { plan } = distributeStopPhotosDetailed(
     slot.days.map((day) => day.date),
     chosen,
     SLIDE_PHOTO_CAP,
@@ -429,6 +435,34 @@ export function groupChosenPhotos(
 }
 
 /**
+ * How each chosen photo of one stop is placed, for the cue on its tile: a lock
+ * for a pick dated inside the stay, the day selector's state for an undated
+ * one, and "full" when the day it belongs to (or was given) has no seat left.
+ * The same distribution the grouping, the day chips, and the story run, so the
+ * tile cannot describe a placement the slide does not make.
+ *
+ * A stop with no dated day has one slide and nothing to choose between, so it
+ * reports nothing and the tiles show no day control.
+ */
+export function placeChosenPhotos(
+  slot: StopPhotoSlot,
+  chosen: SlotPhoto[],
+): Map<string, PickPlacement> {
+  if (slot.days.length === 0 || chosen.length === 0) return new Map();
+  return distributeStopPhotosDetailed(
+    slot.days.map((day) => day.date),
+    chosen,
+    SLIDE_PHOTO_CAP,
+  ).placement;
+}
+
+/** The stop day a chosen photo is locked to by its own date, or null when it
+ * has no usable date and so gets a day selector. */
+export function lockedDayOf(slot: StopPhotoSlot, photo: SlotPhoto): string | null {
+  return anchoredDay(photo, slot.days.map((day) => day.date));
+}
+
+/**
  * The one line left over once every day states its own outcome: what happened
  * to a pick that could not be placed. Empty the rest of the time, because the
  * day headings have already said everything else.
@@ -446,9 +480,11 @@ export function summarizeStopSelection(
   }
   const { unplaced } = planStopSelection(slot, chosen);
   if (unplaced === 0) return "";
+  // Each tile in the "Nowhere to go" group says which day is full, so this
+  // line only counts them.
   return unplaced === 1
-    ? "One pick has nowhere to go: its own day is full."
-    : `${unplaced} picks have nowhere to go: their own days are full.`;
+    ? "One pick has nowhere to go: the day it belongs to is full."
+    : `${unplaced} picks have nowhere to go: the days they belong to are full.`;
 }
 
 function toSlotExperience(
@@ -564,6 +600,9 @@ export interface CurationSelection {
   heroId?: string | null;
   /** Keyed by destination id. */
   stopPhotoIds?: Record<string, string[]>;
+  /** Explicit days for undated stop picks, keyed by photo id; null is Auto.
+   * Mirrors setStopPhotoDayAction. */
+  stopPhotoDays?: Record<string, string | null>;
   highlightIds?: string[];
 }
 
@@ -571,7 +610,8 @@ export function hasCurationSelection(selection: CurationSelection): boolean {
   return (
     selection.heroId !== undefined ||
     selection.highlightIds !== undefined ||
-    Object.keys(selection.stopPhotoIds ?? {}).length > 0
+    Object.keys(selection.stopPhotoIds ?? {}).length > 0 ||
+    Object.keys(selection.stopPhotoDays ?? {}).length > 0
   );
 }
 
@@ -611,9 +651,17 @@ export function applyCurationSelection(
     }
   }
 
+  const days = selection.stopPhotoDays ?? {};
+  const withDays =
+    Object.keys(days).length > 0
+      ? trip.photos.map((photo) =>
+          photo.id in days ? { ...photo, featuredDay: days[photo.id] } : photo,
+        )
+      : trip.photos;
+
   const photos =
     assigned.size > 0 || cleared.size > 0
-      ? trip.photos.map((photo) => {
+      ? withDays.map((photo) => {
           const next = assigned.get(photo.id);
           if (next) {
             return {
@@ -625,7 +673,7 @@ export function applyCurationSelection(
           if (!cleared.has(photo.id)) return photo;
           return { ...photo, featuredSlot: null, featuredRank: null };
         })
-      : trip.photos;
+      : withDays;
 
   if (selection.highlightIds === undefined) {
     return { ...trip, photos };

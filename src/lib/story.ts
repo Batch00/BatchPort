@@ -60,6 +60,10 @@ export interface StoryPhoto {
    * See lib/curation.ts. */
   featuredRank?: number | null;
   featuredSlot?: PhotoSlot | null;
+  /** An undated stop pick's explicit day slide (YYYY-MM-DD), or null for
+   * "Auto". Ignored for a pick dated inside its stay, which is locked to its
+   * own day. See distributeStopPhotos. */
+  featuredDay?: string | null;
   /** The stop this photo hangs off, directly or through its experience. Null
    * for trip-level photos, which are placed by date instead. */
   destinationId: string | null;

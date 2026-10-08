@@ -46,6 +46,14 @@ export const PHOTO_COLUMNS =
 // 42703 (see isMissingPhotoColumn).
 export const PHOTO_COLUMNS_CURATED = `${PHOTO_COLUMNS},featured_rank,featured_slot`;
 
+// The curated list plus an undated stop pick's explicit day
+// (scripts/sql/2026-10-07-photo-featured-day.sql). A third tier rather than
+// folded into PHOTO_COLUMNS_CURATED, because that list's fallback drops
+// straight to PHOTO_COLUMNS: a database with the curation columns but not this
+// one would otherwise lose every rank. Reads try this, then the curated list,
+// then the base list, each on 42703.
+export const PHOTO_COLUMNS_CURATED_DAY = `${PHOTO_COLUMNS_CURATED},featured_day`;
+
 /** PostgREST reports a selected column that does not exist as 42703. */
 export function isMissingPhotoColumn(
   error: { code?: string } | null | undefined,

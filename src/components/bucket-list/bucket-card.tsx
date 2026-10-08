@@ -31,6 +31,10 @@ import {
 import { coverImageStyle } from "@/lib/photos";
 import { CountryFlag } from "@/components/country-flag";
 import { formatDate } from "@/lib/format";
+import {
+  BUCKET_CARD_SIZES,
+  coverSrcSet,
+} from "@/components/photos/cover-picture";
 import { cn } from "@/lib/utils";
 import type { BucketItem } from "@/lib/bucket-list";
 
@@ -115,7 +119,8 @@ export function BucketCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheKey, Boolean(tripCover)]);
 
-  // A card is a grid tile, so the fulfilled photo is the thumbnail.
+  // The thumbnail on a phone; from sm up the <picture> source offers the full
+  // image too, since a 352px card on a 2x screen outgrows a 400px thumbnail.
   const imageUrl = tripCover?.thumbUrl ?? hero;
   const subtitle = item.type === "place" ? item.country_name : null;
 
@@ -147,6 +152,11 @@ export function BucketCard({
           src={imageUrl}
           alt=""
           loading="lazy"
+          // The fulfilled photo has both sizes; a Wikimedia hero has one.
+          wideSrcSet={
+            tripCover ? coverSrcSet(tripCover.thumbUrl, tripCover.url) : null
+          }
+          wideSizes={BUCKET_CARD_SIZES}
           style={tripCover ? coverImageStyle(tripCover.position) : undefined}
           className="absolute inset-0 size-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
         />

@@ -46,6 +46,10 @@ import {
   formatDuration,
 } from "@/lib/format";
 import { useToday } from "@/components/today-provider";
+import {
+  CoverPicture,
+  TRIP_CARD_SIZES,
+} from "@/components/photos/cover-picture";
 import { cn } from "@/lib/utils";
 import type { TripStatus } from "@/lib/types";
 import { TripSpendLine } from "@/components/trips/trip-spend-line";
@@ -114,11 +118,13 @@ export function DashboardTripCard({
         )}
       >
         {trip.coverUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={trip.coverUrl}
-            alt=""
-            loading="lazy"
+          // The thumbnail on a phone, the full image on a wide or high-DPI
+          // screen, where a 400px thumbnail across a 536px card was blurry.
+          // See components/photos/cover-picture.tsx.
+          <CoverPicture
+            thumbUrl={trip.coverUrl}
+            fullUrl={trip.coverFullUrl}
+            sizes={TRIP_CARD_SIZES}
             style={coverImageStyle(trip.cover_position)}
             className="absolute inset-0 size-full object-cover"
           />

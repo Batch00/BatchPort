@@ -3,6 +3,7 @@ import { getWikimediaPhoto } from "@/lib/wikimedia";
 import {
   PHOTO_COLUMNS,
   PHOTO_COLUMNS_CURATED,
+  PHOTO_COLUMNS_CURATED_DAY,
   formatWikimediaAttribution,
   isMissingPhotoColumn,
 } from "@/lib/photos";
@@ -28,7 +29,12 @@ interface PhotoQueryResult {
 async function selectPhotos(
   build: (columns: string) => PromiseLike<PhotoQueryResult>,
 ): Promise<Photo[]> {
-  let { data, error } = await build(PHOTO_COLUMNS_CURATED);
+  // Widest first, each step dropping only the newest optional column, so a
+  // database part way through the migrations keeps whatever it does have.
+  let { data, error } = await build(PHOTO_COLUMNS_CURATED_DAY);
+  if (isMissingPhotoColumn(error)) {
+    ({ data, error } = await build(PHOTO_COLUMNS_CURATED));
+  }
   if (isMissingPhotoColumn(error)) {
     ({ data, error } = await build(PHOTO_COLUMNS));
   }
@@ -47,7 +53,12 @@ function normalizePhoto(row: Photo): Photo {
       : rank !== null
         ? "stop"
         : null;
-  return { ...row, featured_rank: rank, featured_slot: slot };
+  const day =
+    typeof row.featured_day === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(row.featured_day.slice(0, 10))
+      ? row.featured_day.slice(0, 10)
+      : null;
+  return { ...row, featured_rank: rank, featured_slot: slot, featured_day: day };
 }
 
 // All photos for one entity, ordered for display.

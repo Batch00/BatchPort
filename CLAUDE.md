@@ -224,6 +224,15 @@ this rule.
   slides, banners, the lightbox, the cover position editor, and both canvas
   exports. A card cover baked into a 2160px share card is the same mistake as
   one stretched across a slide.
+- **A card cover is both, split at sm.** A trip card is 536px wide on a
+  desktop and a bucket card 352px, which a 400px thumbnail cannot fill on a 2x
+  screen. `components/photos/cover-picture.tsx` renders a `<picture>`: below
+  640px the `<img>` is the thumbnail, from 640px a `<source>` offers both with
+  an accurate `sizes` and the browser picks. Not a bare srcset: that chooses by
+  device pixels, and a 340px phone card at 3x would fetch the full image.
+  `SafeImage` takes the same source through `wideSrcSet` / `wideSizes`. The
+  trip cards (dashboard, /demo, /share) and the bucket cards use it; recap
+  tiles and the On This Day strip are small enough to stay on the thumbnail.
 - **Never both from one field.** Data layers that feed a card *and* a
   full-screen surface carry both urls (`ProfileTrip.coverUrl` /
   `coverFullUrl`, `StoryPhoto.thumbUrl` / `url`, `YearMoment.photoThumbUrl` /
@@ -935,12 +944,34 @@ row to confirm. The grouping runs the same `distributeStopPhotos` the slides
 run, so it is a reading of the distribution and never a second opinion about
 it, and `check-curation` asserts the groups against the real day slides.
 
-Reordering stays **one global sequence**. The arrows and the drag move a photo
-through the whole ranked list and the groups re-derive; there is no dragging
-between day groups, because a dated pick is anchored to the day it was taken on
-and no drag could honestly move it. Position badges stay the global rank for
-the same reason. Picks that found no seat get their own "Nowhere to go" group
+Ranks stay **one global sequence**. The drag moves a photo through the whole
+ranked list and the groups re-derive; the arrows swap a photo with its
+neighbour inside its own day group, so the effect is always visible. Neither
+moves a photo between days: a dated pick is anchored to the day it was taken
+on, and an undated one changes day through its day selector. Position badges
+stay the global rank and ascend left to right within a group. Picks that found no seat get their own "Nowhere to go" group
 rather than being filed under a day they will not appear on.
+
+**An undated pick can be given a day, and a dated one cannot.** A pick dated
+to one of the stop's own days is locked there (the chosen tile says "Taken this
+day"). A pick with no usable date (undated, or dated outside the stay) gets a
+selector on its chosen tile, Auto or a specific day, stored in
+`photos.featured_day` (`scripts/sql/2026-10-07-photo-featured-day.sql`; null is
+Auto, and every read retries without the column on 42703, so before the
+migration every pick is Auto and the selector's save says it is not set up).
+`distributeStopPhotosDetailed` seats explicit days first, then dated anchors,
+then levels Auto onto the emptiest days, and reports a pick whose day is full
+rather than moving it; the tile says which day is full. Auto alone cannot
+spread undated picks across days that dated picks already filled, which is
+what the explicit day is for.
+
+**Within a day, rank decides the order**, whichever pass seated the photo. The
+passes used to leave anchors first and levelled picks after, so a day group
+read badges 3, 1, 2 and an arrow that swapped two of them moved nothing. The
+chosen row's arrows now swap a pick with its neighbour in the SAME day group,
+which always reorders it visibly; drag still moves across the whole sequence.
+`check-curation` reproduces both observed stops and asserts the panel and the
+story agree on every placement and every order.
 
 `MAX_FEATURED_HONORED` is 8 and bounds **experience** ranks, which are scoped
 to a whole trip and have no per-surface seat count of their own; past it a rank

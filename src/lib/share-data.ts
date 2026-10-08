@@ -257,6 +257,8 @@ interface FallbackPhotoRow extends PhotoRow {
   // Only selected for the story, and only when the curation migration has run.
   featured_rank?: number | null;
   featured_slot?: string | null;
+  // Only when the featured_day migration has run.
+  featured_day?: string | null;
 }
 
 /** Options for getProfileTrips. `story` adds the journal entries and the full
@@ -357,11 +359,21 @@ export async function getProfileTrips(
           .in("id", coverIds)
       : Promise.resolve({ data: [] as PhotoRow[] }),
     wantStory
-      ? fallbackPhotos(`${storyColumns}, featured_rank, featured_slot`).then((result) =>
-          isMissingPhotoColumn(result.error)
-            ? fallbackPhotos(storyColumns)
-            : result,
+      ? // Widest first, dropping only the newest optional column per step,
+        // so a database with ranks but no featured_day keeps its ranks.
+        fallbackPhotos(
+          `${storyColumns}, featured_rank, featured_slot, featured_day`,
         )
+          .then((result) =>
+            isMissingPhotoColumn(result.error)
+              ? fallbackPhotos(`${storyColumns}, featured_rank, featured_slot`)
+              : result,
+          )
+          .then((result) =>
+            isMissingPhotoColumn(result.error)
+              ? fallbackPhotos(storyColumns)
+              : result,
+          )
       : fallbackPhotos(coverOnlyColumns),
     wantStory
       ? getSharedJournalByTrip(userId)
@@ -495,6 +507,7 @@ export async function getProfileTrips(
         attribution: row.attribution ?? null,
         featuredRank: featuredRankOf(row.featured_rank),
         featuredSlot: photoSlotOf(row.featured_slot, row.featured_rank),
+        featuredDay: row.featured_day?.slice(0, 10) ?? null,
         destinationId,
         experienceId,
       });

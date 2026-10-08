@@ -224,6 +224,7 @@ export default async function TripDetailPage({
     attribution: photo.attribution,
     featuredRank: photo.featured_rank ?? null,
     featuredSlot: photo.featured_slot ?? null,
+    featuredDay: photo.featured_day ?? null,
     destinationId,
     experienceId,
   });

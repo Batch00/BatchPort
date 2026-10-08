@@ -11,6 +11,7 @@ import {
   ArrowUpIcon,
   ChevronDownIcon,
   GripVerticalIcon,
+  LockIcon,
   PlayIcon,
   RectangleHorizontalIcon,
   ScanIcon,
@@ -38,6 +39,7 @@ import {
 } from "@/components/photos/slide-image";
 import { TripStory } from "@/components/trips/trip-story";
 import {
+  setStopPhotoDayAction,
   setStopPhotosAction,
   setTripHeroPhotoAction,
   setTripHighlightsAction,
@@ -47,6 +49,8 @@ import {
   applyCurationSelection,
   buildCurationSlots,
   groupChosenPhotos,
+  lockedDayOf,
+  placeChosenPhotos,
   hasCurationSlots,
   planStopSelection,
   summarizeStopSelection,
@@ -995,6 +999,7 @@ function StopSlotSection({
   defaultOpen,
   onSaved,
   onSelection,
+  onDaySelection,
 }: {
   tripId: string;
   slot: StopPhotoSlot;
@@ -1002,6 +1007,10 @@ function StopSlotSection({
   defaultOpen: boolean;
   onSaved: () => void;
   onSelection: (destinationId: string, photoIds: string[]) => void;
+  /** An undated pick's explicit day (null is Auto). Reported into the live
+   * selection BEFORE the save lands, so the tiles, the day chips, and the
+   * story preview all move at once; reverted if the save fails. */
+  onDaySelection: (photoId: string, day: string | null) => void;
 }) {
   const serverIds = slot.chosen.map((photo) => photo.id);
   const serverKey = serverIds.join("|");
@@ -1080,19 +1089,53 @@ function StopSlotSection({
     void save([...ids, id]);
   }
 
-  function move(index: number, delta: number) {
-    const target = index + delta;
-    if (target < 0 || target >= ids.length) return;
+  /**
+   * Swap a pick with its NEIGHBOUR IN THE SAME DAY GROUP, not with the next
+   * photo in the global sequence. A day is drawn in rank order, so exchanging
+   * two ranks inside one group is guaranteed to move the photo visibly. The
+   * old arrow stepped through the whole sequence, which often meant swapping
+   * with a photo on another day: the ranks changed and nothing on screen did.
+   */
+  function swapWith(photoId: string, neighbourId: string) {
+    const a = ids.indexOf(photoId);
+    const b = ids.indexOf(neighbourId);
+    if (a === -1 || b === -1) return;
     const next = [...ids];
-    [next[index], next[target]] = [next[target], next[index]];
+    [next[a], next[b]] = [next[b], next[a]];
     void save(next);
+  }
+
+  async function saveDay(photo: SlotPhoto, day: string | null) {
+    if (disabled) {
+      toast.error(DEMO_READONLY_MESSAGE);
+      return;
+    }
+    const before = photo.featuredDay;
+    if (before === day) return;
+    onDaySelection(photo.id, day);
+    const result = await setStopPhotoDayAction(photo.id, day).catch(() => ({
+      error: "Could not set the day for this photo.",
+    }));
+    if ("error" in result) {
+      onDaySelection(photo.id, before);
+      toast.error(result.error);
+      return;
+    }
+    onSaved();
   }
 
   const isAutomatic = ids.length === 0;
   const dayCount = slot.days.length;
   const plan = planStopSelection(slot, chosen);
   const chosenGroups = groupChosenPhotos(slot, chosen);
+  const placements = placeChosenPhotos(slot, chosen);
   const note = summarizeStopSelection(slot, chosen);
+  const dayLabel = (date: string) => {
+    const day = slot.days.find((entry) => entry.date === date);
+    return day?.dayNumber != null
+      ? `Day ${day.dayNumber}`
+      : journalDayLabel(date);
+  };
   const positionOf = (photo: SlotPhoto) => {
     const position = ids.indexOf(photo.id);
     return position === -1 ? null : position + 1;
@@ -1172,8 +1215,9 @@ function StopSlotSection({
                 <p className="mb-2 text-xs text-foreground/70">{note}</p>
               ) : null}
               <p className="mb-3 text-xs text-foreground/45">
-                Drag to reorder, or use the arrows. A photo taken on one of
-                these days stays on that day; the rest fill the emptiest.
+                A photo taken on one of these days stays on that day. Give
+                the rest a day, or leave them on Auto to fill the emptiest.
+                The arrows reorder a day; drag to reorder across days.
               </p>
               {/* GROUPED BY THE DAY EACH PICK WILL LAND ON.
                   A flat run of badges was correct about the order and silent
@@ -1214,17 +1258,23 @@ function StopSlotSection({
                         {group.kind === "day"
                           ? journalDayLabel(group.date ?? "")
                           : group.kind === "unplaced"
-                            ? "their own day is full, so they stay in the gallery"
+                            ? "the day each belongs to is full, so they stay in the gallery"
                             : "the only slide this stop has"}
                       </span>
                     </p>
                     <ul className="flex flex-wrap items-start gap-2">
-                      {group.photos.map((photo) => {
-                        // The GLOBAL rank, which is what the badge shows and
-                        // what the arrows move through. Looked up rather than
-                        // taken from the group's own index, or the second day
-                        // would start again at one.
+                      {group.photos.map((photo, groupIndex) => {
+                        // The GLOBAL rank, which is what the badge shows.
+                        // Looked up rather than taken from the group's own
+                        // index, or the second day would start again at one.
+                        // The group is drawn in rank order (distributeStop
+                        // Photos, rule 5), so the badges ascend left to right
+                        // and the arrows swap with the neighbour shown.
                         const index = ids.indexOf(photo.id);
+                        const before = group.photos[groupIndex - 1] ?? null;
+                        const after = group.photos[groupIndex + 1] ?? null;
+                        const locked = lockedDayOf(slot, photo);
+                        const placement = placements.get(photo.id) ?? null;
                         return (
                           <li
                             key={photo.id}
@@ -1250,9 +1300,11 @@ function StopSlotSection({
                             <span className="mt-1 flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
-                                aria-label={`Move ${index + 1} earlier`}
-                                disabled={index <= 0}
-                                onClick={() => move(index, -1)}
+                                aria-label={`Move ${index + 1} earlier on this day`}
+                                disabled={before === null}
+                                onClick={() =>
+                                  before && swapWith(photo.id, before.id)
+                                }
                                 className="flex size-6 items-center justify-center rounded text-foreground/50 transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
                               >
                                 <ArrowLeftIcon className="size-3.5" />
@@ -1267,14 +1319,59 @@ function StopSlotSection({
                               </button>
                               <button
                                 type="button"
-                                aria-label={`Move ${index + 1} later`}
-                                disabled={index === ids.length - 1}
-                                onClick={() => move(index, 1)}
+                                aria-label={`Move ${index + 1} later on this day`}
+                                disabled={after === null}
+                                onClick={() =>
+                                  after && swapWith(photo.id, after.id)
+                                }
                                 className="flex size-6 items-center justify-center rounded text-foreground/50 transition-colors hover:bg-white/10 hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
                               >
                                 <ArrowRightIcon className="size-3.5" />
                               </button>
                             </span>
+                            {dayCount === 0 ? null : locked !== null ? (
+                              // Dated inside the stay: locked to that day, and
+                              // the tile says why rather than offering a
+                              // control that could not honestly move it.
+                              <span
+                                title={`Taken on ${journalDayLabel(locked)}, so it stays on that day`}
+                                className="mt-0.5 flex items-center justify-center gap-1 text-[0.65rem] text-foreground/45"
+                              >
+                                <LockIcon className="size-2.5" />
+                                Taken this day
+                              </span>
+                            ) : (
+                              <select
+                                aria-label={`Day for photo ${index + 1}`}
+                                value={photo.featuredDay ?? ""}
+                                disabled={disabled}
+                                onChange={(event) =>
+                                  void saveDay(
+                                    photo,
+                                    event.target.value === ""
+                                      ? null
+                                      : event.target.value,
+                                  )
+                                }
+                                className="mt-0.5 w-full rounded border border-white/10 bg-[#0a0a0a] px-1 py-0.5 text-[0.65rem] text-foreground/75"
+                              >
+                                <option value="">Auto</option>
+                                {slot.days.map((day) => (
+                                  <option key={day.date} value={day.date}>
+                                    {dayLabel(day.date)}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            {placement?.kind === "full" ? (
+                              // Said on the tile, never resolved by moving the
+                              // photo somewhere it was not put.
+                              <span className="mt-0.5 block text-center text-[0.65rem] leading-tight text-amber-300/80">
+                                {placement.day !== null
+                                  ? `${dayLabel(placement.day)} is full`
+                                  : "No seat left"}
+                              </span>
+                            ) : null}
                           </li>
                         );
                       })}
@@ -1310,7 +1407,7 @@ function StopSlotSection({
               {slot.spare.length > 0 ? (
                 <DayGroup
                   title="No day of their own"
-                  subtitle="undated, so spread across the days above"
+                  subtitle="undated: give a pick a day, or leave it on Auto"
                   outcome={null}
                   photos={slot.spare}
                   emptyNote=""
@@ -1708,6 +1805,14 @@ function CurationPanel({
       })),
     [onSelectionChange],
   );
+  const setStopPhotoDay = useCallback(
+    (photoId: string, day: string | null) =>
+      onSelectionChange((current) => ({
+        ...current,
+        stopPhotoDays: { ...current.stopPhotoDays, [photoId]: day },
+      })),
+    [onSelectionChange],
+  );
   const setHighlights = useCallback(
     (experienceIds: string[]) =>
       onSelectionChange((current) => ({
@@ -1750,6 +1855,7 @@ function CurationPanel({
                 defaultOpen={slots.stops.length === 1 && index === 0}
                 onSaved={onSaved}
                 onSelection={setStopPhotos}
+                onDaySelection={setStopPhotoDay}
               />
             ))}
           </div>

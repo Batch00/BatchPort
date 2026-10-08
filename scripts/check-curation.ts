@@ -19,6 +19,7 @@ import {
   compareCurated,
   compareFeatured,
   distributeStopPhotos,
+  distributeStopPhotosDetailed,
   featuredFirst,
   heroPhoto,
   isFeatured,
@@ -37,6 +38,8 @@ import {
   groupChosenPhotos,
   hasCurationSelection,
   hasCurationSlots,
+  lockedDayOf,
+  placeChosenPhotos,
   planStopSelection,
   summarizeStopSelection,
   type StopPhotoSlot,
@@ -116,6 +119,7 @@ function photo(
     experienceId?: string | null;
     featuredRank?: number | null;
     featuredSlot?: PhotoSlot | null;
+    featuredDay?: string | null;
   } = {},
 ): StoryPhoto {
   return {
@@ -126,6 +130,7 @@ function photo(
     attribution: null,
     featuredRank: options.featuredRank ?? null,
     featuredSlot: options.featuredSlot ?? null,
+    featuredDay: options.featuredDay ?? null,
     destinationId: options.destinationId ?? null,
     experienceId: options.experienceId ?? null,
   };
@@ -136,7 +141,11 @@ function photo(
 function pick(
   name: string,
   rank: number,
-  options: { dateTaken?: string | null; destinationId?: string | null } = {},
+  options: {
+    dateTaken?: string | null;
+    destinationId?: string | null;
+    featuredDay?: string | null;
+  } = {},
 ): StoryPhoto {
   return photo(name, {
     ...options,
@@ -640,7 +649,7 @@ function trip(
     "including when there are more picks than days",
     planStopSelection(slot, [
       ...slot.chosen,
-      { id: "x", url: "", thumbUrl: "", dateTaken: null, position: null },
+      { id: "x", url: "", thumbUrl: "", dateTaken: null, featuredDay: null, position: null },
     ]).days,
     [
       { kind: "picks", count: 2 },
@@ -1805,6 +1814,235 @@ function trip(
       "https://example.test/earlyP.jpg",
     );
   }
+}
+
+// --- Explicit days for undated picks, and rank order within a day ------------
+//
+// Two observed bugs, reproduced from real stops, then the explicit control
+// that replaces guessing. The distribution is asserted directly, then end to
+// end through buildCurationSlots (the panel) and buildStorySlides (the story),
+// because the promise is that those two cannot disagree.
+
+{
+  const D1 = "2026-09-24";
+  const D2 = "2026-09-25";
+  const D3 = "2026-09-26";
+  const days = [D1, D2, D3];
+  const u = (name: string, featuredDay: string | null = null) => ({
+    id: name,
+    dateTaken: null,
+    featuredDay,
+  });
+  const at = (name: string, date: string, featuredDay: string | null = null) => ({
+    id: name,
+    dateTaken: `${date}T18:00:00+00:00`,
+    featuredDay,
+  });
+  const planOf = (result: Map<string, string[]>) => Object.fromEntries(result);
+
+  equal(
+    "Auto: undated picks spread one per day across a three day stop",
+    planOf(distributeStopPhotos(days, [u("a"), u("b"), u("c")])),
+    { [D1]: ["a"], [D2]: ["b"], [D3]: ["c"] },
+  );
+
+  // Munich, as observed: dated picks on days two and three leave day one the
+  // emptiest, so levelling puts BOTH undated picks there. Documented, not
+  // changed: Auto still levels. The explicit day is the control for it.
+  const munich = [u("r1"), at("r3", D2), u("r4"), at("r5", D3), at("r6", D2)];
+  equal(
+    "Munich reproduced: on Auto both undated picks land on day one",
+    planOf(distributeStopPhotos(days, munich)),
+    { [D1]: ["r1", "r4"], [D2]: ["r3", "r6"], [D3]: ["r5"] },
+  );
+  equal(
+    "an explicit day is honoured: r4 given day three goes there",
+    planOf(
+      distributeStopPhotos(days, [
+        u("r1"),
+        at("r3", D2),
+        u("r4", D3),
+        at("r5", D3),
+        at("r6", D2),
+      ]),
+    ),
+    { [D1]: ["r1"], [D2]: ["r3", "r6"], [D3]: ["r4", "r5"] },
+  );
+
+  // Praha, as observed: three picks on one day came out as badges 3, 1, 2,
+  // because anchors were seated before levelled picks whatever their rank.
+  const praha = distributeStopPhotos(
+    ["2026-09-22", "2026-09-23"],
+    [
+      u("p1"),
+      at("p2", "2026-09-24"), // dated outside the stay: no usable date
+      at("p3", "2026-09-22"),
+      at("p4", "2026-09-23"),
+      at("p5", "2026-09-23"),
+    ],
+  );
+  equal(
+    "Praha reproduced: within a day, photos are drawn in rank order",
+    praha.get("2026-09-22"),
+    ["p1", "p2", "p3"],
+  );
+  equal(
+    "a dated pick and a levelled pick on one day follow rank, not pass order",
+    distributeStopPhotos([D1], [u("first"), at("second", D1)]).get(D1),
+    ["first", "second"],
+  );
+
+  // Full days are reported, never overflowed and never relocated.
+  const crowded = distributeStopPhotosDetailed(days, [
+    u("e1", D1),
+    u("e2", D1),
+    u("e3", D1),
+    u("e4", D1),
+    u("e5", D1),
+  ]);
+  equal(
+    "an explicit day takes no more than a slide draws",
+    crowded.plan.get(D1)?.length,
+    SLIDE_PHOTO_CAP,
+  );
+  equal(
+    "the fifth is reported full on the day it was given",
+    crowded.placement.get("e5"),
+    { kind: "full", reason: "chosen", day: D1 },
+  );
+  check(
+    "and it is not quietly moved to an emptier day",
+    !crowded.plan.has(D2) && !crowded.plan.has(D3),
+  );
+  const datedFull = distributeStopPhotosDetailed(days, [
+    at("f1", D2),
+    at("f2", D2),
+    at("f3", D2),
+    at("f4", D2),
+    at("f5", D2),
+  ]);
+  equal(
+    "a fifth photo dated to a full day is reported, not moved",
+    datedFull.placement.get("f5"),
+    { kind: "full", reason: "dated", day: D2 },
+  );
+  equal(
+    "explicit days are seated before dated anchors",
+    distributeStopPhotosDetailed(days, [
+      u("x1", D3),
+      u("x2", D3),
+      u("x3", D3),
+      u("x4", D3),
+      at("dated", D3),
+    ]).placement.get("dated"),
+    { kind: "full", reason: "dated", day: D3 },
+  );
+
+  // Dated picks stay on their day, whatever featuredDay says.
+  const locked = distributeStopPhotosDetailed(days, [at("lock", D1, D3)]);
+  equal(
+    "a pick dated inside the stay ignores an explicit day",
+    locked.placement.get("lock"),
+    { kind: "dated", day: D1 },
+  );
+  equal(
+    "an explicit day that is not one of the stop's days reads as Auto",
+    distributeStopPhotosDetailed(days, [u("stale", "2030-01-01")]).placement.get(
+      "stale",
+    ),
+    { kind: "auto", day: D1 },
+  );
+  equal(
+    "Auto past the last seat is reported, with no day to blame",
+    distributeStopPhotosDetailed(
+      [D1],
+      [u("s1"), u("s2"), u("s3"), u("s4"), u("s5")],
+    ).placement.get("s5"),
+    { kind: "full", reason: "auto", day: null },
+  );
+
+  // End to end: the panel's groups, its tile cues, and the story's slides.
+  const stopId = "Munich";
+  const built = (picks: StoryPhoto[]) =>
+    trip("Explicit days", {
+      destinations: [stop(stopId, { arrival: D1, departure: D3 })],
+      photos: [
+        photo("own1", { dateTaken: D1, destinationId: stopId }),
+        photo("own2", { dateTaken: D2, destinationId: stopId }),
+        photo("own3", { dateTaken: D3, destinationId: stopId }),
+        ...picks,
+      ],
+    });
+  const storyDays = (t: StoryTrip) =>
+    buildStorySlides(t)
+      .filter((slide) => slide.kind === "day")
+      .map((slide) => (slide.kind === "day" ? slide.photos.map((p) => p.id) : []));
+  const panelDays = (t: StoryTrip) => {
+    const slot = buildCurationSlots(t).stops[0];
+    return groupChosenPhotos(slot, slot.chosen)
+      .filter((group) => group.kind === "day")
+      .map((group) => group.photos.map((p) => p.id));
+  };
+
+  // u1 given day one, dA dated day one, u2 on Auto.
+  const ranked = built([
+    pick("u1", 1, { destinationId: stopId, featuredDay: D1 }),
+    pick("dA", 2, { destinationId: stopId, dateTaken: D1 }),
+    pick("u2", 3, { destinationId: stopId }),
+  ]);
+  equal(
+    "story: day one shows the explicit pick and the dated pick in rank order",
+    storyDays(ranked),
+    [["u1", "dA"], ["u2"], ["own3"]],
+  );
+  equal("panel: the chosen row groups exactly as the story draws", panelDays(ranked), [
+    ["u1", "dA"],
+    ["u2"],
+  ]);
+
+  // Swapping the two ranks (what the in-group arrow does) visibly reorders.
+  const swapped = built([
+    pick("dA", 1, { destinationId: stopId, dateTaken: D1 }),
+    pick("u1", 2, { destinationId: stopId, featuredDay: D1 }),
+    pick("u2", 3, { destinationId: stopId }),
+  ]);
+  equal("after the swap the story's day one reverses", storyDays(swapped)[0], [
+    "dA",
+    "u1",
+  ]);
+  equal("and so does the panel's day group", panelDays(swapped)[0], ["dA", "u1"]);
+
+  const slot = buildCurationSlots(ranked).stops[0];
+  const placements = placeChosenPhotos(slot, slot.chosen);
+  equal(
+    "tile cues: explicit, dated, and Auto picks each say how they were placed",
+    slot.chosen.map((p) => placements.get(p.id)?.kind),
+    ["chosen", "dated", "auto"],
+  );
+  equal(
+    "only the dated pick is locked; the undated ones get a day selector",
+    slot.chosen.map((p) => lockedDayOf(slot, p)),
+    [null, D1, null],
+  );
+
+  // The live selection: an unsaved day choice reaches the preview story and
+  // the panel together, through the same apply the panel uses.
+  const preview = applyCurationSelection(ranked, {
+    stopPhotoDays: { u2: D3 },
+  });
+  equal(
+    "an unsaved explicit day moves the pick in the previewed story",
+    storyDays(preview),
+    [["u1", "dA"], ["own2"], ["u2"]],
+  );
+  equal("and in the panel built from the same selection", panelDays(preview), [
+    ["u1", "dA"],
+    ["u2"],
+  ]);
+  check(
+    "a day choice alone counts as a selection",
+    hasCurationSelection({ stopPhotoDays: { u2: null } }),
+  );
 }
 
 // --- Report -----------------------------------------------------------------

@@ -5,6 +5,10 @@
  * ALTER TABLE batchport.experiences ADD COLUMN IF NOT EXISTS featured_rank smallint;
  * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS featured_rank smallint;
  * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS featured_slot text;
+ *
+ * And for setStopPhotoDayAction (scripts/sql/2026-10-07-photo-featured-day.sql):
+ *
+ * ALTER TABLE batchport.photos ADD COLUMN IF NOT EXISTS featured_day date;
  */
 
 "use server";
@@ -43,6 +47,9 @@ function isMissingColumnWrite(error: { code?: string } | null): boolean {
 
 const NOT_SET_UP =
   "Curation is not set up on this database yet. Run the featured-curation and curation-slots migrations.";
+
+const NOT_SET_UP_DAY =
+  "Choosing a day is not set up on this database yet. Run scripts/sql/2026-10-07-photo-featured-day.sql.";
 
 /** Every photo id on a trip, at every level: the trip's own, its stops', and
  * its experiences'. ownersForTrip already resolves that fan-out for the delete
@@ -242,6 +249,42 @@ export async function setTripHighlightsAction(
     if (isMissingColumnWrite(error)) return { error: NOT_SET_UP };
     if (error) return { error: "Could not update the highlights." };
   }
+
+  revalidateAppData();
+  return { ok: true };
+}
+
+/**
+ * The day an UNDATED stop pick leads, or null for Auto (levelled onto the
+ * emptiest day). One photo per call, unlike the slot writers above, because
+ * this is not a slot: it is a property of one pick, and changing it never
+ * touches another photo's day.
+ *
+ * The panel only offers this on a pick with no usable date inside its stay;
+ * a dated pick is locked to its own day and the distribution ignores this
+ * column for it, so a stale write cannot move a dated photo.
+ * See scripts/sql/2026-10-07-photo-featured-day.sql.
+ */
+export async function setStopPhotoDayAction(
+  photoId: string,
+  day: string | null,
+): Promise<ActionResult> {
+  if (await isDemoBlocked()) return { error: DEMO_READONLY_MESSAGE };
+  const { supabase, user } = await requireUser();
+
+  if (day !== null && !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    return { error: "That is not a day of this stop." };
+  }
+
+  const { data, error } = await supabase
+    .from("photos")
+    .update({ featured_day: day })
+    .eq("id", photoId)
+    .eq("user_id", user.id)
+    .select("id");
+  if (isMissingColumnWrite(error)) return { error: NOT_SET_UP_DAY };
+  if (error) return { error: "Could not set the day for this photo." };
+  if ((data ?? []).length === 0) return { error: "That photo no longer exists." };
 
   revalidateAppData();
   return { ok: true };

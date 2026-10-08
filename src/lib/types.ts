@@ -119,6 +119,11 @@ export interface Photo {
   // without the migration does not carry them at all.
   featured_rank?: number | null;
   featured_slot?: PhotoSlot | null;
+  // The day slide (YYYY-MM-DD) an UNDATED stop pick was explicitly assigned
+  // to in Curate, or null for "Auto" (levelled onto the emptiest day). Only
+  // read for a stop pick with no usable date inside its stay; a dated pick is
+  // locked to its own day. See distributeStopPhotos in lib/curation.ts.
+  featured_day?: string | null;
   created_at: string;
 }
 
