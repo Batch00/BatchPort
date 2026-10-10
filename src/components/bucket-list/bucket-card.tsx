@@ -119,8 +119,8 @@ export function BucketCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheKey, Boolean(tripCover)]);
 
-  // The thumbnail on a phone; from sm up the <picture> source offers the full
-  // image too, since a 352px card on a 2x screen outgrows a 400px thumbnail.
+  // The thumbnail is the src; for a fulfilled photo the srcset below offers
+  // the full image too, and the browser picks by device pixels.
   const imageUrl = tripCover?.thumbUrl ?? hero;
   const subtitle = item.type === "place" ? item.country_name : null;
 
@@ -153,10 +153,10 @@ export function BucketCard({
           alt=""
           loading="lazy"
           // The fulfilled photo has both sizes; a Wikimedia hero has one.
-          wideSrcSet={
+          srcSet={
             tripCover ? coverSrcSet(tripCover.thumbUrl, tripCover.url) : null
           }
-          wideSizes={BUCKET_CARD_SIZES}
+          sizes={BUCKET_CARD_SIZES}
           style={tripCover ? coverImageStyle(tripCover.position) : undefined}
           className="absolute inset-0 size-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
         />

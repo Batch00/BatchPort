@@ -149,8 +149,8 @@ export function SharedTripCard({
         )}
       >
         {trip.coverUrl ? (
-          // The thumbnail on a phone, the full image on a wide or high-DPI
-          // screen, where a 400px thumbnail across a 536px card was blurry.
+          // One srcset and an accurate sizes, so the browser picks the
+          // resolution by device pixels on every screen, phones included.
           // See components/photos/cover-picture.tsx.
           <CoverPicture
             thumbUrl={trip.coverUrl}

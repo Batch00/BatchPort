@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { ImageOffIcon } from "lucide-react";
-import { WIDE_MEDIA } from "@/components/photos/cover-picture";
 import { cn } from "@/lib/utils";
 
 interface SafeImageProps {
@@ -15,11 +14,11 @@ interface SafeImageProps {
   // Tried once if src fails to load (e.g. a thumbnail whose file is missing
   // falls back to the full image) before showing the error state.
   fallbackSrc?: string;
-  // A wide-screen srcset and its sizes (see components/photos/cover-picture),
-  // offered from the sm breakpoint up through a <picture> source, so a phone
-  // still loads `src`. Dropped once the fallback is in use.
-  wideSrcSet?: string | null;
-  wideSizes?: string;
+  // A card cover's srcset and sizes (see components/photos/cover-picture), so
+  // the browser picks the resolution by device pixels. Dropped once the
+  // fallback is in use, or the failed candidate would keep being chosen.
+  srcSet?: string | null;
+  sizes?: string;
 }
 
 // Drop-in replacement for <img> that shows an animate-pulse skeleton while
@@ -33,8 +32,8 @@ export function SafeImage({
   loading,
   style,
   fallbackSrc,
-  wideSrcSet,
-  wideSizes,
+  srcSet,
+  sizes,
 }: SafeImageProps) {
   const [errored, setErrored] = useState(false);
   const [useFallback, setUseFallback] = useState(false);
@@ -65,25 +64,22 @@ export function SafeImage({
       {!loaded && (
         <div className="absolute inset-0 animate-pulse bg-muted" />
       )}
-      <picture>
-        {wideSrcSet && !useFallback ? (
-          <source media={WIDE_MEDIA} srcSet={wideSrcSet} sizes={wideSizes} />
-        ) : null}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={activeSrc}
-          alt={alt}
-          loading={loading}
-          style={style}
-          onError={handleError}
-          onLoad={() => setLoaded(true)}
-          className={cn(
-            "transition-opacity duration-300",
-            loaded ? "opacity-100" : "opacity-0",
-            className,
-          )}
-        />
-      </picture>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={activeSrc}
+        srcSet={srcSet && !useFallback ? srcSet : undefined}
+        sizes={srcSet && !useFallback ? sizes : undefined}
+        alt={alt}
+        loading={loading}
+        style={style}
+        onError={handleError}
+        onLoad={() => setLoaded(true)}
+        className={cn(
+          "transition-opacity duration-300",
+          loaded ? "opacity-100" : "opacity-0",
+          className,
+        )}
+      />
     </>
   );
 }

@@ -217,22 +217,23 @@ of taste, and getting it wrong is invisible in code review and glaring on
 screen: a thumbnail across a full-screen story slide is the blur that produced
 this rule.
 
-- **Grid tiles and small chips take the thumbnail.** Gallery cells, the
-  dashboard and share trip cards, the recap's "year in trips" grid, the
-  moments row, the On This Day strip, the offline photo cache.
+- **Small tiles and grids take the thumbnail.** Gallery cells, the recap's
+  "year in trips" grid and ticked-off tiles, the moments row, the On This Day
+  strip, the offline photo cache. A card cover is not one of them (below).
 - **Anything larger than a card takes the full image.** Story slides, recap
   slides, banners, the lightbox, the cover position editor, and both canvas
   exports. A card cover baked into a 2160px share card is the same mistake as
   one stretched across a slide.
-- **A card cover is both, split at sm.** A trip card is 536px wide on a
-  desktop and a bucket card 352px, which a 400px thumbnail cannot fill on a 2x
-  screen. `components/photos/cover-picture.tsx` renders a `<picture>`: below
-  640px the `<img>` is the thumbnail, from 640px a `<source>` offers both with
-  an accurate `sizes` and the browser picks. Not a bare srcset: that chooses by
-  device pixels, and a 340px phone card at 3x would fetch the full image.
-  `SafeImage` takes the same source through `wideSrcSet` / `wideSizes`. The
-  trip cards (dashboard, /demo, /share) and the bucket cards use it; recap
-  tiles and the On This Day strip are small enough to stay on the thumbnail.
+- **A card cover uses a DPR-aware srcset, at every width.** One srcset (the
+  thumbnail at 400w, the full image at 1920w) and an accurate `sizes`, so the
+  browser picks the resolution by device pixels on every screen, phones
+  included. `components/photos/cover-picture.tsx` owns it: `coverSrcSet`, the
+  `TRIP_CARD_SIZES` / `BUCKET_CARD_SIZES` strings, and `CoverPicture`;
+  `SafeImage` takes the same pair through `srcSet` / `sizes` and drops them on
+  fallback. Do not force the thumbnail below a breakpoint: a 340px phone card
+  at 3x needs about 1000 device pixels, and a 400px thumbnail there is
+  upscaled 2.5x, which is the blur a version split at sm shipped. Users: the
+  trip cards (dashboard, /demo, /share) and the fulfilled bucket cards.
 - **Never both from one field.** Data layers that feed a card *and* a
   full-screen surface carry both urls (`ProfileTrip.coverUrl` /
   `coverFullUrl`, `StoryPhoto.thumbUrl` / `url`, `YearMoment.photoThumbUrl` /
