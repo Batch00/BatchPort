@@ -11,7 +11,10 @@ import {
   buildPlaceList,
   countPlaces,
   DEFAULT_PLACE_FILTERS,
+  DEFAULT_PLACE_SORT,
+  isUpcomingOnly,
   localityLabel,
+  rowDate,
   shortLocalityLabel,
   type PlaceListEntry,
 } from "../src/lib/place-groups";
@@ -44,6 +47,9 @@ function place(p: Partial<PlaceListRow> & { id: string; name: string }): PlaceLi
     visit_count: 1,
     first_visit_date: null,
     latest_visit_date: null,
+    latest_visit_to_date: null,
+    latest_visit_to_date_occasion_id: null,
+    visit_count_to_date: 0,
     first_occasion_slug: null,
     first_occasion_label: null,
     first_occasion_icon: null,
@@ -78,7 +84,7 @@ const shape = (entries: PlaceListEntry[]) =>
 
 console.log("\nthe three real rows");
 {
-  const out = buildPlaceList([lambeau, greenBay, amFam]);
+  const out = buildPlaceList([lambeau, greenBay, amFam], DEFAULT_PLACE_FILTERS, "first-visit");
   check(
     "Green Bay groups, American Family Field is bare",
     // Same first_visit_date, so the within-group tiebreak is alphabetical.
@@ -93,14 +99,14 @@ console.log("\nthe three real rows");
 console.log("\nthe rule");
 {
   // A locality with one place is a bare row, not a group of one.
-  const out = buildPlaceList([amFam, lambeau]);
+  const out = buildPlaceList([amFam, lambeau], DEFAULT_PLACE_FILTERS, "first-visit");
   check("a lone locality does not get a header", out.every((e) => e.kind === "place"), shape(out));
 }
 {
   // Null locality never groups with another null locality.
   const a = place({ id: "a", name: "A", first_visit_date: "2026-05-01" });
   const b = place({ id: "b", name: "B", first_visit_date: "2026-04-01" });
-  const out = buildPlaceList([a, b]);
+  const out = buildPlaceList([a, b], DEFAULT_PLACE_FILTERS, "first-visit");
   check("two null-locality places are two bare rows", out.length === 2 && out.every((e) => e.kind === "place"), shape(out));
 }
 {
@@ -109,27 +115,27 @@ console.log("\nthe rule");
   const old1 = place({ id: "o1", name: "Old One", locality_name: "Oldtown", locality_key: "oldtown||US", first_visit_date: "2019-01-01" });
   const old2 = place({ id: "o2", name: "Old Two", locality_name: "Oldtown", locality_key: "oldtown||US", first_visit_date: "2026-12-01" });
   const recent = place({ id: "r", name: "Recent", first_visit_date: "2026-06-01" });
-  const out = buildPlaceList([old1, old2, recent]);
+  const out = buildPlaceList([old1, old2, recent], DEFAULT_PLACE_FILTERS, "first-visit");
   check("group sorts on earliest, not latest", out[0].kind === "place" && out[0].place.name === "Recent", shape(out));
 }
 {
   // Zero-visit places sort last rather than first.
   const none = place({ id: "n", name: "No Visits", visit_count: 0, first_visit_date: null });
-  const out = buildPlaceList([none, amFam]);
+  const out = buildPlaceList([none, amFam], DEFAULT_PLACE_FILTERS, "first-visit");
   check("a zero-visit place sorts last", out[out.length - 1].kind === "place" && (out[out.length - 1] as { place: PlaceListRow }).place.id === "n", shape(out));
 }
 
 console.log("\nfilters, applied before grouping");
 {
-  const out = buildPlaceList([lambeau, greenBay, amFam], { ...DEFAULT_PLACE_FILTERS, placeType: "city" });
+  const out = buildPlaceList([lambeau, greenBay, amFam], { ...DEFAULT_PLACE_FILTERS, placeType: "city" }, "first-visit");
   check("filtering a group to one leaves a bare row", shape(out) === "Green Bay", shape(out));
 }
 {
-  const out = buildPlaceList([lambeau, greenBay, amFam], { ...DEFAULT_PLACE_FILTERS, occasion: "game" });
+  const out = buildPlaceList([lambeau, greenBay, amFam], { ...DEFAULT_PLACE_FILTERS, occasion: "game" }, "first-visit");
   check("occasion filter matches the FIRST visit", shape(out) === "Lambeau Field | American Family Field", shape(out));
 }
 {
-  const out = buildPlaceList([lambeau, greenBay, amFam], { ...DEFAULT_PLACE_FILTERS, placeType: "park" });
+  const out = buildPlaceList([lambeau, greenBay, amFam], { ...DEFAULT_PLACE_FILTERS, placeType: "park" }, "first-visit");
   check("a filter matching nothing yields nothing", out.length === 0);
 }
 
@@ -141,6 +147,85 @@ console.log("\nsort by name");
     shape(out) === "American Family Field | [Green Bay, Wisconsin: Green Bay, Lambeau Field]",
     shape(out),
   );
+}
+
+console.log("\nmost recent, the default sort");
+{
+  check("Most recent is the default", DEFAULT_PLACE_SORT === "recent");
+
+  // American Family Field with three visits: two in the past and one booked
+  // for after today. Its recent date is the latest visit TO DATE, never the
+  // future one, and its first-visit date is still the first.
+  const amFam3 = place({
+    id: "amfam3", name: "American Family Field", locality_name: "Milwaukee", locality_key: MKE,
+    catalog_item_id: "c2", visit_count: 3,
+    first_visit_date: "2025-05-10", latest_visit_date: "2026-11-02",
+    latest_visit_to_date: "2026-08-29",
+    first_occasion_slug: "game", first_occasion_label: "Game",
+  });
+  check("three visits: Most recent shows the latest visit to date",
+    rowDate(amFam3, "recent").date === "2026-08-29" && !rowDate(amFam3, "recent").upcoming,
+    JSON.stringify(rowDate(amFam3, "recent")));
+  check("three visits: First visit still shows the first visit",
+    rowDate(amFam3, "first-visit").date === "2025-05-10",
+    JSON.stringify(rowDate(amFam3, "first-visit")));
+  check("past AND future visits is not upcoming", !isUpcomingOnly(amFam3));
+
+  // A place whose only visit is after today.
+  const booked = place({
+    id: "booked", name: "Soldier Field", locality_name: "Chicago", locality_key: "chicago|illinois|US",
+    visit_count: 1, first_visit_date: "2026-12-06", latest_visit_date: "2026-12-06",
+    latest_visit_to_date: null,
+  });
+  check("a future-only place is upcoming", isUpcomingOnly(booked));
+  check("it shows its date as Upcoming under Most recent",
+    rowDate(booked, "recent").upcoming && rowDate(booked, "recent").date === "2026-12-06");
+  check("and under First visit", rowDate(booked, "first-visit").upcoming);
+
+  const lambeauR = { ...lambeau, latest_visit_to_date: "2026-09-06" };
+  const greenBayR = { ...greenBay, latest_visit_to_date: "2026-09-06" };
+  const none = place({ id: "none", name: "No Visits", visit_count: 0 });
+  const out = buildPlaceList([amFam3, none, lambeauR, booked, greenBayR]);
+  check(
+    "upcoming on top, then latest to date, then no visits",
+    shape(out) === "Soldier Field | [Green Bay, Wisconsin: Green Bay, Lambeau Field] | American Family Field | No Visits",
+    shape(out),
+  );
+
+  // Two upcoming places: the sooner one first.
+  const sooner = { ...booked, id: "sooner", name: "Sooner", locality_key: null, first_visit_date: "2026-10-20" };
+  const upOut = buildPlaceList([booked, sooner]);
+  check("two upcoming places: soonest first", shape(upOut) === "Sooner | Soldier Field", shape(upOut));
+}
+{
+  // A group sorts on its MOST RECENTLY visited member under Most recent, and
+  // still on its EARLIEST under First visit. Oldtown was first visited in 2019
+  // and revisited last month; Recent was first and last visited in June.
+  const old1 = place({ id: "o1", name: "Old One", locality_name: "Oldtown", locality_key: "oldtown||US",
+    first_visit_date: "2019-01-01", latest_visit_to_date: "2026-09-20" });
+  const old2 = place({ id: "o2", name: "Old Two", locality_name: "Oldtown", locality_key: "oldtown||US",
+    first_visit_date: "2020-01-01", latest_visit_to_date: "2020-01-01" });
+  const recent = place({ id: "r", name: "Recent", first_visit_date: "2026-06-01", latest_visit_to_date: "2026-06-01" });
+  const byRecent = buildPlaceList([old1, old2, recent], DEFAULT_PLACE_FILTERS, "recent");
+  check("Most recent: a revisited group rises above a newer bare row",
+    byRecent[0].kind === "group", shape(byRecent));
+  check("Most recent: members ordered by their own latest visit",
+    byRecent[0].kind === "group" && byRecent[0].places.map((p) => p.id).join(",") === "o1,o2", shape(byRecent));
+  const byFirst = buildPlaceList([old1, old2, recent], DEFAULT_PLACE_FILTERS, "first-visit");
+  check("First visit: the same group stays below, on its earliest member",
+    byFirst[0].kind === "place", shape(byFirst));
+}
+{
+  // An upcoming member does not lift its group: it has not been visited.
+  const visited = place({ id: "v", name: "Visited", locality_name: "Town", locality_key: "town||US",
+    visit_count: 1, first_visit_date: "2024-01-01", latest_visit_to_date: "2024-01-01" });
+  const future = place({ id: "f", name: "Future", locality_name: "Town", locality_key: "town||US",
+    visit_count: 1, first_visit_date: "2026-12-01", latest_visit_to_date: null });
+  const middle = place({ id: "m", name: "Middle", first_visit_date: "2025-06-01", latest_visit_to_date: "2025-06-01" });
+  const out = buildPlaceList([visited, future, middle], DEFAULT_PLACE_FILTERS, "recent");
+  check("an upcoming member does not lift its group", out[0].kind === "place" && out[0].place.id === "m", shape(out));
+  check("inside the group, the upcoming member still leads",
+    out[1].kind === "group" && out[1].places[0].id === "f", shape(out));
 }
 
 console.log("\nlabels");

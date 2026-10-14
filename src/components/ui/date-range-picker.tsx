@@ -26,15 +26,47 @@ import { cn } from "@/lib/utils";
 // All arithmetic is UTC-anchored. A local Date on a YYYY-MM-DD string lands on
 // the previous day west of Greenwich, which would quietly shift every range the
 // user picked.
+//
+// The header is a MONTH and a YEAR select between the arrows, not a label.
+// Retro-filling a visit from 2019 used to mean seventy taps on "previous
+// month"; now it is two selects. They are native <select>s on purpose: on a
+// phone that is the platform's own wheel, which is the fastest picker there is
+// for a short fixed list, and it costs no popover inside a popover. Every range
+// picker in the app is this component, so the trip, stop, and place forms all
+// get it.
 
 const DAY_MS = 86_400_000;
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
-const MONTH_FORMAT = new Intl.DateTimeFormat("en-US", {
-  month: "long",
-  year: "numeric",
-  timeZone: "UTC",
-});
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+// How far the year select reaches: far enough back for anybody's travel
+// history, a few years forward for a planned trip. A range already set outside
+// it still shows (yearOptions widens to include it).
+const YEARS_BACK = 80;
+const YEARS_FORWARD = 5;
+
+function yearOptions(today: string, shown: string): number[] {
+  const thisYear = Number(today.slice(0, 4));
+  const shownYear = Number(shown.slice(0, 4));
+  const from = Math.min(thisYear - YEARS_BACK, shownYear);
+  const to = Math.max(thisYear + YEARS_FORWARD, shownYear);
+  const years: number[] = [];
+  for (let year = to; year >= from; year -= 1) years.push(year);
+  return years;
+}
+
+function withYearMonth(year: number, monthIndex: number): string {
+  return `${String(year).padStart(4, "0")}-${String(monthIndex + 1).padStart(2, "0")}-01`;
+}
+
+// Native selects in the header. text-base below md so iOS does not zoom the
+// page on focus (it does for anything under 16px), as on the expense forms.
+const HEADER_SELECT_CLASS =
+  "h-8 cursor-pointer rounded-md border border-white/10 bg-transparent px-1.5 text-base font-medium text-foreground transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 md:text-sm";
 
 function toUtcMs(date: string): number {
   return Date.parse(`${date}T00:00:00Z`);
@@ -182,6 +214,7 @@ function RangeCalendar({
   const [hovered, setHovered] = useState<string | null>(null);
 
   const cells = useMemo(() => monthCells(month), [month]);
+  const years = useMemo(() => yearOptions(today, month), [today, month]);
 
   // Half-open ranges preview against the hovered day, so the highlighted band
   // is always the range that would be saved by the next click.
@@ -215,8 +248,35 @@ function RangeCalendar({
         >
           <ChevronLeftIcon className="size-4" />
         </button>
-        <div aria-live="polite" className="text-sm font-medium">
-          {MONTH_FORMAT.format(toUtcMs(month))}
+        <div aria-live="polite" className="flex min-w-0 items-center gap-1">
+          <select
+            aria-label="Month"
+            value={Number(month.slice(5, 7)) - 1}
+            onChange={(e) =>
+              setMonth(withYearMonth(Number(month.slice(0, 4)), Number(e.target.value)))
+            }
+            className={HEADER_SELECT_CLASS}
+          >
+            {MONTH_NAMES.map((name, index) => (
+              <option key={name} value={index}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Year"
+            value={Number(month.slice(0, 4))}
+            onChange={(e) =>
+              setMonth(withYearMonth(Number(e.target.value), Number(month.slice(5, 7)) - 1))
+            }
+            className={HEADER_SELECT_CLASS}
+          >
+            {years.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
         </div>
         <button
           type="button"

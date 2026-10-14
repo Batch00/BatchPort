@@ -19,7 +19,86 @@ import { US_STATE_POSTAL } from "@/lib/us-state-postal";
 // with the city keyed "green bay|wisconsin|US", and the two groups would look
 // identical on screen.
 
-export type PlaceSort = "first-visit" | "name";
+/**
+ * "recent" is the default (decided 2026-10-13): the place most recently
+ * visited TO DATE first. "first-visit" is the original order, "name" is A to Z.
+ */
+export type PlaceSort = "recent" | "first-visit" | "name";
+
+export const DEFAULT_PLACE_SORT: PlaceSort = "recent";
+
+export const PLACE_SORT_LABELS: Record<PlaceSort, string> = {
+  recent: "Most recent",
+  "first-visit": "First visit",
+  name: "Name",
+};
+
+/**
+ * A place whose every visit is still in the future: it has visits, and none
+ * of them is on or before today. It is not "recent" (it has not happened), so
+ * it is labelled Upcoming and, under Most recent, sorts to the top, soonest
+ * first. A place with past AND future visits is not upcoming: its most recent
+ * visit to date is real and is what it sorts on.
+ */
+export function isUpcomingOnly(place: PlaceListRow): boolean {
+  return place.visit_count > 0 && !place.latest_visit_to_date && place.first_visit_date !== null;
+}
+
+/**
+ * The date a row shows and what it means, under a sort. Most recent shows the
+ * latest visit to date; First visit and Name show the first visit. An
+ * upcoming-only place shows its (first, future) date as Upcoming under every
+ * sort, because calling it a visit would be untrue. Null date: no visits.
+ */
+export function rowDate(
+  place: PlaceListRow,
+  sort: PlaceSort,
+): { date: string | null; upcoming: boolean } {
+  if (isUpcomingOnly(place)) return { date: place.first_visit_date, upcoming: true };
+  if (sort === "recent") return { date: place.latest_visit_to_date, upcoming: false };
+  return { date: place.first_visit_date, upcoming: false };
+}
+
+// The Most recent ordering key. Tier 0 is upcoming-only (soonest first), tier
+// 1 is visited to date (latest first), tier 2 is no visits at all (last).
+export interface RecentKey {
+  tier: 0 | 1 | 2;
+  date: string | null;
+}
+
+function recentKey(place: PlaceListRow): RecentKey {
+  if (isUpcomingOnly(place)) return { tier: 0, date: place.first_visit_date };
+  if (place.latest_visit_to_date) return { tier: 1, date: place.latest_visit_to_date };
+  return { tier: 2, date: null };
+}
+
+/**
+ * A GROUP sorts on its most recently visited member, to date: Green Bay rises
+ * when you went back to Lambeau. Upcoming members do not lift it, because they
+ * have not been visited; only a group whose members are ALL upcoming-only is
+ * itself upcoming, at its soonest date. (Under First visit a group still sorts
+ * on its earliest member, as before.)
+ */
+function groupRecentKey(places: PlaceListRow[]): RecentKey {
+  const visited = places
+    .map((p) => p.latest_visit_to_date)
+    .filter((d): d is string => d !== null);
+  if (visited.length > 0) return { tier: 1, date: visited.reduce((a, b) => (a > b ? a : b)) };
+  const upcoming = places
+    .filter(isUpcomingOnly)
+    .map((p) => p.first_visit_date as string);
+  if (upcoming.length > 0) return { tier: 0, date: upcoming.reduce((a, b) => (a < b ? a : b)) };
+  return { tier: 2, date: null };
+}
+
+function compareRecent(a: RecentKey, b: RecentKey): number {
+  if (a.tier !== b.tier) return a.tier - b.tier;
+  if (a.date === b.date) return 0;
+  if (a.date === null) return 1;
+  if (b.date === null) return -1;
+  // Upcoming soonest first; visited latest first.
+  return a.tier === 0 ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date);
+}
 
 export interface PlaceFilters {
   placeType: PlaceType | "all";
@@ -39,7 +118,10 @@ export interface PlaceGroupEntry {
   /** "Green Bay, Wisconsin" */
   label: string;
   places: PlaceListRow[];
+  /** First visit order: the group's earliest first visit. */
   sortDate: string | null;
+  /** Most recent order: see groupRecentKey. */
+  recent: RecentKey;
   sortName: string;
 }
 
@@ -49,6 +131,7 @@ export interface PlaceRowEntry {
   key: string;
   place: PlaceListRow;
   sortDate: string | null;
+  recent: RecentKey;
   sortName: string;
 }
 
@@ -122,7 +205,7 @@ function byDateDesc(a: string | null, b: string | null): number {
 export function buildPlaceList(
   rows: PlaceListRow[],
   filters: PlaceFilters = DEFAULT_PLACE_FILTERS,
-  sort: PlaceSort = "first-visit",
+  sort: PlaceSort = DEFAULT_PLACE_SORT,
 ): PlaceListEntry[] {
   const kept = rows.filter((place) => matchesFilters(place, filters));
 
@@ -147,8 +230,13 @@ export function buildPlaceList(
       loners.push(places[0]);
       continue;
     }
-    const ordered = [...places].sort(
-      (a, b) => byDateDesc(a.first_visit_date, b.first_visit_date) || a.name.localeCompare(b.name),
+    // Members follow the list's own order: most recent first under Most
+    // recent, first visit descending otherwise (name is a list order, not a
+    // within-group one, and keeps the first-visit order inside a header).
+    const ordered = [...places].sort((a, b) =>
+      sort === "recent"
+        ? compareRecent(recentKey(a), recentKey(b)) || a.name.localeCompare(b.name)
+        : byDateDesc(a.first_visit_date, b.first_visit_date) || a.name.localeCompare(b.name),
     );
     const dates = places.map((p) => p.first_visit_date).filter((d): d is string => d !== null);
     entries.push({
@@ -157,6 +245,7 @@ export function buildPlaceList(
       label: localityLabel(ordered[0]) || "Somewhere",
       places: ordered,
       sortDate: dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null,
+      recent: groupRecentKey(places),
       sortName: localityLabel(ordered[0]) || ordered[0].name,
     });
   }
@@ -167,6 +256,7 @@ export function buildPlaceList(
       key: `place:${place.id}`,
       place,
       sortDate: place.first_visit_date,
+      recent: recentKey(place),
       sortName: place.name,
     });
   }
@@ -174,7 +264,9 @@ export function buildPlaceList(
   entries.sort((a, b) =>
     sort === "name"
       ? a.sortName.localeCompare(b.sortName)
-      : byDateDesc(a.sortDate, b.sortDate) || a.sortName.localeCompare(b.sortName),
+      : sort === "recent"
+        ? compareRecent(a.recent, b.recent) || a.sortName.localeCompare(b.sortName)
+        : byDateDesc(a.sortDate, b.sortDate) || a.sortName.localeCompare(b.sortName),
   );
   return entries;
 }

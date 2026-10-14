@@ -5,21 +5,16 @@ import type { PlaceType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // The section's opening card: how many places, across how many localities,
-// and what kind. Sized for twelve places: the headline does the talking and
-// the tiles are small, so a count of 1 reads as a fact rather than as a
-// half-empty dashboard.
+// and the three kinds worth counting (Cities, Stadiums, Parks; see typeTiles).
+// Sized for twelve places: the headline does the talking and the tiles are
+// small, so a count of 1 reads as a fact rather than as a half-empty
+// dashboard. The headline counts every place, so it is larger than the tiles'
+// sum whenever a campus, a landmark, or an "other" is logged.
 //
 // "Localities" and "Cities" are different numbers on purpose and both appear:
 // a city is a place logged AS a city (4), a locality is any town one of your
 // places sits in (10). The headline carries the locality count in a sentence
 // so it is never set beside the Cities tile as if the two disagreed.
-
-// Static class strings so Tailwind generates them: one row of five or six on
-// a wide screen, three per row on a phone (3 + 2 or 3 + 3).
-const WIDE_COLUMNS: Record<number, string> = {
-  5: "sm:grid-cols-5",
-  6: "sm:grid-cols-6",
-};
 
 export function PlacesOverview({
   counts,
@@ -51,7 +46,8 @@ export function PlacesOverview({
         </p>
       ) : null}
 
-      <ul className={cn("mt-4 grid grid-cols-3 gap-2", WIDE_COLUMNS[tiles.length])}>
+      {/* Three tiles: one row of three at every width. */}
+      <ul className="mt-4 grid grid-cols-3 gap-2">
         {tiles.map((tile) => (
           <li
             key={tile.key}

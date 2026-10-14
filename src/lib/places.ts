@@ -175,19 +175,52 @@ export async function getCatalogItem(id: string): Promise<PlaceCatalogItem | nul
  */
 export async function getPlacesList(): Promise<PlaceListRow[]> {
   const { supabase, user } = await requireUser();
-  const { data, error } = await supabase
-    .from("v_places")
-    .select(PLACE_LIST_COLUMNS)
-    .eq("user_id", user.id)
-    .order("first_visit_date", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
+  // v_places is unfiltered by design, so "most recent visit TO DATE" (the
+  // list's default sort) comes from the to-date view, the one place that rule
+  // is written. One extra read of a narrow column, folded in memory.
+  const [{ data, error }, toDate] = await Promise.all([
+    supabase
+      .from("v_places")
+      .select(PLACE_LIST_COLUMNS)
+      .eq("user_id", user.id)
+      .order("first_visit_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("v_place_visits_to_date")
+      .select("place_id, visit_date, occasion_id")
+      .eq("user_id", user.id),
+  ]);
   if (error) throw error;
-  return (data ?? []).map((row) =>
-    withPoint(row as unknown as GeomRow & Record<string, unknown>),
-  ) as unknown as PlaceListRow[];
+  // A failed to-date read degrades to "no visit to date" everywhere, which
+  // sorts every place as upcoming or unvisited rather than failing the page.
+  if (toDate.error) console.error("getPlacesList: to-date visits failed", toDate.error);
+  const latestToDate = new Map<string, { date: string; occasionId: string | null }>();
+  const countToDate = new Map<string, number>();
+  for (const row of (toDate.data ?? []) as {
+    place_id: string;
+    visit_date: string;
+    occasion_id: string | null;
+  }[]) {
+    countToDate.set(row.place_id, (countToDate.get(row.place_id) ?? 0) + 1);
+    const current = latestToDate.get(row.place_id);
+    if (!current || row.visit_date > current.date) {
+      latestToDate.set(row.place_id, { date: row.visit_date, occasionId: row.occasion_id });
+    }
+  }
+  return (data ?? []).map((row) => {
+    const place = withPoint(row as unknown as GeomRow & Record<string, unknown>) as unknown as PlaceListRow;
+    const latest = latestToDate.get(place.id);
+    return {
+      ...place,
+      latest_visit_to_date: latest?.date ?? null,
+      latest_visit_to_date_occasion_id: latest?.occasionId ?? null,
+      visit_count_to_date: countToDate.get(place.id) ?? 0,
+    };
+  });
 }
 
-/** One place with every visit, oldest visit first. */
+/** One place with every visit, NEWEST visit first (the detail page's order;
+ * decided 2026-10-13). Same-day visits break on created_at, newest first. */
 export async function getPlace(id: string): Promise<PlaceWithVisits | null> {
   const { supabase, user } = await requireUser();
   const { data, error } = await supabase
@@ -205,7 +238,10 @@ export async function getPlace(id: string): Promise<PlaceWithVisits | null> {
     ...(withPoint(place) as unknown as Place),
     visits: (visits ?? [])
       .map(normalizeVisit)
-      .sort((a, b) => a.visit_date.localeCompare(b.visit_date)),
+      .sort(
+        (a, b) =>
+          b.visit_date.localeCompare(a.visit_date) || b.created_at.localeCompare(a.created_at),
+      ),
   };
 }
 

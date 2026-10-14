@@ -153,24 +153,22 @@ export interface TypeTile {
 }
 
 /**
- * The five requested types always render, a zero included, so the row has a
- * fixed shape and "no landmarks yet" is visible rather than implied by a gap.
- * "Other" is the catch-all and is not something anybody collects, so it
- * appears only when it holds something; without it the tiles would no longer
- * add up to the place count printed above them.
+ * Three tiles, always, a zero included: Cities, Stadiums, Parks. Those are
+ * the kinds of place somebody collects, so they are the ones worth a counter
+ * (decided 2026-10-13; Campuses, Landmarks and Other were dropped as tiles).
+ *
+ * The tiles therefore do NOT add up to the headline, and are not meant to:
+ * the headline counts every place, a campus and an "other" included, and a
+ * place of a type with no tile is still a place. Every type stays available
+ * in the entry sheet and on /places; this only decides what gets a counter.
  */
 export function typeTiles(counts: PlaceCountsRow): TypeTile[] {
-  const tiles: TypeTile[] = [
+  return [
     { key: "city", label: "Cities", count: num(counts.cities) },
-    { key: "campus", label: "Campuses", count: num(counts.campuses) },
     // 'stadium' means any sports venue, arenas included (CLAUDE.md).
     { key: "stadium", label: "Stadiums", count: num(counts.stadiums) },
     { key: "park", label: "Parks", count: num(counts.parks) },
-    { key: "landmark", label: "Landmarks", count: num(counts.landmarks) },
   ];
-  const others = num(counts.others);
-  if (others > 0) tiles.push({ key: "other", label: "Other", count: others });
-  return tiles;
 }
 
 // ---- Occasions -------------------------------------------------------------

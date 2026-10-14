@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import {
   BriefcaseIcon,
   CalendarDaysIcon,
+  CheckCircle2Icon,
   CarIcon,
   HeartIcon,
   MapPinIcon,
@@ -76,6 +77,54 @@ const OCCASION_ICONS: Record<string, LucideIcon> = {
   MapPin: MapPinIcon,
 };
 
+// THE VISIBLE AREA, for capping the sheet on a phone.
+//
+// The sheet is anchored to the TOP of the screen below sm, so the search field
+// sits near the top and the keyboard opens underneath it rather than over it.
+// What still has to be handled is the rest of the sheet once the keyboard is
+// up: iOS Safari does not resize the layout viewport for the keyboard (it
+// overlays it), so 85dvh still reaches behind the keyboard and the bottom of a
+// long sheet would be unreachable. window.visualViewport is the visible
+// rectangle on every current mobile browser, so the sheet's max height and top
+// offset follow it: whatever is open, the whole sheet is above the keyboard
+// and scrolls inside itself.
+//
+// This is done here rather than with the viewport meta's interactive-widget
+// (left unset, so the browser default applies: resizes-visual on Chrome for
+// Android): that setting is app-wide and would also shrink every dvh layout
+// and move every fixed bottom control on every page whenever any keyboard
+// opened, to fix one sheet. iOS ignores it besides.
+//
+// A string snapshot ("height|top") because useSyncExternalStore compares
+// snapshots by identity. Null on the server and where the API is missing,
+// which leaves the CSS fallback (85dvh, top 0) in charge.
+function subscribeViewport(onChange: () => void): () => void {
+  const vv = window.visualViewport;
+  if (!vv) return () => {};
+  vv.addEventListener("resize", onChange);
+  vv.addEventListener("scroll", onChange);
+  return () => {
+    vv.removeEventListener("resize", onChange);
+    vv.removeEventListener("scroll", onChange);
+  };
+}
+
+function readViewport(): string | null {
+  const vv = window.visualViewport;
+  return vv ? `${Math.round(vv.height)}|${Math.round(vv.offsetTop)}` : null;
+}
+
+function useVisibleArea(): { height: number; top: number } | null {
+  const snapshot = useSyncExternalStore(subscribeViewport, readViewport, () => null);
+  if (!snapshot) return null;
+  const [height, top] = snapshot.split("|").map(Number);
+  return { height, top };
+}
+
+// The gap kept between the sheet's bottom edge and the keyboard (or the
+// bottom of the screen), so the last control never sits flush against it.
+const SHEET_BOTTOM_GAP = 12;
+
 function OccasionIcon({ name, className }: { name: string | null; className?: string }) {
   const Icon = (name && OCCASION_ICONS[name]) || MapPinIcon;
   return <Icon className={className} />;
@@ -121,6 +170,11 @@ export function PlaceEntrySheet({
   const [visitDate, setVisitDate] = useState(editingVisit?.visit_date ?? "");
   const [endDate, setEndDate] = useState(editingVisit?.end_date ?? "");
   const [occasionId, setOccasionId] = useState<string | null>(editingVisit?.occasion_id ?? null);
+  // The visit's own name for itself ("Dave and Priya's wedding"), stored in
+  // place_visits.occasion_label. It was always in the model and the sheet
+  // never asked for it, so event names went into the PLACE name instead, which
+  // is public on a shared profile and wrong on the map.
+  const [occasionLabel, setOccasionLabel] = useState(editingVisit?.occasion_label ?? "");
   const [eventOrg, setEventOrg] = useState(editingVisit?.event_org ?? "");
   const [eventDetail, setEventDetail] = useState(editingVisit?.event_detail ?? "");
   const [transportMode, setTransportMode] = useState<TransportMode | null>(
@@ -128,6 +182,20 @@ export function PlaceEntrySheet({
   );
   const [notes, setNotes] = useState(editingVisit?.notes ?? "");
   const [busy, setBusy] = useState(false);
+  // After a NEW place is saved the sheet stays open on a confirmation with
+  // "Log another", for retro-filling several places from one trip. Holds the
+  // confirmation line; null is the form.
+  const [justSaved, setJustSaved] = useState<string | null>(null);
+  // Bumped by "Log another" to remount the search input empty, and to focus it.
+  const [searchKey, setSearchKey] = useState(0);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const visible = useVisibleArea();
+
+  // Focus the fresh search field after "Log another" remounts it. (Opening
+  // the sheet focuses it through onOpenAutoFocus below.)
+  useEffect(() => {
+    if (searchKey > 0) searchRef.current?.focus();
+  }, [searchKey]);
 
   // A catalog pick answers "what kind of thing is this" itself, so the type row
   // becomes a statement rather than a question.
@@ -150,16 +218,35 @@ export function PlaceEntrySheet({
   }, [editingExisting, place, picked]);
 
   function reset() {
+    setJustSaved(null);
     setPicked(null);
     setName(place?.name ?? "");
     setPlaceType(place?.place_type ?? "city");
     setVisitDate(editingVisit?.visit_date ?? "");
     setEndDate(editingVisit?.end_date ?? "");
     setOccasionId(editingVisit?.occasion_id ?? null);
+    setOccasionLabel(editingVisit?.occasion_label ?? "");
     setEventOrg(editingVisit?.event_org ?? "");
     setEventDetail(editingVisit?.event_detail ?? "");
     setTransportMode(editingVisit?.transport_mode ?? null);
     setNotes(editingVisit?.notes ?? "");
+  }
+
+  // "Log another": clear the place and everything about this visit EXCEPT
+  // when it was and why, which is what the next place from the same trip
+  // shares. "Why" includes the visit's own label: the wedding is the same
+  // wedding at the next place. Getting there and notes are per place, so they
+  // go too.
+  function logAnother() {
+    setJustSaved(null);
+    setPicked(null);
+    setName("");
+    setPlaceType("city");
+    setEventOrg("");
+    setEventDetail("");
+    setTransportMode(null);
+    setNotes("");
+    setSearchKey((key) => key + 1);
   }
 
   function handleOpenChange(next: boolean) {
@@ -194,7 +281,7 @@ export function PlaceEntrySheet({
       visit_date: visitDate,
       end_date: endDate || null,
       occasion_id: occasionId,
-      occasion_label: null,
+      occasion_label: occasionLabel.trim() || null,
       // Only game visits carry these, so they are cleared rather than sent
       // stale when the occasion is something else.
       event_org: isGame ? eventOrg.trim() || null : null,
@@ -251,17 +338,22 @@ export function PlaceEntrySheet({
         addedToExisting = result.addedToExisting;
       }
 
-      toast.success(
-        editingOneVisit
-          ? "Visit updated."
-          : editingExisting
-            ? "Visit added."
-            : addedToExisting
-              ? `Added a visit to ${name.trim()}, which you already had.`
-              : `${name.trim()} logged.`,
-      );
+      const message = editingOneVisit
+        ? "Visit updated."
+        : editingExisting
+          ? "Visit added."
+          : addedToExisting
+            ? `Added a visit to ${name.trim()}, which you already had.`
+            : `${name.trim()} logged.`;
       onSaved?.(savedPlaceId);
-      handleOpenChange(false);
+      if (editingExisting) {
+        toast.success(message);
+        handleOpenChange(false);
+      } else {
+        // A new place: confirm in the sheet and offer the next one. The
+        // confirmation IS the message, so no toast on top of it.
+        setJustSaved(message);
+      }
     } catch {
       toast.error("Could not save that. Try again.");
     } finally {
@@ -284,274 +376,359 @@ export function PlaceEntrySheet({
           Capping with max-h keeps the rows auto-sized and the content at the
           top. The real problem was never the height anyway; see
           place-search-input.tsx. */}
-      <DialogContent className="max-h-[85dvh] sm:max-w-2xl">
+      {/* TOP-ANCHORED ON A PHONE. Below sm the shared DialogContent is a
+          bottom sheet, which for this sheet put the search field at the bottom
+          of the screen, exactly where the keyboard opens. The max-sm overrides
+          pin it to the top instead (still content sized, still max-h only; see
+          above) and pad the top inset rather than the bottom one's alone. Its
+          max height and offset follow the visible area (useVisibleArea), so
+          with the keyboard up the sheet ends above it and scrolls inside. From
+          sm up it is the centred card, untouched. */}
+      <DialogContent
+        className={cn(
+          "max-h-[85dvh] sm:max-w-2xl",
+          "max-sm:top-[var(--sheet-top,0px)] max-sm:bottom-auto max-sm:max-h-[var(--sheet-max-h,85dvh)]",
+          "max-sm:rounded-t-none max-sm:rounded-b-2xl max-sm:pt-[max(1.25rem,env(safe-area-inset-top))]",
+          "max-sm:data-open:slide-in-from-top-4 max-sm:data-closed:slide-out-to-top-4",
+        )}
+        style={
+          visible
+            ? ({
+                "--sheet-top": `${visible.top}px`,
+                "--sheet-max-h": `${Math.max(240, visible.height - SHEET_BOTTOM_GAP)}px`,
+              } as React.CSSProperties)
+            : undefined
+        }
+        onOpenAutoFocus={(event) => {
+          // The search field, not the first thing Radix finds. (Adding a visit
+          // to a known place has no search field, and keeps Radix's default.)
+          if (searchRef.current) {
+            event.preventDefault();
+            searchRef.current.focus();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
-            {editingOneVisit ? "Edit visit" : editingExisting ? "Add another visit" : "Log a place"}
+            {justSaved
+              ? "Logged"
+              : editingOneVisit
+                ? "Edit visit"
+                : editingExisting
+                  ? "Add another visit"
+                  : "Log a place"}
           </DialogTitle>
           <DialogDescription>
-            {editingOneVisit
-              ? `A visit to ${place?.name}.`
-              : editingExisting
-                ? `Another time you were at ${place?.name}.`
-                : "Somewhere you stayed overnight or spent a real day. Not layovers or drive-throughs."}
+            {justSaved
+              ? "Logging a few from the same trip? The date and occasion carry over."
+              : editingOneVisit
+                ? `A visit to ${place?.name}.`
+                : editingExisting
+                  ? `Another time you were at ${place?.name}.`
+                  : "Somewhere you stayed overnight or spent a real day. Not layovers or drive-throughs."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
-          {/* 1. Search, or the fixed place when adding a visit. */}
-          {editingExisting ? (
-            <div className="flex items-start gap-2.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
-              <PlaceTypeIcon type={place!.place_type} className="mt-0.5 size-4 text-brand" />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{place!.name}</p>
-                {locationLine ? (
-                  <p className="truncate text-xs text-muted-foreground">{locationLine}</p>
-                ) : null}
-              </div>
+        {justSaved ? (
+          <div className="flex flex-col gap-4">
+            <p className="flex items-start gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm">
+              <CheckCircle2Icon className="mt-0.5 size-4 shrink-0 text-brand" />
+              {justSaved}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="flex-1"
+                onClick={() => handleOpenChange(false)}
+              >
+                Done
+              </Button>
+              <Button type="button" className="flex-1" onClick={logAnother}>
+                Log another
+              </Button>
             </div>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="place-search">Where</Label>
-              <PlaceSearchInput id="place-search" onPick={handlePick} />
-            </div>
-          )}
-
-          {showRest ? (
-            <>
-              {/* Name stays editable even for a catalog pick: everything else
-                  from the catalog is fixed, but what you call it is yours. */}
-              {!editingExisting ? (
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="place-name">Name</Label>
-                  <Input
-                    id="place-name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    disabled={busy}
-                  />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {/* 1. Search, or the fixed place when adding a visit. */}
+            {editingExisting ? (
+              <div className="flex items-start gap-2.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5">
+                <PlaceTypeIcon type={place!.place_type} className="mt-0.5 size-4 text-brand" />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{place!.name}</p>
                   {locationLine ? (
-                    <p className="text-xs text-muted-foreground">{locationLine}</p>
+                    <p className="truncate text-xs text-muted-foreground">{locationLine}</p>
                   ) : null}
                 </div>
-              ) : null}
-
-              {/* 2. Place type: a statement for a catalog pick, a question otherwise. */}
-              {!editingExisting ? (
-                <div className="flex flex-col gap-1.5">
-                  <Label>Type</Label>
-                  {typeLocked ? (
-                    <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-brand/40 bg-brand/10 px-2.5 py-1.5 text-foreground">
-                        <PlaceTypeIcon type={placeType} className="size-4 text-brand" />
-                        {PLACE_TYPES.find((p) => p.type === placeType)?.label}
-                      </span>
-                      {picked?.catalogs.map((c) => (
-                        <span key={c.slug} className="text-xs">
-                          {c.label}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-3 gap-2">
-                      {PLACE_TYPES.map((option) => {
-                        const active = option.type === placeType;
-                        return (
-                          <button
-                            key={option.type}
-                            type="button"
-                            disabled={busy}
-                            aria-pressed={active}
-                            onClick={() => setPlaceType(option.type)}
-                            className={cn(
-                              "flex flex-col items-center gap-1 rounded-lg border px-1 py-2.5 text-[11px] transition-colors disabled:opacity-50",
-                              active
-                                ? "border-brand bg-brand/15 text-foreground"
-                                : "border-white/10 bg-white/[0.03] text-foreground/60 hover:bg-white/[0.07] hover:text-foreground",
-                            )}
-                          >
-                            <PlaceTypeIcon type={option.type} className="size-4" />
-                            {option.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-
-              {/* 3. When. An open range is a valid intermediate state. */}
+              </div>
+            ) : (
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="place-dates">When</Label>
-                <DateRangePicker
-                  id="place-dates"
-                  start={visitDate}
-                  end={endDate}
-                  disabled={busy}
-                  placeholder="Pick a date"
-                  ariaLabel="Visit date, and an end date if it spanned days"
-                  onChange={(start, end) => {
-                    setVisitDate(start);
-                    setEndDate(end);
-                  }}
+                <Label htmlFor="place-search">Where</Label>
+                <PlaceSearchInput
+                  key={searchKey}
+                  id="place-search"
+                  inputRef={searchRef}
+                  onPick={handlePick}
                 />
               </div>
+            )}
 
-              {/* 4. Occasion. */}
-              <div className="flex flex-col gap-1.5">
-                <Label>Occasion</Label>
-                <div className="flex flex-wrap gap-2">
-                  {occasions.map((occasion) => {
-                    const active = occasion.id === occasionId;
-                    return (
-                      <button
-                        key={occasion.id}
-                        type="button"
-                        disabled={busy}
-                        aria-pressed={active}
-                        onClick={() => setOccasionId(active ? null : occasion.id)}
-                        style={active && occasion.color ? { borderColor: occasion.color } : undefined}
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50",
-                          active
-                            ? "bg-white/[0.08] text-foreground"
-                            : "border-white/10 bg-white/[0.03] text-foreground/60 hover:bg-white/[0.07] hover:text-foreground",
-                        )}
-                      >
-                        <OccasionIcon
-                          name={occasion.icon}
-                          className="size-3.5"
-                          // The seeded colour is the chip's whole identity, so
-                          // it stays on the icon even when the chip is off.
-                        />
-                        {occasion.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 5 and 6. Game fields. */}
-              {isGame ? (
-                <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.02] p-3">
-                  {/* event_org is a TEXT FIELD that the tenant chips fill, not a
-                      chips-only value. A venue's tenant list is who plays there
-                      normally, which is the wrong question for a visiting team, a
-                      neutral-site game, or a college game at a pro venue: Badgers
-                      vs Notre Dame at Lambeau has no Packers chip to tap, and
-                      event_org would have stayed null while the matchup went into
-                      the details. The chips are a shortcut for the common case,
-                      never the only way in. */}
+            {showRest ? (
+              <>
+                {/* THE PLACE'S NAME IS WHERE, NOT WHAT. It defaults to the picked
+                    city or venue and stays editable (what you call a place is
+                    yours), but its label and hint say it names a location, and
+                    point the event at "What was it?" below. Event names kept
+                    landing here, where they are public on a shared profile and
+                    wrong for every later visit to the same place. */}
+                {!editingExisting ? (
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="place-event-org">Who played</Label>
+                    <Label htmlFor="place-name">Place name</Label>
                     <Input
-                      id="place-event-org"
-                      value={eventOrg}
-                      placeholder="Team, school, or club"
+                      id="place-name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
                       disabled={busy}
-                      onChange={(e) => setEventOrg(e.target.value)}
                     />
-                    {showTenants ? (
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {availableTenants.map((tenant) => {
-                          // Active on an exact match, so a chip lights up whether
-                          // it was tapped or the same name was typed, and stops
-                          // looking selected the moment it is edited.
-                          const active = tenant === eventOrg.trim();
+                    <p className="text-xs text-muted-foreground">
+                      {locationLine ? `${locationLine}. ` : ""}
+                      The city or venue. The event goes in What was it, below.
+                    </p>
+                  </div>
+                ) : null}
+
+                {/* 2. Place type: a statement for a catalog pick, a question otherwise. */}
+                {!editingExisting ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Type</Label>
+                    {typeLocked ? (
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg border border-brand/40 bg-brand/10 px-2.5 py-1.5 text-foreground">
+                          <PlaceTypeIcon type={placeType} className="size-4 text-brand" />
+                          {PLACE_TYPES.find((p) => p.type === placeType)?.label}
+                        </span>
+                        {picked?.catalogs.map((c) => (
+                          <span key={c.slug} className="text-xs">
+                            {c.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2">
+                        {PLACE_TYPES.map((option) => {
+                          const active = option.type === placeType;
                           return (
                             <button
-                              key={tenant}
+                              key={option.type}
                               type="button"
                               disabled={busy}
                               aria-pressed={active}
-                              onClick={() => setEventOrg(active ? "" : tenant)}
+                              onClick={() => setPlaceType(option.type)}
                               className={cn(
-                                "rounded-full border px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50",
+                                "flex flex-col items-center gap-1 rounded-lg border px-1 py-2.5 text-[11px] transition-colors disabled:opacity-50",
                                 active
                                   ? "border-brand bg-brand/15 text-foreground"
                                   : "border-white/10 bg-white/[0.03] text-foreground/60 hover:bg-white/[0.07] hover:text-foreground",
                               )}
                             >
-                              {tenant}
+                              <PlaceTypeIcon type={option.type} className="size-4" />
+                              {option.label}
                             </button>
                           );
                         })}
                       </div>
-                    ) : null}
+                    )}
                   </div>
+                ) : null}
 
-                  {/* Always visible for a game, tenants or not: a venue with no
-                      tenant list still hosted somebody. */}
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="place-event-detail">Details</Label>
-                    <Input
-                      id="place-event-detail"
-                      value={eventDetail}
-                      placeholder="Opponent, score, whatever"
-                      disabled={busy}
-                      onChange={(e) => setEventDetail(e.target.value)}
-                    />
+                {/* 3. When. An open range is a valid intermediate state. */}
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="place-dates">When</Label>
+                  <DateRangePicker
+                    id="place-dates"
+                    start={visitDate}
+                    end={endDate}
+                    disabled={busy}
+                    placeholder="Pick a date"
+                    ariaLabel="Visit date, and an end date if it spanned days"
+                    onChange={(start, end) => {
+                      setVisitDate(start);
+                      setEndDate(end);
+                    }}
+                  />
+                </div>
+
+                {/* 4. Occasion. */}
+                <div className="flex flex-col gap-1.5">
+                  <Label>Occasion</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {occasions.map((occasion) => {
+                      const active = occasion.id === occasionId;
+                      return (
+                        <button
+                          key={occasion.id}
+                          type="button"
+                          disabled={busy}
+                          aria-pressed={active}
+                          onClick={() => setOccasionId(active ? null : occasion.id)}
+                          style={active && occasion.color ? { borderColor: occasion.color } : undefined}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50",
+                            active
+                              ? "bg-white/[0.08] text-foreground"
+                              : "border-white/10 bg-white/[0.03] text-foreground/60 hover:bg-white/[0.07] hover:text-foreground",
+                          )}
+                        >
+                          <OccasionIcon
+                            name={occasion.icon}
+                            className="size-3.5"
+                            // The seeded colour is the chip's whole identity, so
+                            // it stays on the icon even when the chip is off.
+                          />
+                          {occasion.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-              ) : null}
 
-              {/* 7. How you got there. */}
-              <div className="flex flex-col gap-1.5">
-                <Label>Getting there</Label>
-                <div className="grid grid-cols-4 gap-2">
-                  {TRANSPORT_MODES.map((info) => {
-                    const active = info.mode === transportMode;
-                    return (
-                      <button
-                        key={info.mode}
-                        type="button"
+                {/* 4b. The visit's own name: the obvious home for the event, right
+                    after the chips that classify it. Stored as occasion_label. */}
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="place-occasion-label">What was it?</Label>
+                  <Input
+                    id="place-occasion-label"
+                    value={occasionLabel}
+                    maxLength={120}
+                    placeholder="Wedding, tournament, bachelor party"
+                    disabled={busy}
+                    onChange={(e) => setOccasionLabel(e.target.value)}
+                  />
+                </div>
+
+                {/* 5 and 6. Game fields. */}
+                {isGame ? (
+                  <div className="flex flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.02] p-3">
+                    {/* event_org is a TEXT FIELD that the tenant chips fill, not a
+                        chips-only value. A venue's tenant list is who plays there
+                        normally, which is the wrong question for a visiting team, a
+                        neutral-site game, or a college game at a pro venue: Badgers
+                        vs Notre Dame at Lambeau has no Packers chip to tap, and
+                        event_org would have stayed null while the matchup went into
+                        the details. The chips are a shortcut for the common case,
+                        never the only way in. */}
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="place-event-org">Who played</Label>
+                      <Input
+                        id="place-event-org"
+                        value={eventOrg}
+                        placeholder="Team, school, or club"
                         disabled={busy}
-                        aria-pressed={active}
-                        onClick={() => setTransportMode(active ? null : info.mode)}
-                        className={cn(
-                          "flex flex-col items-center gap-1 rounded-lg border px-1 py-2.5 text-[11px] transition-colors disabled:opacity-50",
-                          active
-                            ? "border-brand bg-brand/15 text-foreground"
-                            : "border-white/10 bg-white/[0.03] text-foreground/60 hover:bg-white/[0.07] hover:text-foreground",
-                        )}
-                      >
-                        <TransportModeIcon mode={info.mode} className="size-4" />
-                        {info.label}
-                      </button>
-                    );
-                  })}
+                        onChange={(e) => setEventOrg(e.target.value)}
+                      />
+                      {showTenants ? (
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {availableTenants.map((tenant) => {
+                            // Active on an exact match, so a chip lights up whether
+                            // it was tapped or the same name was typed, and stops
+                            // looking selected the moment it is edited.
+                            const active = tenant === eventOrg.trim();
+                            return (
+                              <button
+                                key={tenant}
+                                type="button"
+                                disabled={busy}
+                                aria-pressed={active}
+                                onClick={() => setEventOrg(active ? "" : tenant)}
+                                className={cn(
+                                  "rounded-full border px-2.5 py-1.5 text-xs transition-colors disabled:opacity-50",
+                                  active
+                                    ? "border-brand bg-brand/15 text-foreground"
+                                    : "border-white/10 bg-white/[0.03] text-foreground/60 hover:bg-white/[0.07] hover:text-foreground",
+                                )}
+                              >
+                                {tenant}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* Always visible for a game, tenants or not: a venue with no
+                        tenant list still hosted somebody. */}
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="place-event-detail">Details</Label>
+                      <Input
+                        id="place-event-detail"
+                        value={eventDetail}
+                        placeholder="Opponent, score, whatever"
+                        disabled={busy}
+                        onChange={(e) => setEventDetail(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* 7. How you got there. */}
+                <div className="flex flex-col gap-1.5">
+                  <Label>Getting there</Label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {TRANSPORT_MODES.map((info) => {
+                      const active = info.mode === transportMode;
+                      return (
+                        <button
+                          key={info.mode}
+                          type="button"
+                          disabled={busy}
+                          aria-pressed={active}
+                          onClick={() => setTransportMode(active ? null : info.mode)}
+                          className={cn(
+                            "flex flex-col items-center gap-1 rounded-lg border px-1 py-2.5 text-[11px] transition-colors disabled:opacity-50",
+                            active
+                              ? "border-brand bg-brand/15 text-foreground"
+                              : "border-white/10 bg-white/[0.03] text-foreground/60 hover:bg-white/[0.07] hover:text-foreground",
+                          )}
+                        >
+                          <TransportModeIcon mode={info.mode} className="size-4" />
+                          {info.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
 
-              {/* 8. Notes. */}
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="place-notes">Notes</Label>
-                <Textarea
-                  id="place-notes"
-                  value={notes}
-                  rows={3}
-                  disabled={busy}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </div>
+                {/* 8. Notes. */}
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="place-notes">Notes</Label>
+                  <Textarea
+                    id="place-notes"
+                    value={notes}
+                    rows={3}
+                    disabled={busy}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </div>
 
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="flex-1"
-                  disabled={busy}
-                  onClick={() => handleOpenChange(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="button" className="flex-1" disabled={busy} onClick={handleSave}>
-                  {busy ? "Saving" : editingOneVisit ? "Save" : editingExisting ? "Add visit" : "Log it"}
-                </Button>
-              </div>
-            </>
-          ) : null}
-        </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="flex-1"
+                    disabled={busy}
+                    onClick={() => handleOpenChange(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="button" className="flex-1" disabled={busy} onClick={handleSave}>
+                    {busy ? "Saving" : editingOneVisit ? "Save" : editingExisting ? "Add visit" : "Log it"}
+                  </Button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

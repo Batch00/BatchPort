@@ -121,15 +121,24 @@ check("catalogs: string-typed numerics from PostgREST still count", () => {
   assert.equal(started[0].fraction, 1 / 30);
 });
 
-check("tiles: five types always, zero landmarks included, other when nonzero", () => {
+check("tiles: cities, stadiums, parks, always, and nothing else", () => {
+  // The real counts: a campus and an "other" are logged, so the headline (12)
+  // is larger than the three tiles (4 + 4 + 2 = 10), which is correct.
   const counts = {
     total_places: 12, localities: 10, cities: 4, campuses: 1,
     stadiums: 4, parks: 2, landmarks: 0, others: 1,
   };
   const tiles = typeTiles(counts);
-  assert.deepEqual(tiles.map((t) => t.key), ["city", "campus", "stadium", "park", "landmark", "other"]);
-  assert.equal(tiles.reduce((s, t) => s + t.count, 0), counts.total_places);
-  assert.equal(typeTiles({ ...counts, others: 0 }).length, 5);
+  assert.deepEqual(tiles.map((t) => t.key), ["city", "stadium", "park"]);
+  assert.deepEqual(tiles.map((t) => t.count), [4, 4, 2]);
+  assert.ok(tiles.reduce((s, t) => s + t.count, 0) < counts.total_places);
+  // No tile for the dropped types, whatever they hold.
+  const crowded = typeTiles({ ...counts, campuses: 5, landmarks: 5, others: 5 });
+  assert.deepEqual(crowded.map((t) => t.key), ["city", "stadium", "park"]);
+  // A zero still renders, so the row keeps its shape.
+  const noParks = typeTiles({ ...counts, parks: 0 });
+  assert.equal(noParks.length, 3);
+  assert.equal(noParks[2].count, 0);
 });
 
 check("occasions: most visits first, ties in picker order", () => {

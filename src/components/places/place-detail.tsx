@@ -195,8 +195,14 @@ export function PlaceDetail({
         ) : (
           place.visits.map((visit) => {
             const occasion = visit.occasion_id ? occasionById.get(visit.occasion_id) : null;
+            // The visit's own label leads ("Dave and Priya's wedding"), then
+            // the occasion type it was filed under, unless they say the same.
+            const label = visit.occasion_label?.trim() || null;
             const facts = [
-              occasion?.label,
+              label,
+              label && occasion?.label && label.toLowerCase() === occasion.label.toLowerCase()
+                ? null
+                : occasion?.label,
               visit.event_org,
               visit.event_detail,
             ].filter(Boolean);

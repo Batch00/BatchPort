@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import { Loader2Icon, SearchIcon } from "lucide-react";
 
 import { PlaceTypeIcon } from "@/components/places/place-type-icon";
@@ -32,6 +32,8 @@ interface PlaceSearchInputProps {
   id?: string;
   placeholder?: string;
   className?: string;
+  /** The text field itself, so the sheet can focus it on open. */
+  inputRef?: Ref<HTMLInputElement>;
 }
 
 export function PlaceSearchInput({
@@ -40,6 +42,7 @@ export function PlaceSearchInput({
   id,
   placeholder = "Search for a place or venue",
   className,
+  inputRef,
 }: PlaceSearchInputProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlaceSearchResult[]>([]);
@@ -127,11 +130,23 @@ export function PlaceSearchInput({
       <div className="relative">
         <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          ref={inputRef}
           id={id}
           value={query}
           autoComplete="off"
+          // The phone keyboard's return key reads "Search", and pressing it
+          // searches NOW (no debounce wait) and lowers the keyboard, which is
+          // what uncovers the results on a short screen.
+          enterKeyHint="search"
           placeholder={placeholder}
           className="pr-8 pl-8"
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            runSearch(query);
+            e.currentTarget.blur();
+          }}
           onChange={(e) => handleInput(e.target.value)}
           onFocus={() => {
             if (results.length > 0) setOpen(true);

@@ -235,9 +235,22 @@ export interface PlaceCatalogItem {
 
 /** A place plus its visit rollup, from batchport.v_places. */
 export interface PlaceListRow extends Place {
+  // visit_count, first_visit_date and latest_visit_date come from v_places,
+  // which is UNFILTERED: they include visits dated after today.
   visit_count: number;
   first_visit_date: string | null;
   latest_visit_date: string | null;
+  /** The latest visit ON OR BEFORE today, from v_place_visits_to_date. Not a
+   * view column: getPlacesList attaches it. Null when every visit is still in
+   * the future, or there are none. */
+  latest_visit_to_date: string | null;
+  /** The occasion of that same visit, so a row showing its most recent visit
+   * names that visit's occasion rather than the first one's. */
+  latest_visit_to_date_occasion_id: string | null;
+  /** Visits on or before today. The row's repeat badge reads this, not
+   * visit_count, so it agrees with "Most recent" and never counts a booked
+   * visit as one that happened. */
+  visit_count_to_date: number;
   first_occasion_slug: string | null;
   first_occasion_label: string | null;
   first_occasion_icon: string | null;

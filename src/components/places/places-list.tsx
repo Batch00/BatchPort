@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { RepeatIcon } from "lucide-react";
 
@@ -8,6 +8,9 @@ import { PlaceTypeIcon } from "@/components/places/place-type-icon";
 import {
   buildPlaceList,
   DEFAULT_PLACE_FILTERS,
+  DEFAULT_PLACE_SORT,
+  PLACE_SORT_LABELS,
+  rowDate,
   shortLocalityLabel,
   type PlaceFilters,
   type PlaceSort,
@@ -25,6 +28,42 @@ import { cn } from "@/lib/utils";
 // header and indented rows; a lone locality and a place with no locality are
 // bare rows in the same sequence. See lib/place-groups.ts for why that is not
 // two lists.
+
+// The chosen sort, remembered for the tab session like the globe's basemap
+// and places-pins choices. Read through useSyncExternalStore rather than a
+// lazy useState initializer, because this list is server-rendered and its
+// order IS the markup: the server and the first client paint both use the
+// default, and the stored choice applies right after hydration instead of
+// producing a mismatch.
+const SORT_STORAGE_KEY = "batchport:places-sort";
+const SORT_EVENT = "batchport:places-sort";
+
+function isPlaceSort(value: string | null): value is PlaceSort {
+  return value === "recent" || value === "first-visit" || value === "name";
+}
+
+function readStoredSort(): PlaceSort {
+  try {
+    const value = sessionStorage.getItem(SORT_STORAGE_KEY);
+    return isPlaceSort(value) ? value : DEFAULT_PLACE_SORT;
+  } catch {
+    return DEFAULT_PLACE_SORT;
+  }
+}
+
+function subscribeSort(onChange: () => void): () => void {
+  window.addEventListener(SORT_EVENT, onChange);
+  return () => window.removeEventListener(SORT_EVENT, onChange);
+}
+
+function storeSort(sort: PlaceSort) {
+  try {
+    sessionStorage.setItem(SORT_STORAGE_KEY, sort);
+  } catch {
+    // Storage unavailable: the choice holds for this render only.
+  }
+  window.dispatchEvent(new Event(SORT_EVENT));
+}
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -48,8 +87,30 @@ function formatDate(iso: string | null): string | null {
 // locality a header. Twenty places would mean roughly eleven headers reading
 // "1 place", and a park with no locality could not have one at all, so the
 // header route makes the common case worse and still does not cover it.
-function PlaceRow({ place, inGroup }: { place: PlaceListRow; inGroup: boolean }) {
-  const first = formatDate(place.first_visit_date);
+function PlaceRow({
+  place,
+  inGroup,
+  sort,
+  occasionLabels,
+}: {
+  place: PlaceListRow;
+  inGroup: boolean;
+  sort: PlaceSort;
+  occasionLabels: Map<string, string>;
+}) {
+  // The date follows the sort: the latest visit to date under Most recent,
+  // the first visit otherwise, and "Upcoming" for a place that has not
+  // happened yet under every sort (see rowDate).
+  const { date, upcoming } = rowDate(place, sort);
+  const shown = formatDate(date);
+  const dateText = upcoming ? `Upcoming ${shown ?? ""}`.trim() : (shown ?? "No date");
+  // The occasion belongs to the visit whose date is shown.
+  const occasion =
+    sort === "recent" && !upcoming
+      ? place.latest_visit_to_date_occasion_id
+        ? (occasionLabels.get(place.latest_visit_to_date_occasion_id) ?? null)
+        : null
+      : place.first_occasion_label;
   // Empty for a park or a venue with no city, which correctly adds nothing.
   const locality = inGroup ? "" : shortLocalityLabel(place);
   return (
@@ -70,19 +131,19 @@ function PlaceRow({ place, inGroup }: { place: PlaceListRow; inGroup: boolean })
           {place.visit_count === 0 ? (
             [locality, "No visits logged"].filter(Boolean).join(" · ")
           ) : (
-            [locality, first ?? "No date", place.first_occasion_label]
-              .filter(Boolean)
-              .join(" · ")
+            [locality, dateText, occasion].filter(Boolean).join(" · ")
           )}
         </span>
       </span>
-      {place.visit_count > 1 ? (
+      {/* Visits TO DATE, so a booked game is not counted as a return trip and
+          an upcoming-only place (zero to date) shows no badge at all. */}
+      {place.visit_count_to_date > 1 ? (
         <span
           className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-muted-foreground"
-          title={`${place.visit_count} visits`}
+          title={`${place.visit_count_to_date} visits so far`}
         >
           <RepeatIcon className="size-3" />
-          {place.visit_count}
+          {place.visit_count_to_date}
         </span>
       ) : null}
     </Link>
@@ -96,7 +157,11 @@ interface PlacesListProps {
 
 export function PlacesList({ places, occasions }: PlacesListProps) {
   const [filters, setFilters] = useState<PlaceFilters>(DEFAULT_PLACE_FILTERS);
-  const [sort, setSort] = useState<PlaceSort>("first-visit");
+  const sort = useSyncExternalStore(subscribeSort, readStoredSort, () => DEFAULT_PLACE_SORT);
+  const occasionLabels = useMemo(
+    () => new Map(occasions.map((o) => [o.id, o.label])),
+    [occasions],
+  );
 
   const entries = useMemo(() => buildPlaceList(places, filters, sort), [places, filters, sort]);
 
@@ -146,16 +211,24 @@ export function PlacesList({ places, occasions }: PlacesListProps) {
           </Chip>
         ))}
 
-        <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+        {/* A native select: three options, and on a phone the platform's own
+            picker. text-base below md so iOS does not zoom on focus. */}
+        <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
           <span>Sort</span>
-          <button
-            type="button"
-            onClick={() => setSort(sort === "first-visit" ? "name" : "first-visit")}
-            className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1 text-foreground/80 transition-colors hover:bg-white/[0.07]"
+          <select
+            value={sort}
+            onChange={(e) => {
+              if (isPlaceSort(e.target.value)) storeSort(e.target.value);
+            }}
+            className="h-8 cursor-pointer rounded-md border border-white/10 bg-white/[0.03] px-2 text-base text-foreground/80 transition-colors hover:bg-white/[0.07] md:text-xs"
           >
-            {sort === "first-visit" ? "First visit" : "Name"}
-          </button>
-        </div>
+            {(Object.keys(PLACE_SORT_LABELS) as PlaceSort[]).map((key) => (
+              <option key={key} value={key}>
+                {PLACE_SORT_LABELS[key]}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {entries.length === 0 ? (
@@ -185,11 +258,23 @@ export function PlacesList({ places, occasions }: PlacesListProps) {
                   <span className="ml-2 normal-case opacity-60">{entry.places.length} places</span>
                 </h2>
                 {entry.places.map((place) => (
-                  <PlaceRow key={place.id} place={place} inGroup />
+                  <PlaceRow
+                    key={place.id}
+                    place={place}
+                    inGroup
+                    sort={sort}
+                    occasionLabels={occasionLabels}
+                  />
                 ))}
               </section>
             ) : (
-              <PlaceRow key={entry.key} place={entry.place} inGroup={false} />
+              <PlaceRow
+                key={entry.key}
+                place={entry.place}
+                inGroup={false}
+                sort={sort}
+                occasionLabels={occasionLabels}
+              />
             ),
           )}
         </div>
