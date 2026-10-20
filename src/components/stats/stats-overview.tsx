@@ -140,7 +140,8 @@ function Sliver({ pct }: { pct: number }) {
   );
 }
 
-// A compact tile. `unit` rides beside the number ("of 50") and `subtext` is a
+// A compact tile. `unit` rides beside the number ("of 50", or a node when it
+// needs more than a string, as the DC note does) and `subtext` is a
 // one-line fun caption under it in the brand colour the feature cards use for
 // theirs. Both are optional, so the original four tiles render exactly as
 // they did.
@@ -155,7 +156,7 @@ function SupportTile({
   label: string;
   value: number;
   icon: LucideIcon;
-  unit?: string;
+  unit?: React.ReactNode;
   subtext?: string | null;
   className?: string;
 }) {
@@ -190,16 +191,34 @@ function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
-// The states caption, a true statement at every count. DC is on the map and
-// not in the 50, so it is named rather than silently dropped.
+// The states caption: what is LEFT, and nothing else. DC is not in the 50 and
+// is never "to go", so it does not appear here at all; a visited DC is named in
+// the headline instead (statesUnit), the way the stats page's map says it. It
+// used to ride the caption as "33 to go, plus DC", which read as DC still
+// being left to visit.
 function statesSubtext(places: DashboardPlacesSummary): string {
   const togo = Math.max(0, places.statesTotal - places.statesVisited);
-  if (places.statesVisited === 0) {
-    return places.dcVisited ? "DC so far" : "Your first state is out there";
-  }
-  if (togo === 0) return places.dcVisited ? "All 50, and DC" : "All 50";
-  const rest = `${togo} to go`;
-  return places.dcVisited ? `${rest}, plus DC` : rest;
+  if (places.statesVisited === 0) return "Your first state is out there";
+  if (togo === 0) return "All 50";
+  return `${togo} to go`;
+}
+
+// "of 50", plus the DC note when DC is visited and nothing when it is not.
+// Phone tiles are about 140px wide inside, so the note is "+ DC" there and
+// the stats page's own wording, ", plus DC", from sm up. Muted like the
+// stats page's, so the number stays the headline.
+function statesUnit(places: DashboardPlacesSummary): React.ReactNode {
+  const base = `of ${places.statesTotal}`;
+  if (!places.dcVisited) return base;
+  return (
+    <>
+      {base}
+      <span className="text-foreground/40">
+        <span className="sm:hidden"> + DC</span>
+        <span className="hidden sm:inline">, plus DC</span>
+      </span>
+    </>
+  );
 }
 
 // The places caption names the localities, the towns those places sit in. A
@@ -304,7 +323,7 @@ export function StatsOverview({
           <SupportTile
             label="US states"
             value={places.statesVisited}
-            unit={`of ${places.statesTotal}`}
+            unit={statesUnit(places)}
             subtext={statesSubtext(places)}
             icon={MapPinnedIcon}
             className="lg:col-span-2"
