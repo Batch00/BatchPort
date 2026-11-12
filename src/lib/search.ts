@@ -1,12 +1,15 @@
 import { requireUser } from "@/lib/current-user";
 import {
+  COUNTRY_PARAM,
   EMPTY_SEARCH_RESULTS,
   SEARCH_MIN_CHARS,
+  type SearchResult,
   type SearchResults,
 } from "@/lib/search-types";
 
 // Search across the user's OWN data: trips, destinations, experiences, and the
-// bucket list, matching names and notes. This is deliberately not the globe's
+// bucket list, matching names and notes, plus the countries the user has a
+// stop in, matched by country name. This is deliberately not the globe's
 // geocode search, which finds places in the world; this finds things you have
 // already written down.
 //
@@ -62,6 +65,87 @@ function matches(value: string | null | undefined, query: string): boolean {
   return Boolean(value && value.toLowerCase().includes(query.toLowerCase()));
 }
 
+type SessionClient = Awaited<ReturnType<typeof requireUser>>["supabase"];
+
+/**
+ * Countries the user has at least one stop in, matched by name. A stop's own
+ * name rarely contains its country ("Rome" does not match "Italy"), so without
+ * this the palette could not find a country at all. Each result opens the
+ * dashboard's drill-down for that country, the same panel a globe tap opens.
+ *
+ * Two steps because destinations carry only a country code: resolve the name
+ * against the world-readable `countries` reference table, then count the
+ * user's own stops in those codes. The second read is the one that touches a
+ * user-owned table, and it carries the explicit owner filter.
+ */
+async function searchCountries(
+  supabase: SessionClient,
+  userId: string,
+  query: string,
+): Promise<SearchResult[]> {
+  const { data: countryRows } = await supabase
+    .from("countries")
+    .select("code, name")
+    // No limit: the table is about 250 rows, and a cap on a two-letter query
+    // ("an") could drop the one country the user has actually been to.
+    .or(orTerm(["name"], query));
+  const named = (countryRows ?? []) as { code: string; name: string }[];
+  if (named.length === 0) return [];
+
+  const { data: stopRows } = await supabase
+    .from("destinations")
+    .select("country_code, trip_id")
+    .eq("user_id", userId)
+    .in("country_code", named.map((row) => row.code));
+  const stops = (stopRows ?? []) as {
+    country_code: string | null;
+    trip_id: string;
+  }[];
+
+  type Tally = { stops: number; trips: Set<string> };
+  const tally = new Map<string, Tally>();
+  for (const stop of stops) {
+    if (!stop.country_code) continue;
+    const entry: Tally = tally.get(stop.country_code) ?? {
+      stops: 0,
+      trips: new Set<string>(),
+    };
+    entry.stops += 1;
+    entry.trips.add(stop.trip_id);
+    tally.set(stop.country_code, entry);
+  }
+
+  const lower = query.toLowerCase();
+  return named
+    .flatMap((row) => {
+      const counts = tally.get(row.code);
+      return counts ? [{ row, counts }] : [];
+    })
+    // A name that starts with the query outranks one that merely contains it
+    // ("Guinea" before "Papua New Guinea"), then the country with the most
+    // stops.
+    .sort(
+      (a, b) =>
+        Number(b.row.name.toLowerCase().startsWith(lower)) -
+          Number(a.row.name.toLowerCase().startsWith(lower)) ||
+        b.counts.stops - a.counts.stops ||
+        a.row.name.localeCompare(b.row.name),
+    )
+    .slice(0, GROUP_LIMIT)
+    .map(({ row, counts }) => {
+      const trips = counts.trips.size;
+      return {
+        kind: "country" as const,
+        id: row.code,
+        title: row.name,
+        context: `${trips} ${trips === 1 ? "trip" : "trips"} · ${counts.stops} ${counts.stops === 1 ? "stop" : "stops"}`,
+        excerpt: null,
+        href: `/dashboard?${COUNTRY_PARAM}=${encodeURIComponent(row.code)}`,
+        countryCode: row.code,
+      };
+    });
+}
+
 export async function searchUserData(
   rawQuery: string,
 ): Promise<SearchResults> {
@@ -73,7 +157,8 @@ export async function searchUserData(
   // Narrow selects: only what the result row renders plus the ids needed to
   // build its href. bucket_list uses * because its notes column is optional
   // until 2026-07-16-bucket-notes.sql has run.
-  const [trips, destinations, experiences, bucket] = await Promise.all([
+  const [countries, trips, destinations, experiences, bucket] = await Promise.all([
+    searchCountries(supabase, user.id, query),
     supabase
       .from("trips")
       .select("id, name, notes, status, start_date, end_date")
@@ -147,6 +232,7 @@ export async function searchUserData(
   );
 
   return {
+    countries,
     trips: tripRows.map((row) => {
       const year = row.start_date ? row.start_date.slice(0, 4) : null;
       return {

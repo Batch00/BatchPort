@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { PlusIcon, BarChart3Icon } from "lucide-react";
 
 import {
@@ -16,6 +16,8 @@ import type { MapData } from "@/lib/map-data";
 import type { PhotoMapData } from "@/lib/photo-map-data";
 import type { PlannedExperiencePoint } from "@/lib/nearby";
 import type { Category } from "@/lib/types";
+import { countryName } from "@/lib/format";
+import { COUNTRY_PARAM } from "@/lib/search-types";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDiscovery } from "@/components/discover/discovery-host";
@@ -149,6 +151,35 @@ export function DashboardGlobe({
     setPrevTarget(discoverTarget);
     if (discoverTarget) setSelected(null);
   }
+
+  // `?country=IT` opens that country's drill-down, the same panel a globe tap
+  // opens. The nav search links here. Render-time state reset, like the
+  // discovery reset above; a code the user has no stop in is ignored, since
+  // its panel would be empty.
+  const searchParams = useSearchParams();
+  const countryParam = searchParams.get(COUNTRY_PARAM)?.toUpperCase() ?? null;
+  const [prevCountryParam, setPrevCountryParam] = useState<string | null>(null);
+  if (prevCountryParam !== countryParam) {
+    setPrevCountryParam(countryParam);
+    if (
+      countryParam &&
+      destinations.some((d) => d.countryCode === countryParam)
+    ) {
+      setSelected({ code: countryParam, name: countryName(countryParam) });
+    }
+  }
+
+  // Then drop the param, so a reload does not reopen a panel that was closed
+  // and choosing the same country again is a change the reset above sees.
+  // replaceState, not router.replace: Next syncs it into useSearchParams
+  // without refetching the dashboard. Discovery closes so one panel shows.
+  useEffect(() => {
+    if (!countryParam) return;
+    closeDiscover();
+    const url = new URL(window.location.href);
+    url.searchParams.delete(COUNTRY_PARAM);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [countryParam, closeDiscover]);
 
   // Escape dismisses the drill-down.
   useEffect(() => {

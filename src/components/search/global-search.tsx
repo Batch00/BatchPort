@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   BookmarkIcon,
+  GlobeIcon,
   Loader2Icon,
   MapPinIcon,
   SearchIcon,
@@ -42,6 +43,9 @@ const GROUPS: {
   label: string;
   icon: LucideIcon;
 }[] = [
+  // First: a country name is the broadest thing you can type, and its row
+  // opens the dashboard drill-down that lists everything beneath it.
+  { key: "countries", label: "Countries", icon: GlobeIcon },
   { key: "trips", label: "Trips", icon: TicketIcon },
   { key: "destinations", label: "Destinations", icon: MapPinIcon },
   { key: "experiences", label: "Experiences", icon: SparklesIcon },
@@ -49,6 +53,7 @@ const GROUPS: {
 ];
 
 const KIND_ICON: Record<SearchResultKind, LucideIcon> = {
+  country: GlobeIcon,
   trip: TicketIcon,
   destination: MapPinIcon,
   experience: SparklesIcon,
@@ -197,14 +202,18 @@ export function GlobalSearch({ className }: { className?: string }) {
           // Top-anchored rather than centred: the input should land near where
           // the trigger was, and on a phone keyboard the panel must not be
           // pushed off screen. Width is capped but never fixed, so 380px works.
-          className="fixed inset-x-2 top-3 z-50 mx-auto flex max-h-[85dvh] w-auto max-w-xl flex-col overflow-hidden rounded-xl bg-card text-card-foreground shadow-xl ring-1 ring-foreground/10 duration-150 data-open:animate-in data-open:fade-in-0 data-open:slide-in-from-top-2 data-closed:animate-out data-closed:fade-out-0 sm:inset-x-4 sm:top-[12vh]"
+          // The top carries the safe-area inset for the same reason the nav
+          // does: the root viewport is viewport-fit=cover, so in the installed
+          // PWA a flat top-3 put the input under the status bar and the notch.
+          // The height cap gives the inset back so the bottom still fits.
+          className="fixed inset-x-2 top-[calc(0.75rem+env(safe-area-inset-top))] z-50 mx-auto flex max-h-[calc(85dvh-env(safe-area-inset-top))] w-auto max-w-xl flex-col overflow-hidden rounded-xl bg-card text-card-foreground shadow-xl ring-1 ring-foreground/10 duration-150 data-open:animate-in data-open:fade-in-0 data-open:slide-in-from-top-2 data-closed:animate-out data-closed:fade-out-0 sm:inset-x-4 sm:top-[12vh]"
         >
           <DialogPrimitive.Title className="sr-only">
             Search your travels
           </DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">
-            Find your own trips, destinations, experiences, and bucket list
-            items by name or note.
+            Find the countries you have been to, and your own trips,
+            destinations, experiences, and bucket list items by name or note.
           </DialogPrimitive.Description>
 
           <div className="relative shrink-0 border-b border-white/10">

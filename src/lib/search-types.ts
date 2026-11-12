@@ -5,6 +5,7 @@
 export const SEARCH_MIN_CHARS = 2;
 
 export type SearchResultKind =
+  | "country"
   | "trip"
   | "destination"
   | "experience"
@@ -25,6 +26,8 @@ export interface SearchResult {
 }
 
 export interface SearchResults {
+  /** Countries the user has a stop in, matched by name. */
+  countries: SearchResult[];
   trips: SearchResult[];
   destinations: SearchResult[];
   experiences: SearchResult[];
@@ -32,14 +35,19 @@ export interface SearchResults {
 }
 
 export const EMPTY_SEARCH_RESULTS: SearchResults = {
+  countries: [],
   trips: [],
   destinations: [],
   experiences: [],
   bucket: [],
 };
 
+/** The dashboard query param that opens a country's drill-down panel. */
+export const COUNTRY_PARAM = "country";
+
 export function isSearchEmpty(results: SearchResults): boolean {
   return (
+    results.countries.length === 0 &&
     results.trips.length === 0 &&
     results.destinations.length === 0 &&
     results.experiences.length === 0 &&
