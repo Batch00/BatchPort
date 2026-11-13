@@ -1,16 +1,24 @@
 import { createHash } from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { createClient } from "@/utils/supabase/server";
+import { isDemoUser } from "@/lib/demo";
 
 // GET /api/photos/wikimedia/proxy?url={wikimedia_url}
 // Streams a Wikimedia Commons image back to the browser. This sidesteps CORS
 // and hotlinking concerns and lets the rest of the app treat Wikimedia photos
 // like any other same-origin image.
 //
-// On the first request for a given URL the image bytes are uploaded to Supabase
-// Storage under wikimedia/{sha256}.{ext} and the photos row is updated with the
-// storage_path. Subsequent requests for the same URL are served as a 302
-// redirect to the Supabase CDN, skipping the Wikimedia fetch entirely.
+// The route is public (the landing page, /demo, and /share read through it),
+// so it does not cache whatever it is asked for. When the image is not yet in
+// Storage, the bytes are uploaded under wikimedia/{sha256}.{ext} and the
+// photos row is updated with the storage_path ONLY when mayCacheToStorage()
+// says so: the caller is signed in and is not the demo account, or a
+// wikimedia photos row already names this exact url. Anything else is served
+// from the fetched bytes and written nowhere, so an anonymous caller cannot
+// fill the bucket by requesting distinct urls. Once an image is in Storage,
+// every request for it (signed in or not) is a 302 to the Supabase CDN that
+// skips Wikimedia and the session check entirely.
 //
 // The url parameter is the canonical ORIGINAL file and stays the cache key
 // (the storage path hash and photos.external_url both name it), but the bytes
@@ -91,6 +99,40 @@ async function scaledImageUrl(url: string): Promise<string | null> {
   }
 }
 
+// The one rule for whether this request may write to Storage. True when the
+// caller has a session that is not the demo account (a real user's surfaces
+// are what the cache exists for), or when a wikimedia photos row already
+// names this url (the image is one the app stores, whoever is looking at it).
+// Called on the slow path only, so a cached image costs no auth call. Any
+// failure answers false: an uncached image is served all the same.
+async function mayCacheToStorage(
+  url: string,
+  admin: ReturnType<typeof createAdminClient>,
+): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user && !isDemoUser(user.id)) return true;
+  } catch {
+    // No usable session: fall through to the photos row check.
+  }
+
+  try {
+    const { data, error } = await admin
+      .schema("batchport")
+      .from("photos")
+      .select("id")
+      .eq("external_url", url)
+      .eq("source", "wikimedia")
+      .limit(1);
+    return !error && (data?.length ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get("url");
   if (!url || !url.startsWith(ALLOWED_PREFIX)) {
@@ -141,6 +183,12 @@ export async function GET(request: NextRequest) {
 
   const contentType = upstream.headers.get("content-type") ?? "image/jpeg";
   const bytes = await upstream.arrayBuffer();
+
+  if (!(await mayCacheToStorage(url, admin))) {
+    return new NextResponse(bytes, {
+      headers: { "Content-Type": contentType, ...CACHE_HEADERS },
+    });
+  }
 
   // Best-effort: upload to Storage and update the photo record. Failures are
   // swallowed so we still serve the freshly-fetched bytes. That includes the
