@@ -245,6 +245,8 @@ export async function buildExportJson(): Promise<string> {
     settings: {
       public_share_enabled: settings.public_share_enabled,
       public_slug: settings.public_slug,
+      share_trip_scope: settings.share_trip_scope,
+      share_journal: settings.share_journal,
       home_location: home
         ? {
             name: home.name,

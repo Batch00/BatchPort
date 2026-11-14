@@ -8,13 +8,16 @@ import { isDemoBlocked } from "@/lib/demo-guard";
 import {
   RESERVED_SLUGS,
   SLUG_PATTERN,
+  isShareTripScope,
   type ShareSettingsInput,
 } from "@/lib/share-settings";
 import type { ActionResult } from "@/lib/action-result";
 
 // Update the current user's share settings. Demo accounts cannot change these.
 // The slug is normalized, format and reservation checked, and verified unique
-// across users (via the admin client, which can see every row).
+// across users (via the admin client, which can see every row). The trip scope
+// and journal switch are saved in the same upsert. The admin client is the only
+// writer: signed-in browsers have no INSERT or UPDATE on user_settings.
 export async function updateShareSettings(
   input: ShareSettingsInput,
 ): Promise<ActionResult> {
@@ -42,6 +45,15 @@ export async function updateShareSettings(
     return { error: "Choose a slug before enabling your public link." };
   }
 
+  // A server action's argument is whatever the request carried, so the scope
+  // is checked against the same list the database's check constraint holds.
+  if (!isShareTripScope(input.shareTripScope)) {
+    return { error: "Choose which trips to share: past, current, or all." };
+  }
+  if (typeof input.shareJournal !== "boolean") {
+    return { error: "Could not read the journal sharing choice." };
+  }
+
   const admin = createAdminClient();
 
   // Uniqueness: no other user may hold this slug.
@@ -66,6 +78,8 @@ export async function updateShareSettings(
         user_id: user.id,
         public_share_enabled: input.publicShareEnabled,
         public_slug: slug || null,
+        share_trip_scope: input.shareTripScope,
+        share_journal: input.shareJournal,
       },
       { onConflict: "user_id" },
     );
