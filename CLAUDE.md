@@ -188,6 +188,12 @@ Four clients exist for four contexts:
 
 Every user table has a `user_id` column and an RLS policy scoped to `auth.uid()`. The public share surface relies on an `is_shared()` SQL function in Supabase that returns true when a user has `public_share_enabled = true` in user_settings or `is_demo = true`. The anon client (no session) can SELECT through this helper without authentication. Do not use the admin client for share data fetching; it would bypass RLS and expose private profiles.
 
+**Shared reads after PORT-4** (`scripts/sql/2026-11-14-port-4*.sql`, see `KNOWN_ISSUES.md`):
+
+- **`user_settings` is readable and writable only by its owner and the admin client.** No browser writes it (every write is a server action on the admin client), and nobody reads another user's row. Slugs and the demo id resolve through `batchport.resolve_share_slug()` and `batchport.demo_user_id()`, definer functions that return a user id and nothing else; `getUserBySlug` and `getDemoUserId` call them with `.rpc()`.
+- **What a shared profile includes is decided by the helpers in `batchport_private`** (`share_scope`, `trip_is_public`, `destination_is_public`, `photo_is_public`, `journal_is_public`, `place_is_public`), from the owner's `share_trip_scope` and `share_journal`. The demo account shares everything. `is_shared(user_id)` alone now means only "this owner shares something", which is right for `bucket_list` and wrong for anything trip-shaped.
+- **Any new table shown on a shared profile needs a shared-read policy that uses those helpers**, stated explicitly, with no `TO` clause. Without one the table reads as empty on every shared profile; with a bare `is_shared(user_id)` it leaks rows the owner chose not to share. Add a check to `scripts/check-share-api.ts` for it.
+
 ## Key Patterns
 
 ### Geocoding Flow
@@ -396,8 +402,8 @@ Demo user: the UUID `703fbe07-db8a-41bd-bdee-928c2fa88107` is hardcoded in `lib/
 ### Public Share Flow
 
 1. User enables sharing and sets a slug in `/dashboard/settings` via `updateShareSettings` server action.
-2. The action validates the slug (length, format, reserved words, uniqueness via admin client), then upserts into `user_settings`.
-3. `/share/[slug]` calls `getUserBySlug(slug)` (anon client; RLS checks `public_share_enabled = true` or `is_demo = true`) to resolve the user ID.
+2. The action validates the slug (length, format, reserved words, uniqueness via admin client) and the trip scope (`past`, `current`, `all`), then upserts the slug, the sharing switch, `share_trip_scope` and `share_journal` into `user_settings` in one admin write.
+3. `/share/[slug]` calls `getUserBySlug(slug)`, which calls `batchport.resolve_share_slug()` (a user id only when `public_share_enabled` or `is_demo`), to resolve the user ID.
 4. `getSharedProfile(userId)` fetches stats, map data, and trips in parallel using the anon server client.
 5. `SharedProfileView` renders the same globe, stats, and trip list layout used by the authenticated dashboard.
 
@@ -1758,5 +1764,7 @@ Three check scripts are deliberately NOT in that list, because they break the pr
 - `npm run check-share-gate` **needs a running dev server and a seeded demo account.** It asserts that expenses reach `/demo` and never `/share/[slug]`, by fetching both pages and searching the rendered HTML. It exists for its NEGATIVE case: `/share/demo` resolves the demo account (`getUserBySlug` accepts `is_demo = true`), RLS permits anon to read that account's expenses, so the *only* thing refusing is that the share route calls `getSharedProfile(userId)` without the flag. A gate exercised only on the route that should pass is not tested. It carries a control (`/demo` must render spending, or the leak test passes trivially) and it verifies its own markers against every trip, city and experience name in the fixture before using them, because the first draft picked "Naschmarkt", which is also a Vienna experience. If it cannot reach the server it FAILS rather than skipping. Verify changes to it by deliberately breaking the gate and watching it fail.
 
 - `npm run check-places-anon` **needs a database but only reads.** It compares what the anon key and the service role see, view by view, on everything the public places surfaces read (the globe views, `v_places_summary`, and `place_visits` for the demo strip's captions, plus the `occasions` reference table), for every shared account and the demo account, after a positive control (anon can read the account's trips). See the Places feature block for why a missing policy is invisible to every other check.
+
+- `npm run check:share-api -- [slug] [--scope past|current|all] [--journal on|off]` **needs a database but only reads, as anon with no session.** It asserts that a shared profile exposes nothing outside the owner's chosen scope (no settings row, no trip outside the scope, no child of a hidden trip, no future place visit, no journal while off, no lists) and that the demo still resolves and returns trips. Re-run it after any change to a shared-read policy or the `batchport_private` helpers.
 
 Interactive features including the globe, photo lightbox, geocoding typeahead, and experience dialog require manual browser testing.

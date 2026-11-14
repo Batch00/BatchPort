@@ -11,6 +11,72 @@ mistake is more instructive than the fix.
 
 ---
 
+## A shared profile exposed more through the API than the page shows (PORT-4)
+
+**Found** 2026-11-14, in the Batch Apps audit (BatchPort M1).
+**Status** in progress. Stopgap and SQL part A applied 2026-11-14; the app
+code is on `fix/port-4-share-scope`; SQL part B waits for that code to be live.
+
+### What happened
+
+Every shared-read policy was `is_shared(user_id)`, which admits every row an
+account owns once sharing is on. Anybody holding the anon key (it ships in the
+app) could therefore read, for a shared profile:
+
+- **the whole `user_settings` row**, home location included, through
+  `user_settings_public`. This was the one exposure that was live, not
+  theoretical.
+- planned trips with their stops, dates, experiences, photos and legs
+- every journal entry, with no opt in
+- future place visits, and a place whose only visit is in the future
+- `lists` and `list_items`, which have no UI yet
+
+On 2026-11-14 the owner's data held no planned trip, journal entry or future
+visit, so only the settings row was actually leaking. The first planned trip
+added would have leaked.
+
+The audit first reported sharing as off because it probed `/share/carson`,
+which is not the slug. `/share/batch00` is public.
+
+### The fix
+
+- **Stopgap** (applied): anon lost every `user_settings` column except
+  `user_id`, `public_slug`, `public_share_enabled` and `is_demo`.
+- **Part A** (`scripts/sql/2026-11-14-port-4a-share-scope.sql`, applied,
+  additive): `share_trip_scope` (`past` default, `current`, `all`) and
+  `share_journal` (default off) on `user_settings`; helpers in
+  `batchport_private` that answer "is this row part of what the owner chose to
+  share"; `resolve_share_slug()` and `demo_user_id()`, definer functions that
+  return a user id and nothing else; and no browser INSERT, UPDATE or DELETE on
+  `user_settings` (audit L3: any account could set `is_demo` on itself).
+- **Code** (this branch): the share page and the demo resolve ids through the
+  two functions, Settings offers the trip scope and the journal switch, and
+  `npm run check:share-api` probes a shared profile as anon.
+- **Part B** (`scripts/sql/2026-11-14-port-4b-narrow-shared-read.sql`, not yet
+  applied): each shared-read policy calls the helpers, place visits are to
+  date only, lists are demo only, and `user_settings_public` is dropped.
+  Dropping it before the code is live breaks every share page.
+
+### Two traps worth keeping
+
+- **Hiding future visits alone pins future places.** `v_place_presence`
+  counts a visitless place as visited, so a place whose only visit is in the
+  future would look visitless to an anon reader and be pinned on the public
+  map. `place_is_public()` is definer so it can see the visits the caller
+  cannot.
+- **Notes stay public on shared rows, by decision.** RLS is per row. Notes on
+  a shared trip, stop, experience or visit are readable through the API, and
+  Settings says so.
+
+### Verify after part B
+
+`npm run check:share-api` (defaults: `batch00`, scope `past`, journal off)
+passes; `/share/batch00` renders signed out and signed in as a non-owner;
+`/demo` is unchanged. Before part B the settings check is expected to fail;
+the others fail only if the profile holds rows that part B would hide.
+
+---
+
 ## The expense entry row is four rows tall on a phone
 
 **Found** 2026-08-23, during the expenses visual pass.
