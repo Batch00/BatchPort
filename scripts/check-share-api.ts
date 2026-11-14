@@ -30,8 +30,9 @@
 //     which is also the control: a broken anon key would make every "nothing
 //     leaked" check above pass trivially
 //
-// Before part B is applied the settings, scope and lists checks are expected
-// to fail. That is the point of running it before and after.
+// Before part B is applied the settings check is expected to fail (anon still
+// reads user_id through user_settings_public), and the others fail only if the
+// profile holds rows that part B would hide. Run it before and after.
 //
 // "Today" is the UTC date, because the place_visits policy compares against
 // Postgres current_date, which is UTC on this project.
