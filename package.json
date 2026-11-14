@@ -42,6 +42,7 @@
     "check-place-groups": "npx tsx scripts/check-place-groups.ts",
     "check-places-stats": "npx tsx scripts/check-places-stats.ts",
     "check-places-anon": "npx tsx scripts/check-places-anon.ts",
+    "check:share-api": "npx tsx scripts/check-share-api.ts",
     "seed-places": "npx tsx scripts/seed-places.ts",
     "seed-demo-places": "npx tsx scripts/seed-demo-places.ts"
   },
