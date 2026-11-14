@@ -145,37 +145,32 @@ export interface SharedTripExpenses {
   }[];
 }
 
+// user_settings is readable only by its owner and the admin client (PORT-4).
+// The two lookups below go through definer functions in the batchport schema
+// that return a user id and nothing else. Both clients here are created with
+// db.schema "batchport", so .rpc() posts to /rpc/<fn> with Content-Profile:
+// batchport and resolves the functions in that schema.
+
 // Resolve a public slug to a user id, but only when that profile is actually
-// shared. Returns null for unknown or unshared slugs.
+// shared (or is the demo). Returns null for unknown or unshared slugs.
 export async function getUserBySlug(slug: string): Promise<string | null> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    // user-scoping-exempt: this read RESOLVES the owner. There is no user_id
-    // to filter by yet; the slug is the input and the user_id is the answer.
-    // RLS plus the public_share_enabled/is_demo predicate below is the gate.
-    .from("user_settings")
-    .select("user_id")
-    .eq("public_slug", slug)
-    .or("public_share_enabled.eq.true,is_demo.eq.true")
-    .maybeSingle();
-  if (error || !data) return null;
-  return (data.user_id as string) ?? null;
+  const { data, error } = await supabase.rpc("resolve_share_slug", {
+    p_slug: slug,
+  });
+  if (error || typeof data !== "string") return null;
+  return data;
 }
 
-// The demo user id from user_settings (is_demo = true), falling back to the
-// constant if the row is missing. An explicit client lets callers outside a
-// request context (the cached landing hero) read through the sessionless anon
-// client instead of the cookie-backed one.
+// The demo user id from demo_user_id(), falling back to the constant when it
+// returns null (no demo row, or more than one) or the call fails. An explicit
+// client lets callers outside a request context (the cached landing hero) read
+// through the sessionless anon client instead of the cookie-backed one.
 export async function getDemoUserId(client?: MapDataClient): Promise<string> {
   const supabase = client ?? (await createClient());
-  const { data } = await supabase
-    // user-scoping-exempt: resolves the demo account's id. Same reason as
-    // getUserBySlug above; is_demo is the filter and the id is the answer.
-    .from("user_settings")
-    .select("user_id")
-    .eq("is_demo", true)
-    .maybeSingle();
-  return (data?.user_id as string | undefined) ?? DEMO_USER_ID;
+  const { data, error } = await supabase.rpc("demo_user_id");
+  if (error || typeof data !== "string") return DEMO_USER_ID;
+  return data;
 }
 
 // Lightweight counts for share-page metadata.
