@@ -14,7 +14,6 @@ BatchPort is a personal travel tracker and installable PWA built on an interacti
 - **Charts:** Recharts 3.9.0
 - **Geocoding:** Photon (typeahead and POI), Nominatim (reverse)
 - **Photos:** Supabase Storage, Wikimedia Commons API (Wikidata P18 property)
-- **Email:** Resend
 
 **Session refresh:** `src/proxy.ts`, NOT `src/middleware.ts`. Next.js 16 renamed the middleware convention to "proxy". The per-request session refresh and route protection live in `src/proxy.ts`. A file named `src/middleware.ts` would be ignored.
 
@@ -27,7 +26,7 @@ These apply to every change, no exceptions:
 - Dark theme only. Use `bg-background`, `bg-[#0a0a0a]`, or dark-token classes. Never add white or light backgrounds.
 - All Supabase queries must scope to the batchport schema. The anon clients (client.ts and server.ts) are already configured with `db: { schema: "batchport" }`. The admin client (admin.ts) is NOT scoped, so every query chain from it must call `.schema("batchport")` explicitly.
 - Demo user is read-only. Call `isDemoBlocked()` at the top of every server action before any mutation. Components may also check `isDemoUser(user.id)` to hide edit affordances in the UI, but the action-layer guard is the authoritative block.
-- Mutations use server actions only. API routes handle external integrations (geocoding proxies, Wikimedia image proxy, auth approval flows, Resend email).
+- Mutations use server actions only. API routes handle external integrations (geocoding proxies, Wikimedia image proxy, weather, the offline snapshot).
 - Never insert or update `latitude` or `longitude` on destinations, or any generated column. Write only to `geom` using EWKT: `SRID=4326;POINT(${lng} ${lat})`. The same applies to experiences, which have an optional `geom` column for POI coordinates.
 
 ## Places feature
@@ -170,7 +169,6 @@ Use **server actions** for all mutations: trips, destinations, experiences, phot
 
 Use **API routes** for:
 - External service proxies that need custom headers or non-JSON responses (geocoding, Wikimedia image proxy)
-- Auth flows that must be reachable without a session or must return HTML (approve-access, deny-access, request-access)
 
 ### Supabase Client Setup
 
@@ -182,7 +180,7 @@ Four clients exist for four contexts:
 
 3. **`utils/supabase/public.ts`:** Sessionless anon client, scoped to batchport, built on `@supabase/supabase-js` so it reads no cookies. Because it touches no Request-time API, its reads can run inside a cache scope (`unstable_cache`), which the cookie-backed server client cannot. RLS applies exactly as it does for a signed-out visitor, so it reaches only `is_shared()` data. Returns null when the Supabase env vars are absent. Used by the landing hero; do not reach for the admin client to do this job.
 
-4. **`utils/supabase/admin.ts`:** Service-role client, uses `SUPABASE_SERVICE_ROLE_KEY`, bypasses RLS. NOT scoped to batchport schema. Every query must explicitly call `.schema("batchport")` on each query chain. Use only for privileged operations: inviting users, geocode_cache reads/writes, cover photo Storage cleanup, share settings uniqueness checks.
+4. **`utils/supabase/admin.ts`:** Service-role client, uses `SUPABASE_SERVICE_ROLE_KEY`, bypasses RLS. NOT scoped to batchport schema. Every query must explicitly call `.schema("batchport")` on each query chain. Use only for privileged operations: geocode_cache reads/writes, cover photo Storage cleanup, share settings uniqueness checks.
 
 ### RLS Pattern
 
@@ -390,12 +388,10 @@ The map is initialized once in a `useEffect` with a stable ref. Live data change
 
 ### Auth Flow
 
-1. User submits name, email, and optional referral to `POST /api/request-access`.
-2. Route validates the payload, signs an HMAC-SHA256 token over the email using `APPROVAL_SECRET`, and sends an HTML email to `BATCHPORT_ADMIN_EMAIL` via Resend with Approve and Deny links.
-3. Admin clicks Approve, hits `GET /api/approve-access?email=...&token=...`.
-4. Route verifies the HMAC token, calls `supabase.auth.admin.inviteUserByEmail(email, { redirectTo: APP_URL/auth/setup-password })`, and optionally sends a welcome email.
-5. User receives the Supabase invite email, clicks it, and lands on `/auth/setup-password` to set a password.
-6. After password setup, the PKCE exchange at `/auth/callback` creates the session and redirects to `/dashboard`.
+Access requests go only through the form on batch-apps.com, which reviews them and sends the Supabase invite. BatchPort has no request, approve, or deny routes of its own: every "Request access" affordance in the app (the landing page, /demo, the demo banner, the discovery panel's conversion link) is a plain link to batch-apps.com. Do not add an in-app request pipeline back.
+
+1. The user receives the Supabase invite email, clicks it, and lands on `/auth/setup-password` to set a password.
+2. After password setup, the PKCE exchange at `/auth/callback` creates the session and redirects to `/dashboard`.
 
 Demo user: the UUID `703fbe07-db8a-41bd-bdee-928c2fa88107` is hardcoded in `lib/constants.ts`. The `/demo` page fetches data for this user via `getDemoUserId()` without a session. When a real user signs in as the demo account, all server actions are blocked by `isDemoUser`.
 
@@ -1694,7 +1690,6 @@ no timezone chip. Nothing in the app prompts the user to set one.
 | Share settings read side | `src/lib/share-settings.ts` |
 | Geocoding cache and parsers | `src/lib/geocode.ts` |
 | Wikimedia P18 lookup and cache | `src/lib/wikimedia.ts` |
-| HMAC token utils | `src/lib/access-token.ts` |
 | Trip server actions | `src/lib/actions/trips.ts` |
 | Destination server actions | `src/lib/actions/destinations.ts` |
 | Experience server actions | `src/lib/actions/experiences.ts` |

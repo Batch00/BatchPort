@@ -93,9 +93,7 @@ The floating control cluster is ranked by how often a control is actually reache
 
 ### Auth and Invite Pipeline
 
-- Invite-only: access requests submitted via POST /api/request-access (name, email, optional referral), emailed to the admin via Resend
-- Admin receives an approval email with signed Approve and Deny links (HMAC-SHA256 tokens, secret from APPROVAL_SECRET)
-- Approve link calls GET /api/approve-access, verifies the HMAC token, invites the user via Supabase admin.inviteUserByEmail, and optionally sends a welcome email via Resend
+- Invite-only: access requests go through the form on batch-apps.com, which handles review and sends the Supabase invite. BatchPort has no request, approve, or deny routes of its own; every "Request access" affordance in the app links to batch-apps.com
 - User sets their password at /auth/setup-password after accepting the Supabase invite
 - PKCE code exchange at /auth/callback
 - Demo user: a hardcoded user ID (in constants.ts), readable at /demo sessionlessly and also accessible as a logged-in read-only account; all mutations are blocked for this ID
@@ -288,7 +286,6 @@ BatchPort works with no connection, which is when a travel app matters most: abr
 | Charts | Recharts 3.9.0 |
 | Geocoding | Photon (typeahead and POI), Nominatim (reverse), GeoNames countries.geojson (bundled) |
 | Photos | Supabase Storage (batchport bucket), Wikimedia Commons API (Wikidata P18 property) |
-| Email | Resend |
 | Offline | Service worker (Cache Storage), IndexedDB snapshot and write queue |
 | Hosting | Vercel |
 
@@ -355,10 +352,7 @@ Set these in `.env.local` (gitignored; never commit this file). See `.env.local.
 | `NEXT_PUBLIC_APP_URL` | public | Canonical app URL for auth redirects and absolute links (e.g. https://batchport.batch-apps.com) |
 | `NEXT_PUBLIC_PMTILES_URL` | public | Base URL for the PMTiles dark basemap; leave empty to use the bundled dark style |
 | `NEXT_PUBLIC_MAPTILER_KEY` | public | MapTiler API key (free tier) enabling the detailed basemap styles (streets, satellite, terrain) in the globe style switcher; leave empty to ship only the keyless dark default |
-| `SUPABASE_SERVICE_ROLE_KEY` | server only | Privileged Supabase access for admin operations (invites, geocode_cache writes, Storage cleanup) |
-| `RESEND_API_KEY` | server only | Resend API key for transactional email |
-| `BATCHPORT_ADMIN_EMAIL` | server only | Email address that receives access request notifications |
-| `APPROVAL_SECRET` | server only | 32-byte hex secret for signing HMAC approval/deny tokens (generate with: openssl rand -hex 32) |
+| `SUPABASE_SERVICE_ROLE_KEY` | server only | Privileged Supabase access for admin operations (geocode_cache writes, Storage cleanup) |
 | `NOMINATIM_USER_AGENT` | server only | Contact string sent as User-Agent to Nominatim and Wikimedia APIs (e.g. BatchPort/1.0 (you@example.com)) |
 
 The app shell still renders when `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are absent; the session refresh in `src/proxy.ts` is skipped and the app stays signed out.
@@ -460,9 +454,6 @@ src/
     demo/page.tsx                Sessionless public demo (SharedProfileView)
     share/[slug]/page.tsx        Public share profile with OG/Twitter metadata
     api/
-      approve-access/route.ts    HMAC-verified invite trigger (GET)
-      deny-access/route.ts       HMAC-verified denial email (GET)
-      request-access/route.ts    Access request handler: validates input, emails admin (POST)
       geocode/
         search/route.ts          Photon typeahead proxy with geocode_cache
         lookup/route.ts          Nominatim reverse lookup proxy with geocode_cache
@@ -618,7 +609,6 @@ src/
     transport-data.ts            Transport server reads and the distance-by-mode breakdown
     geocode.ts                   Geocoding cache helpers: readCache, writeCache, parsePhoton, parseNominatim
     wikimedia.ts                 Wikimedia P18 lookup: getWikimediaPhoto() with 90-day cache
-    access-token.ts              HMAC-SHA256 token generation and verification for invite links
     poster/
       projection.ts              Robinson and orthographic projections, path clipping (pure)
       countries.ts               Country outline loader, cached per page

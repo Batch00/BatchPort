@@ -14,9 +14,6 @@ const PUBLIC_ROUTES = [
   "/",
   "/auth/callback",
   "/auth/setup-password",
-  "/api/request-access",
-  "/api/approve-access",
-  "/api/deny-access",
   "/demo",
   // The offline shell. It has to be reachable with no session because the
   // service worker precaches it and serves it when a navigation fails: a

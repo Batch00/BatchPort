@@ -1,7 +1,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
 // Service-role Supabase client for privileged server-side operations such as
-// inviting users. Built with @supabase/supabase-js (NOT @supabase/ssr) because
+// geocode_cache writes and Storage cleanup. Built with @supabase/supabase-js (NOT @supabase/ssr) because
 // it never touches request cookies and must not persist a session.
 //
 // SERVER ONLY. Never import this from a client component: it carries the
